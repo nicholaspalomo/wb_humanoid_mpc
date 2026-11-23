@@ -52,13 +52,13 @@ namespace ocs2::legged {
  * The FsmBridge of the simulated robot (the `sim` supervisor of
  * RobotSupervisorRegistry): the FSM commands switch the simulator's torques and
  * move its virtual gantry, the gantry follows the GUI's height slider while it
- * is locked, and a dodgeball throw from the GUI is handed to the simulator.
+ * is locked, and a dodgeball throw from the GUI is passed to the simulator.
  *
  * The FSM commands: ZERO_TORQUE (or DISABLE_TORQUES) switches the torques off;
  * JOINT_PD, GRAVITY_COMP, WB_MPC (or MPC_ACTIVE, ENABLE_TORQUES) and SAFETY
  * switch them on and enter the mode; LOCK_GANTRY and UNLOCK_GANTRY move the
- * virtual gantry. The fall recovery - catching a fallen robot, noticing the
- * simulator's own resets, settling the caught robot - is SimFallRecovery. Every
+ * virtual gantry. The fall recovery (catching a fallen robot, noticing the
+ * simulator's own resets, settling the caught robot) is SimFallRecovery. Every
  * call is for the realtime thread.
  */
 class SimFsmBridge final : public FsmBridge {
@@ -87,7 +87,7 @@ class SimFsmBridge final : public FsmBridge {
   }
 
   /**
-   * Hands the newest dodgeball throw to the simulator, then processes the
+   * Passes the newest dodgeball throw to the simulator, then processes the
    * oldest FSM command, if any, applies its mode and gantry changes to the
    * simulator and publishes the updated state. Without a command, the gantry
    * follows the height slider while it is locked.

@@ -136,10 +136,10 @@ namespace ocs2::legged::ipc {
  * and changes nothing.
  *
  * LIFETIME. Create() registers the subscriptions and the periodic callback on a
- * bus that is not running yet; the caller starts it. The callbacks hold the
- * link only through a guard that the destructor clears, so a bus that outlives
- * the link calls nothing of it afterwards. The overload that takes BusOptions
- * creates, starts and owns its bus.
+ * bus that is not running yet; the caller starts it. The callbacks reference
+ * the link only through a guard that the destructor clears, so a bus that
+ * outlives the link calls nothing of it afterwards. The overload that takes
+ * BusOptions creates, starts and owns its bus.
  */
 class RemoteMpcLink final : public MRT_BASE {
  public:
@@ -330,10 +330,10 @@ class RemoteMpcLink final : public MRT_BASE {
    * solve counts the ones to compare with: newestPolicySolveCount_ starts over.
    */
   void observeServerInstance(uint64_t serverInstance);
-  /** Checks the policy timeout and the horizon, and hands the combined health
+  /** Checks the policy timeout and the horizon, and passes the combined health
    * to the supervisor. */
   void updateHealth();
-  /** Hands the deadline of the policy that may be in use (deadlineInitTime(),
+  /** Passes the deadline of the policy that may be in use (deadlineInitTime(),
    * deadlineFinalTime()) to the watchdog. */
   void publishPolicyDeadline();
   /**
@@ -349,7 +349,7 @@ class RemoteMpcLink final : public MRT_BASE {
    */
   scalar_t deadlineInitTime() const;
   scalar_t deadlineFinalTime() const;
-  /** Hands the annotations of the policy just accepted to the consumer of
+  /** Passes the annotations of the policy just accepted to the consumer of
    * takeAnnotations(). */
   void publishAnnotations(const legged_mpc_msgs::ViewerAnnotations& message);
   void publishStatistics();
@@ -373,7 +373,7 @@ class RemoteMpcLink final : public MRT_BASE {
   // first.
   std::atomic<scalar_t> policyDeadline_;
   bool policyExpired_ =
-      false;  // realtime thread: the verdict last handed to the supervisor
+      false;  // realtime thread: the verdict last passed to the supervisor
 
   // ---- IO thread.
   legged_mpc_msgs::MpcObservation observationMessage_;
@@ -400,7 +400,7 @@ class RemoteMpcLink final : public MRT_BASE {
     scalar_t finalTime = 0.0;
   };
   // An older policy than the newest one that the controller may still be
-  // executing: the last one the buffer is known to have handed over. nullopt
+  // executing: the last one the buffer is known to have passed. nullopt
   // before the first swap is known. A policy dropped from the buffer before its
   // swap (a reset, a failed solve) leaves it in force, so the watchdog keeps
   // following the plan that runs, not the one that never did.

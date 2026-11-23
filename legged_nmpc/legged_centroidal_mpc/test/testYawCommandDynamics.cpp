@@ -102,7 +102,7 @@ constexpr Eigen::Index kBaseYawRateIndex = 5;
  * Tests the physical momentum of the velocity command mapping used by the DRC
  * Atlas walking command path.
  *
- * The centroidal state carries the normalized momentum h = [p / m, L / m]. A
+ * The centroidal state stores the normalized momentum h = [p / m, L / m]. A
  * commanded base twist must land in it as the momentum that twist actually
  * produces on the whole body, or the MPC is asked for a different motion than
  * the one the operator commanded. Every expectation below is computed
@@ -487,8 +487,8 @@ TEST_F(YawCommandDynamicsTest,
 }
 
 /**
- * The yaw rate command handed to the planner is the operator's, read off the
- * momentum channel of the calculator's target where the command is carried as
+ * The yaw rate command passed to the planner is the operator's, read off the
+ * momentum channel of the calculator's target where the command is stored as
  * h_z = I_zz omega / m. The target's base yaw cannot serve as the source: its
  * first stretch integrates the average of the measured and the commanded yaw
  * rate, so a robot at rest commanded 0.5 rad/s was planned at 0.25 rad/s, and a

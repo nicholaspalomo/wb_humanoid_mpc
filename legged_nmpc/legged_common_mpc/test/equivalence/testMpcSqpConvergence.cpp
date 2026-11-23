@@ -70,22 +70,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * costTol with the constraint violation below g_min) or PRIMAL (the step below
  * deltaTol). Measured: Unitree G1 at iteration 17, Unitree R1 at 24, EngineAI
  * SA01 at 40 (it drifts along the yaw no cost weighs before it settles). (C2)
- * In real time, as the MPC runs it - one iteration per solve, each solve one
+ * In real time, as the MPC runs it (one iteration per solve, each solve one
  * node after the last, from the last plan's state there and warm-started from
- * that plan by the solver itself (realTimeSolves()), from the iterate of (C1) -
- * every solve of the second half (after the first kRealTimeSolves / 2 have left
- * the iterate of (C1)) takes the full step (EngineAI SA01 refuses one full step
- * in the first half, at t = 0.12 s, above g_max), the violation it leaves stays
- * below g_max in most solves, and the hard swing-foot normal-velocity rows stay
- * held (the median of their largest residual below kHeldSwingResidual, in the
- * rows' units: heldSwingResidualOf()). The warm start is the last plan, node
- * for node (trajectorySpread() keeps an unchanged schedule's plan,
- * lib/ocs2/README.md; a post-event state starts as its pre-event state, the
- *        identity jump), but for the newly initialized end of the horizon,
- * whose violation each shift adds (baselines of 0.004 to 0.13 in the second
- * half, a median of 0.08, on the converging configurations) and the step
- * removes (a median of 3.6e-3 to 3.9e-3 left, at most 2.3e-2; swing residuals
- * with a median of 0.0092 to 0.029 m/s, at most 0.13).
+ * that plan by the solver itself in realTimeSolves(), starting from the
+ * iterate of (C1)), every solve of the second half (after the first
+ * kRealTimeSolves / 2 have left the iterate of (C1)) takes the full step
+ * (EngineAI SA01 refuses one full step in the first half, at t = 0.12 s, above
+ * g_max), the violation it leaves stays below g_max in most solves, and the
+ * hard swing-foot normal-velocity rows stay held (the median of their largest
+ * residual below kHeldSwingResidual, in the rows' units:
+ * heldSwingResidualOf()). The warm start is the last plan, node for node
+ * (trajectorySpread() keeps an unchanged schedule's plan, lib/ocs2/README.md; a
+ * post-event state starts as its pre-event state, the identity jump), but for
+ * the newly initialized end of the horizon, whose violation each shift adds
+ * (baselines of 0.004 to 0.13 in the second half, a median of 0.08, on the
+ * converging configurations) and the step removes (a median of 3.6e-3 to 3.9e-3
+ * left, at most 2.3e-2; swing residuals with a median of 0.0092 to 0.029 m/s,
+ * at most 0.13).
  *
  * KNOWN DEFECT (design README section 6, risk 12) on DRC Atlas and on the
  * Unitree G1 whole-body MPC (kCyclingConfigurations): the Gauss-Newton SQP does
@@ -116,7 +117,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * above g_max (a median of 0.55, at least 0.12), the full steps that would
  * raise it are refused (6 of 20), and the swing rows are not held (a median
  * residual of 2.3 m/s^2, at most 12.6). Before the warm start was fixed
- * (trajectorySpread() handed each post-event interval the next node's input)
+ * (trajectorySpread() gave each post-event interval the next node's input)
  * neither held its swing rows in real time: every full step was taken above
  * g_max and the violation climbed to a plateau, with a median of 0.12 on Atlas
  * (a swing residual of 0.59 m/s) and 2.9 on the G1 whole body (8.3 m/s^2). When
@@ -413,9 +414,9 @@ scalar_t largestFirstStepAngle(const MpcEquivalenceFixture& mpc,
  * Why second order. Both runs solve one problem: the fixture copies the MPC's
  * problem and replaces only its state manifold, and no term reads the manifold,
  * so every residual, the foot tilt and orientation residuals included, is the
- * same function of the state on both. Where the shooting gaps carry no rotation
+ * same function of the state on both. Where the shooting gaps have no rotation
  * the two QPs are one (testMpcSqpStepEquivalence (S1), to 1e-10); the resting
- * warm start's gaps carry b = 3.9e-5 rad, whose first-order effect (S2) is not
+ * warm start's gaps have b = 3.9e-5 rad, whose first-order effect (S2) is not
  * measurable here: from the torque-free warm start (b = 5e-19) the merits
  * differ by the same amounts to three digits (4.35e-5 against 4.39e-5 at
  * iteration 0, 1.25e-4 at iteration 1). What separates the runs from the first

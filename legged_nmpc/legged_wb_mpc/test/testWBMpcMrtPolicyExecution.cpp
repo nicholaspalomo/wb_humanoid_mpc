@@ -81,9 +81,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * What the whole-body MRT joint controller does in WB_MPC with the policy in
  * use, on the quaternion layout:
  *
- *   - a policy its realtime evaluator refuses - a LinearController, whose gains
+ *   - a policy its realtime evaluator refuses (a LinearController, whose gains
  * would act on the stored quaternion rather than on its tangent, or a
- * ManifoldLinearController with ambient gains - is never handed to
+ * ManifoldLinearController with ambient gains) is never passed to
  *     MRT_BASE::evaluatePolicy() (which allocates on this thread, logs, and
  * aborts on the malformed one): the robot is held with the hold's action, the
  * cycle allocates exactly what the hold's does, and one kPolicyRefused event
@@ -384,7 +384,7 @@ TEST_F(
       quaternion_t measQuatBaseRtWorld;
       measQuatBaseRtWorld.coeffs() = sign * quatBaseRtWorld.coeffs();
       state_->setQuatBaseRtWorld(measQuatBaseRtWorld);
-      // The policy's own anchors carry the plan's sign; the measured
+      // The policy's own anchors have the plan's sign; the measured
       // quaternion's sign is the one that changes.
       link_->deliver(policyOf(std::make_unique<ManifoldLinearController>(
                                   times, vector_array_t{anchor, anchor},
@@ -418,7 +418,7 @@ TEST_F(
     ASSERT_EQ(actions[2].size(), actions[0].size());
     // The same rotation: the action at -xi is the action at xi to round-off,
     // and so is the first sign's again, which shows that the time-dependent
-    // parts had settled (units in the last place were measured in the
+    // parts had stabilized (units in the last place were measured in the
     // feedforward: the plan state is interpolated at another time between its
     // two equal anchors).
     for (size_t i = 0; i < actions[0].size(); ++i) {
@@ -432,10 +432,10 @@ TEST_F(
   }
 }
 
-// The joints outside the MPC hold one target in every mode that holds them -
-// JOINT_PD, the hold of WB_MPC, the execution of a policy and GRAVITY_COMP: the
-// nominal posture. WB_MPC used to send them to 0, so that the hand-over from
-// JOINT_PD swung them from the nominal posture to the zero posture in one
+// The joints outside the MPC hold one target in every mode that holds them
+// (JOINT_PD, the hold of WB_MPC, the execution of a policy and GRAVITY_COMP):
+// the nominal posture. WB_MPC used to send them to 0, so that the hand-over
+// from JOINT_PD swung them from the nominal posture to the zero posture in one
 // cycle.
 TEST_F(PolicyExecution,
        TheJointsOutsideTheMpcHoldTheNominalPostureAcrossEveryHandOver) {

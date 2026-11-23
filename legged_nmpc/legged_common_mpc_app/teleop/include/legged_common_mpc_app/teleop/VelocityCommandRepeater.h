@@ -123,7 +123,7 @@ class VelocityCommandRepeater {
   bool publishStopCommand(absl::Duration timeout = kStopCommandSendTimeout,
                           absl::Duration gracePeriod = kStopCommandGracePeriod);
 
-  /** Messages handed to the bus so far. Thread-safe. */
+  /** Messages published to the bus so far. Thread-safe. */
   uint64_t published() const { return state_->published.load(); }
 
   /** Times the command limits were read again from a changed reference file.
@@ -164,8 +164,8 @@ class VelocityCommandRepeater {
    * thread only. */
   static void reloadLimitsIfChanged(State& state);
 
-  // Shared with the bus's periodic callback, which holds its own reference: the
-  // bus has no way to remove a periodic callback, so the state lives as long as
+  // Shared with the bus's periodic callback, which keeps its own reference: the
+  // bus has no way to remove a periodic callback, so the state persists until
   // the later of the repeater and the bus.
   std::shared_ptr<State> state_;
 };

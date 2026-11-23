@@ -315,7 +315,7 @@ void MpcParameterUpdaterModule::applyChangedFiles() {
                  << file.status().message();
     }
   }
-  // The command limits and ramps live in the reference file, which nothing else
+  // The command limits and ramps are in the reference file, which nothing else
   // watches: without this a change to it needed a restart of the controller
   // (the Command Limits tab of the remote control writes exactly this file).
   if (referenceFileReloaders_.empty()) return;

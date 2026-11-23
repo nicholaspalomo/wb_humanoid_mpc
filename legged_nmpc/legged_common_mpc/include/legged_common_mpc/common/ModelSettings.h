@@ -83,17 +83,17 @@ class ModelSettings {
      *
      * The residual is the same row the hard constraint imposed,
      *     r = v_z - zdot_ref(t) - positionErrorGain_z * (z_ref(t) - z),
-     * so this one weight buys the swing-foot vertical servo as a cost. That
-     * matters because the two channels the hard row combined are otherwise
+     * so this one weight buys the swing-foot vertical servo as a cost. This is
+     * needed because the two channels the hard row combined are otherwise
      * split across task_space_foot_cost.weights.pos_z and .linvel_z,
      * which are faded differently (only the velocity rows of the foot cost are
      * scaled by the impact-proximity factor) and so cannot reproduce the servo
      * at any pair of values.
      *
-     * Sizing: the residual is a velocity in m/s and is essentially affine in
-     * the input, because the joint velocities ARE inputs of the centroidal
-     * model - so a large Gauss-Newton weight here is well conditioned. A foot
-     * stuck on the ground at mid-swing has r = -positionErrorGain_z *
+     * Sizing: the residual is a velocity in m/s and is affine in the input,
+     * because the joint velocities ARE inputs of the centroidal model, so a
+     * large Gauss-Newton weight here is well conditioned. A foot stuck on the
+     * ground at mid-swing has r = -positionErrorGain_z *
      * apexPosFootRtSwingendEwrtWorldZ = -0.16 m/s, and the term must outbid the
      * leg-joint regularization that holds the swing leg in its standing crouch.
      * Sweep it; the shipped value is a starting point, not a tuned one.
@@ -189,9 +189,9 @@ class ModelSettings {
     static constexpr scalar_t kDefaultPenetrationWeight = 5.0e4;
     static constexpr scalar_t kDefaultGapSmoothing = 1.0e-3;  // [m]
 
-    // Both residuals are normalized before they are penalized - (f_n / f_ref)(h
-    // / h_ref) and (f_n / f_ref)(v / v_ref) - so these two weights are
-    // dimensionless and comparable with each other - but NOT with
+    // Both residuals are normalized before they are penalized, as
+    // (f_n / f_ref)(h / h_ref) and (f_n / f_ref)(v / v_ref), so these two
+    // weights are dimensionless and comparable with each other, but NOT with
     // task_space_foot_cost, whose residuals are in meters
     // (legged_nmpc/docs/contact_implicit_mpc/README.md, section 4: pos_z is
     // priced at 0.5 * pos_z * scalePosContactRtSurfaceEwrtWorldZ^2 against 0.5
@@ -225,13 +225,13 @@ class ModelSettings {
      * This used to be a relaxed log barrier, which is the wrong object for a
      * unilateral condition whose solution lies ON the boundary. A log barrier
      * never reaches zero: with the values that shipped here (mu = 0.1, delta =
-     * 0.01) its derivative below delta is mu*(h - 2*delta)/delta^2 - -20 at h =
-     * 0, and upward at every height - so every foot was pushed off the ground
+     * 0.01) its derivative below delta is mu*(h - 2*delta)/delta^2 (-20 at h =
+     * 0, and upward at every height), so every foot was pushed off the ground
      * and the only term pulling it back was the complementarity penalty, whose
      * gradient in h is `complementarityWeight * (f_n/f_ref)^2 * h /
      * scalePosContactRtSurfaceEwrtWorldZ^2`. Balancing the two put a fully
-     * loaded foot 2.3 mm above the ground and a foot at half body weight - i.e.
-     * BOTH feet, throughout double support - 6.8 mm above it (h = (2*mu/delta)
+     * loaded foot 2.3 mm above the ground and a foot at half body weight (i.e.
+     * BOTH feet, throughout double support) 6.8 mm above it (h = (2*mu/delta)
      * / (C*f^2 + mu/delta^2), C = complementarityWeight /
      * scalePosContactRtSurfaceEwrtWorldZ^2), with a permanent complementarity
      * residual that no weight could tune away. The hinge is zero in value and
@@ -240,8 +240,8 @@ class ModelSettings {
      */
     scalar_t penetrationWeight = kDefaultPenetrationWeight;
     /**
-     * [m] The length scale over which the gap - the height of the lowest point
-     * of the footprint - is smoothed.
+     * [m] The length scale over which the gap (the height of the lowest point
+     * of the footprint) is smoothed.
      *
      * The complementarity term measures the gap at the FOOTPRINT CORNERS, the
      * same points the penetration hinge uses, because a foot rocked onto its
@@ -250,12 +250,12 @@ class ModelSettings {
      * flat foot, which is where the robot spends most of its stance, so
      * smoothMinimumHeight() blends it over this scale. The bound it returns
      * never falls below the true minimum and exceeds it by `gapSmoothing *
-     * log(4 / k)` where k is how many corners sit at the minimum: zero for a
+     * log(4 / k)` where k is how many corners are at the minimum: zero for a
      * flat foot, 0.69 mm for an edge down (the ordinary heel strike), and 1.39
      * mm in the worst case of a single corner. Against the penetration hinge
      * those settle at about 0.05 mm and 0.19 mm of equilibrium penetration
      * under full body weight (the bias attenuated by C / (C + k *
-     * penetrationWeight), k the corners that are down) - the price of a
+     * penetrationWeight), k the corners that are down), the price of a
      * residual the SQP solver can linearize consistently.
      */
     scalar_t gapSmoothing = kDefaultGapSmoothing;
@@ -287,8 +287,8 @@ class ModelSettings {
    * Every field of the `contact_implicit` block: the one list that
    * validateContactImplicitConfig() checks the block against and
    * MpcParameterUpdaterModule hot-reloads it from, so that the two cannot read
-   * different fields. ModelSettings.cpp holds the list and static_asserts that
-   * it names every field of ContactImplicitConfig.
+   * different fields. ModelSettings.cpp defines the list and static_asserts
+   * that it includes every field of ContactImplicitConfig.
    */
   static absl::Span<const ContactImplicitKey> contactImplicitKeys();
 
@@ -298,7 +298,7 @@ class ModelSettings {
    * folder. The path form of a root of the MPC's configuration.
    *
    * @return loadTaskFile()'s error for a file that cannot be read or does not
-   * parse (InvalidArgument naming the file, line and column), and the typed
+   * parse (InvalidArgument reporting the file, line and column), and the typed
    * Create()'s errors, prefixed with the file.
    */
   static absl::StatusOr<ModelSettings> Create(absl::string_view configFile,
@@ -314,11 +314,11 @@ class ModelSettings {
    * Defined in legged_common_mpc/config/model/ModelSettingsFromConfig.cpp,
    * with the other conversions of the typed task file's model and formulation.
    *
-   * @return InvalidArgument naming the URDF when it cannot be read, when every
-   * joint of the URDF is fixed, naming model_settings.arm_joint_names when
-   * it names a joint that is not an active MPC joint, or naming
-   * model_settings.legs[i] (or the default biped legs) and what is wrong with
-   * the leg.
+   * @return InvalidArgument identifying the URDF when it cannot be read, when
+   * every joint of the URDF is fixed, identifying
+   * model_settings.arm_joint_names when it lists a joint that is not an active
+   * MPC joint, or identifying model_settings.legs[i] (or the default biped
+   * legs) and what is wrong with the leg.
    */
   static absl::StatusOr<ModelSettings> Create(
       const mpc_config::TaskFile& taskFile,
@@ -358,7 +358,7 @@ class ModelSettings {
   /**
    * What a contact is, which decides the point its force acts at and the
    * constraint that holds it in stance. The task file selects it by the list
-   * that names the contact (model_settings.contacts_3dof, contacts_rolling,
+   * that contains the contact (model_settings.contacts_3dof, contacts_rolling,
    * contact_names_6dof).
    */
   enum class ContactKind {
@@ -495,7 +495,7 @@ class ModelSettings {
    *
    * The side and the front/hind position are derived from the hip's position,
    * never typed. An empty hipFrameName means the hip is unknown: only a default
-   * biped leg whose foot names no parent joint of the URDF has none, and it
+   * biped leg whose foot has no parent joint in the URDF has none, and it
    * then has posHipRtBaseEwrtBase zero, the side of its index (left +1, right
    * -1) and kCenter.
    */
@@ -541,7 +541,7 @@ class ModelSettings {
   bool hasBipedStance() const;
 
   // The formulation choices are not flags here. Each is selected by name, and
-  // read - and refused, with a message that names the key to change - by the
+  // read (and refused with a message identifying the key to change) by the
   // interface that builds the problem, where a Status can be returned:
   //  - the contact input parameterization is the top-level field
   //  `contact_input_parameterization`

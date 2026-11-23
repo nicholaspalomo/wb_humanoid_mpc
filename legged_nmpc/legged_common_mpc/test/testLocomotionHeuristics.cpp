@@ -211,7 +211,7 @@ TEST(LocomotionHeuristics, DuplicateNameIsRejectedBecauseTheOffsetsAreSummed) {
  * ==========================================*/
 
 TEST(LocomotionHeuristics, EmptyListsAreAnExactNoOp) {
-  // The safety property the whole subsystem rests on and the reason every robot
+  // The safety property the subsystem rests on and the reason every robot
   // can ship with the block present.
   const LocomotionHeuristicConfig config;
   ASSERT_TRUE(config.validate().ok());

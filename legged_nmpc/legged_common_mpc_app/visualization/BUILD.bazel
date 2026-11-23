@@ -113,7 +113,7 @@ _ROBOT_DATA = [
 ]
 
 # A robot's MPC model in each formulation, and synthetic observations, policies and robot/state samples for it. It
-# carries the shipped configurations it loads (shippedConfigurations()), so a test that depends on it has their files.
+# includes the shipped configurations it loads (shippedConfigurations()), so a test that depends on it has their files.
 cc_library(
     name = "test_robot",
     testonly = True,
@@ -291,7 +291,7 @@ cc_test(
     ],
 )
 
-# Publishes the G1's scene and telemetry from synthetic data on the network file the test hands it (printing "READY"),
+# Publishes the G1's scene and telemetry from synthetic data on the network file the test passes it (printing "READY"),
 # for :test_end_to_end.
 cc_binary(
     name = "visualization_publisher_driver",

@@ -27,7 +27,7 @@
 
 """Decodes bus payloads by their full protobuf type name and prints them as protobuf text format or JSON.
 
-The envelope of every bus message names its type (`legged_mpc_msgs.MpcPolicy`), so a payload decodes without a
+The envelope of every bus message specifies its type (`legged_mpc_msgs.MpcPolicy`), so a payload decodes without a
 topic registry: once every generated module of the message packages is imported, the default descriptor pool knows
 every type, and the message factory builds the class from the descriptor.
 """
@@ -56,11 +56,11 @@ GENERATED_MODULE_SUFFIX = "_pb2"
 
 
 class UnknownMessageTypeError(LookupError):
-    """The default descriptor pool has no message of the type name a bus message carries."""
+    """The default descriptor pool has no message of the type name a bus message has."""
 
 
 class FieldPathError(ValueError):
-    """A --fields path names no field of the message."""
+    """A --fields path matches no field of the message."""
 
 
 def import_message_modules(
@@ -217,7 +217,7 @@ class _ResolvedPath(NamedTuple):
     field: descriptor.FieldDescriptor
     # The path ends at a repeated or map field itself rather than at one of its elements.
     ends_at_container: bool
-    # The message that holds the last field of the path; it says whether that field is set.
+    # The message that contains the last field of the path; it says whether that field is set.
     parent: message.Message
 
 
@@ -270,7 +270,7 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
 
     if (
         field is None
-    ):  # Unreachable: the checks above make the first component name a field.
+    ):  # Unreachable: the checks above make the first component reference a field.
         raise FieldPathError(f"'{path}' names no field")
     return _ResolvedPath(
         steps, current, field, indexable or _is_map(field), parent
@@ -280,7 +280,7 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
 def select_field(msg: message.Message, path: str) -> Any:
     """The value at a dotted field path, as plain Python.
 
-    Components name fields; a component after a repeated field is an index (negative counts from the end), so
+    Components specify fields; a component after a repeated field is an index (negative counts from the end), so
     `state_trajectory.0.data` is the first state of a policy and `solver_status.healthy` a nested scalar.
 
     Args:
@@ -291,7 +291,7 @@ def select_field(msg: message.Message, path: str) -> Any:
         The value as plain Python; None for a field that tracks presence and is not set.
 
     Raises:
-        FieldPathError: The path names no field of the message.
+        FieldPathError: The path matches no field of the message.
     """
     resolved = _resolve_path(msg, path)
     if resolved.ends_at_container:
@@ -321,7 +321,7 @@ def selection_of(msg: message.Message, paths: Sequence[str]) -> Selection:
       The field names and indices to print, nested as the paths are; None when there are no paths.
 
     Raises:
-      FieldPathError: A path names no field of the message.
+      FieldPathError: A path matches no field of the message.
     """
     if not paths:
         return None
@@ -444,13 +444,13 @@ def message_to_text(msg: message.Message, selection: Selection = None) -> str:
 
     Unlike text_format.MessageToString, fields at their default value are printed too (`healthy: false`, `data: []`,
     an unset submessage as its defaults), so that a zero or a false reads as such rather than as a missing line.
-    Repeated scalars are printed as one list, `data: [0.0, 0.5]`. A field that tracks presence and is not set - a
-    member of a oneof, a proto3 `optional` field, an edition-2023 field - is a comment, `# kp: not set`. The text parses
+    Repeated scalars are printed as one list, `data: [0.0, 0.5]`. A field that tracks presence and is not set (a
+    member of a oneof, a proto3 `optional` field, an edition-2023 field) is a comment, `# kp: not set`. The text parses
     back with text_format.Parse into a message of equal values; only the presence of the unset submessages of proto3
     messages differs.
 
     With a selection (selection_of), only the selected fields are printed, so that the text is still a textproto of
-    the message's type; a repeated field of which only some elements are selected carries a comment with their
+    the message's type; a repeated field of which only some elements are selected has a comment with their
     indices.
 
     Args:
@@ -499,7 +499,7 @@ def format_fields(
       The printed message.
 
     Raises:
-      FieldPathError: A path names no field of the message.
+      FieldPathError: A path matches no field of the message.
       ValueError: `output_format` is not a name of OUTPUT_FORMATS.
     """
     if output_format not in OUTPUT_FORMATS:

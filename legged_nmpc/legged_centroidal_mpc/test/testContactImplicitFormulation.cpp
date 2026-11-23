@@ -79,7 +79,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged {
 namespace {
 
-/** Whether `collection` carries a term named `name`. */
+/** Whether `collection` contains a term named `name`. */
 template <typename Term>
 bool hasTerm(const Collection<Term>& collection, absl::string_view name) {
   size_t index = 0;
@@ -93,7 +93,7 @@ bool hasTerm(const Collection<Term>& collection, absl::string_view name) {
  * It ships DISABLED (the task file lists zero_wrench / zero_velocity /
  * normal_velocity and comments the three contact-implicit terms out), which is
  * correct - it changes the closed loop and has not been validated in
- * simulation. But it also meant the entire assembly path had NO coverage
+ * simulation. But it also meant the assembly path had NO coverage
  * whatsoever: the one test that checked these terms, a hot-reload test of
  * MpcParameterUpdaterModule, called GTEST_SKIP() because they were not in the
  * shipped configuration. That is how every one of the defects this file now
@@ -169,7 +169,7 @@ class ContactImplicitFormulationTest : public ::testing::Test {
   static constexpr scalar_t kTestNormalVelocityWeight = 437.25;
 
   /**
-   * The whole formulation switched on: no schedule-gated hard constraints; the
+   * The full formulation switched on: no schedule-gated hard constraints; the
    * three contact-implicit terms and the soft normal_velocity in, the latter at
    * kTestNormalVelocityWeight; the ground at kTestPosSurfaceRtWorldEwrtWorldZ.
    */
@@ -194,7 +194,7 @@ TEST_F(
     ContactImplicitFormulationTest,
     theHardNormalVelocityConstraintIsRefusedAlongsideTheContactImplicitTerms) {
   // normal_velocity is a HARD equality on the swing foot's vertical velocity,
-  // so it fixes the entire height profile of the swing and the solver cannot
+  // so it fixes the full height profile of the swing and the solver cannot
   // move a touch-down it is being asked to choose. It was the one
   // schedule-gated hard constraint the loader did not refuse, and the README
   // explicitly left it listed. zero_wrench and zero_velocity ARE dropped, and
@@ -219,8 +219,8 @@ TEST_F(
 TEST_F(ContactImplicitFormulationTest,
        complementarityWithoutTheSlipTermIsRefused) {
   // The three relaxed complementarity conditions are a set. The complementarity
-  // product and the penetration hinge are both POSITIONAL - one forbids load
-  // above the ground, the other the foot below it - so with force_weighted_slip
+  // product and the penetration hinge are both POSITIONAL (one forbids load
+  // above the ground, the other the foot below it), so with force_weighted_slip
   // missing nothing holds a loaded foot still and a foot carrying full body
   // weight may slide frictionlessly. The loader already refused complementarity
   // without ground_penetration; this is the same argument for the third term.
@@ -329,7 +329,7 @@ TEST_F(ContactImplicitFormulationTest,
   // The contact_implicit values are divisors and penalty weights. A zero gap
   // smoothing used to reach the complementarity term's constructor, whose CHECK
   // aborted the process from inside the Status-returning Create(); it is
-  // refused before any term is built, with a message naming the field to
+  // refused before any term is built, with a message identifying the field to
   // change.
   mpc_config::TaskFile task = contactImplicitTask();
   task.contact_implicit.gap_smoothing = 0.0;
@@ -364,7 +364,7 @@ TEST_F(
   // Audit findings A11/A22. A key renamed in the task file but not in the code
   // used to be skipped: its term ran on the default and its tuning slider
   // reached nothing. The strict parser refuses it, with the shipped,
-  // formulation-off lists, naming the field it was probably meant to be.
+  // formulation-off lists, identifying the field it was probably meant to be.
   std::string text = taskFileText(
       taskWithLists({"zero_wrench", "normal_velocity", "zero_velocity"},
                     baseSoftConstraints()));
@@ -432,7 +432,7 @@ TEST_F(ContactImplicitFormulationTest,
   // Findings A76/A84. The loader accepts EITHER cone, because either bounds the
   // normal force below. Under basis-vector inputs neither is what bounds the
   // individual scalings: `friction_force_cone` bounds the assembled wrench
-  // only, and lambda >= 0 is the whole of the cone there. The interface used to
+  // only, and lambda >= 0 defines the cone there. The interface used to
   // build that barrier only when `contact_wrench_cone` was listed, and so
   // refused this combination rather than leave the scalings free. The barrier
   // now belongs to the parameterization, so the combination is sound and is
@@ -472,7 +472,7 @@ TEST_F(ContactImplicitFormulationTest,
         absl::StrCat(footName, "_frictionForceCone"), index));
     // Audit finding A15, at the interface: the friction cone it asked the
     // factory for is the UN-gated one, wrapped in a squared hinge whose zero
-    // sits on the cone - silent at zero force, where a foot in flight lies -
+    // is on the cone (silent at zero force, where a foot in flight lies),
     // and not in the relaxed barrier of a schedule-gated cone, which would pay
     // the solver to load that foot.
     StateInputSoftConstraint& frictionCone =
@@ -645,7 +645,7 @@ TEST_F(ContactImplicitProblemTest,
   // and "touching" to the other.
   //
   // Checked on PITCHED feet. At the initial state the soles are flat, every
-  // corner sits at the sole center's height, and a gap measured at the center
+  // corner is at the sole center's height, and a gap measured at the center
   // satisfies the bracket below exactly - so a flat foot cannot tell the wiring
   // this test is named after from the regression it guards against.
   const ModelSettings::ContactImplicitConfig& config =
@@ -706,7 +706,7 @@ TEST_F(ContactImplicitProblemTest, groundPenetrationIsAHingeAndNotALogBarrier) {
   // A relaxed log barrier never reaches zero: at h = 0 its derivative is
   // -2*mu/delta, constant and upward, so it pushes every foot off the ground
   // and the complementarity term has to hold it down. Balancing those two put a
-  // foot at half body weight - i.e. both feet, throughout double support - a
+  // foot at half body weight (i.e. both feet, throughout double support) a
   // centimeter above the floor.
   for (const std::string& footName : contactNames()) {
     StateSoftConstraint& softConstraint =
@@ -809,8 +809,8 @@ TEST_F(ContactImplicitProblemTest,
 // The soft `normal_velocity` term: the swing-foot vertical servo, priced
 // instead of imposed.
 //
-// Removing the HARD constraint is necessary - it fixes the whole height profile
-// of a scheduled swing, so the solver can neither land early nor late - but
+// Removing the HARD constraint is necessary (it fixes the full height profile
+// of a scheduled swing, so the solver can neither land early nor late), but
 // removing it with nothing in its place leaves no term with the authority to
 // lift a foot at all. The only remaining vertical term is
 // task_space_foot_cost.weights.pos_z at 150, against the leg-joint entries of Q
@@ -861,7 +861,7 @@ TEST_F(
     ContactImplicitProblemTest,
     theSoftNormalVelocityPricesAFootThatFailsToLeaveTheGroundAndOnlyDuringItsSwing) {
   // The residual is v_z - zdot_ref - positionErrorGain_z * (z_ref - z). A foot
-  // sitting still on the ground during a scheduled swing therefore carries a
+  // sitting still on the ground during a scheduled swing therefore has a
   // non-zero residual, which is precisely the pressure to lift that removing
   // the hard constraint took away. The term must also be swing-only, so it
   // never fights a planted stance foot, and its weight must be the one the task

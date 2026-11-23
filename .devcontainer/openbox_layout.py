@@ -31,12 +31,12 @@ Three windows share the display: the native Rerun viewer (when the Rerun bridge 
 on the host), the MuJoCo viewer, and the Tkinter "Robot Base Controller & Tuning" GUI from the operator tools. Each gets
 a pane of its own, so that no window ever covers another and none of them ever needs raising.
 
-That matters for the GUI in particular. It raises itself with `-topmost` for only 1.5 s at start-up, and a 3D viewer
+This is especially important for the GUI. It raises itself with `-topmost` for only 1.5 s at start-up, and a 3D viewer
 that is still opening under software GL beats that every time. When the GUI had no rule, the 3D viewer was placed
-across the whole left pane on top of it, leaving a ~10 px strip of the GUI and nothing to click to bring it forward. So
+across the full left pane on top of it, leaving a ~10 px strip of the GUI and nothing to click to bring it forward. So
 the left pane is split between the Rerun viewer (top) and the GUI (bottom), and MuJoCo keeps the right pane.
 
-Called by start_vnc.sh with the target resolution in $RESOLUTION. It lives in its own file rather than inside a
+Called by start_vnc.sh with the target resolution in $RESOLUTION. It is in its own file rather than inside a
 `python3 -c` string so that the XML quoting stays readable.
 """
 
@@ -83,7 +83,7 @@ def layout(width: int, height: int) -> dict[str, int]:
 
     # The GUI declares minsize(800, 520). Openbox cannot size a window below the minimum the application itself asks
     # for through WM_NORMAL_HINTS, so asking for less than that would silently leave it taller than its slot and
-    # overlapping the viewer again. Give it at least its own minimum, anchor it to the bottom of the pane, and hand the
+    # overlapping the viewer again. Give it at least its own minimum, anchor it to the bottom of the pane, and give the
     # viewer everything above it. Anchoring the GUI rather than stacking upwards from the viewer keeps the two inside
     # the pane at every resolution: on a short display the viewer is squeezed (and main() says so) instead of the GUI
     # hanging off-screen.
@@ -132,7 +132,7 @@ def main() -> int:
     with open(rc_path, "w", encoding="utf-8") as handle:
         handle.write(content)
 
-    # Say so when the display cannot really hold the tiled layout, rather than letting a window silently overlap.
+    # Say so when the display cannot fit the tiled layout, rather than letting a window silently overlap.
     if geom["left_w"] < GUI_MIN_W:
         print(
             f"NOTE: the left pane is {geom['left_w']} px wide but the"

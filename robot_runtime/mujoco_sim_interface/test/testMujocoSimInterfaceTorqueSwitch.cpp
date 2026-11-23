@@ -54,8 +54,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The simulator's torque switch and its hand-overs with the control thread,
  * headless, on the shipped Atlas scene, stepped by the test itself. Switching
- * the torques back on used to leave the action latched before they went off -
- * in WB_MPC, with high gains and the inverse dynamics' feedforward - in force
+ * the torques back on used to leave the action latched before they went off
+ * (in WB_MPC, with high gains and the inverse dynamics' feedforward) in force
  * until the next control cycle applied one; and the switch wrote MuJoCo's
  * dof_damping from the control thread while the physics thread stepped with it.
  *
@@ -294,7 +294,7 @@ TEST(SimActuators,
 }
 
 TEST(SimActuators, AJointWhoseActionWasResetIsCommandedNothing) {
-  // RobotJointAction holds an action for every joint, but a controller can
+  // RobotJointAction stores an action for every joint, but a controller can
   // reset one. Its actuator then gets no torque, and the physics thread carries
   // on with the others.
   absl::StatusOr<std::unique_ptr<MujocoSimInterface>> created = makeHingeSim();

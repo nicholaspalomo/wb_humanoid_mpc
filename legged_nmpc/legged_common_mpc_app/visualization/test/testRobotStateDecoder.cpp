@@ -235,7 +235,7 @@ void setAngvelBaseRtWorldEwrtBase(
       angvelBaseRtWorldEwrtBase.z());
 }
 
-// Level: v holds the body angular velocity, and the display's Euler rates of a
+// Level: v stores the body angular velocity, and the display's Euler rates of a
 // turn about the vertical are the yaw rate.
 TEST_F(RobotStateDecoderTest,
        TheBaseVelocityIsTheBodyAngularVelocityAndALevelTurnIsAYawRate) {
@@ -336,7 +336,7 @@ TEST_F(RobotStateDecoderTest,
 
 // At the pitch singularity (|cos(pitch)| below 1e-6) the display's Euler rates
 // are not a number, a gap in the plots; the angles stay finite, and the MPC's q
-// and v, which hold the quaternion and the body angular velocity, are regular.
+// and v, which store the quaternion and the body angular velocity, are regular.
 TEST_F(RobotStateDecoderTest,
        TheDisplayEulerRatesAreNotANumberAtThePitchSingularity) {
   RobotStateDecoder decoder(robot_->robotModel());

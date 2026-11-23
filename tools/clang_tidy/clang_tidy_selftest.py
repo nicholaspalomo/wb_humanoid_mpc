@@ -130,7 +130,7 @@ def check_fixtures(
 
     Returns:
       A failure message per fixture whose findings differ, or that has no expected file, and per expected file that
-      names no fixture.
+      matches no fixture.
     """
     expected_by_name = {
         os.path.basename(path)[: -len(_EXPECTED_SUFFIX)]: path

@@ -518,7 +518,7 @@ py_library(
     name = "pointer_nullability",
     srcs = ["pointer_nullability.py"],
     # Generators are held to the rules through their output: the test of the aCOM weight header exporter runs this check
-    # over what it generates (the nproto generator's test runs the whole registry, :checks).
+    # over what it generates (the nproto generator's test runs the full registry, :checks).
     visibility = ["//legged_learning/acom/tests:__pkg__"],
     deps = [
         ":check_types",

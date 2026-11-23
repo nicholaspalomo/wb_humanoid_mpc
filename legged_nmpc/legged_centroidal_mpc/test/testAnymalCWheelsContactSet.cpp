@@ -190,7 +190,7 @@ TEST_F(AnymalCWheelsContactSetTest, theJointLimitsHaveARowPerLegJointOnly) {
   const ScalarFunctionQuadraticApproximation approximation =
       jointLimits.getQuadraticApproximation(turned);
   const pinocchio::Model& model = mpc().getPinocchioInterface().getModel();
-  // The approximation is over the whole state; the joints start at this row.
+  // The approximation is over the full state; the joints start at this row.
   const Eigen::Index jointStart =
       static_cast<Eigen::Index>(mpc().getMpcRobotModel().getJointStartindex());
   size_t numBarrierJoints = 0;

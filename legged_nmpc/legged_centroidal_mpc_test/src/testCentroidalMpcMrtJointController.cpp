@@ -181,7 +181,7 @@ class CentroidalMpcMrtJointControllerTest : public ::testing::Test {
     tempPdGainsFile_ =
         std::filesystem::temp_directory_path() / "test_pd_gains.textproto";
 
-    // A PD gains file (legged_mpc_config.JointPdGainsFile) that names no
+    // A PD gains file (legged_mpc_config.JointPdGainsFile) that specifies no
     // joint: every joint has its default_gains, which every gains file sets in
     // full - the controller has no gains of its own. (A joint the model does
     // not have would make it another robot's file, which the controller
@@ -782,7 +782,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
 }
 
 // The measured contact state of the controller comes from its contact
-// estimator: the observation mode handed to the MPC follows the estimator, not
+// estimator: the observation mode passed to the MPC follows the estimator, not
 // the contact flags of the RobotState. Without an estimator the RobotState
 // flags are used (RobotStateContactEstimator), which is the historical
 // behavior.
@@ -858,7 +858,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
 // The contact wrenches the inverse dynamics projects are gated by the measured
 // contact state, not by the plan. Before a policy arrives the controller
 // compensates the weight through the feet measured in contact: with the right
-// foot reported in the air the whole weight goes through the left foot, and the
+// foot reported in the air the full weight goes through the left foot, and the
 // feedforward torques match the inverse dynamics of that single-support wrench
 // (a two-foot distribution would give different torques).
 TEST_F(CentroidalMpcMrtJointControllerTest,
@@ -995,7 +995,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
 }
 
 // Create() refuses a robot description that lacks a joint of the MPC model,
-// naming the joint: the control cycle indexes the joints without a check, so
+// reporting the joint: the control cycle indexes the joints without a check, so
 // the constructor's check would otherwise end the process on a mismatched URDF.
 TEST_F(CentroidalMpcMrtJointControllerTest,
        testCreateRefusesAModelJointTheRobotDescriptionDoesNotHave) {

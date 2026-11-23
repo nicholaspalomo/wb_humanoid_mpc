@@ -329,7 +329,7 @@ class ParseOverridesTest(unittest.TestCase):
 
 
 class StrictParsingTest(unittest.TestCase):
-    """What the text format parser rejects: the error names the file, the line and the column."""
+    """What the text format parser rejects: the error identifies the file, the line and the column."""
 
     def test_an_unknown_field_names_its_line_and_column(self) -> None:
         text = 'processes {\n  name: "mpc"\n  requried: true\n}\n'
@@ -371,7 +371,7 @@ class StrictParsingTest(unittest.TestCase):
 
 
 class ValidationTest(unittest.TestCase):
-    """What the launcher rejects after parsing: the error names the process or the variable."""
+    """What the launcher rejects after parsing: the error identifies the process or the variable."""
 
     def test_invalid_documents_are_rejected_with_the_offending_entry(
         self,

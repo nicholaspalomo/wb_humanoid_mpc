@@ -105,7 +105,7 @@ TEST(JointLimitsFromConfigTest, ANonPositiveOrNanBarrierIsRefused) {
   }
 }
 
-/** A collision block that names every frame and both radii. */
+/** A collision block that specifies every frame and both radii. */
 mpc_config::CollisionConstraintConfig completeCollision() {
   mpc_config::CollisionConstraintConfig collision;
   collision.foot.left_ankle_frame = "l_leg_akx";

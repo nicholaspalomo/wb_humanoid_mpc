@@ -310,7 +310,7 @@ TEST_P(SceneBuilderTest, TheMeasuredRobotHasEveryJointOfTheUrdf) {
       findInstance(scene, scene::kMeasuredInstance);
   ASSERT_NE(measured, nullptr);
 
-  // An independent model of the whole URDF with the MPC's
+  // An independent model of the full URDF with the MPC's
   // Composite(Translation, Spherical) root, its quaternion (x, y, z, w) built
   // from the sample's roll, pitch and yaw, every joint set by name from the
   // sample.

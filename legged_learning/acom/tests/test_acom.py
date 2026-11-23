@@ -740,7 +740,7 @@ class TestAcomPipeline(unittest.TestCase):
 
 
 class TestComposedObjective(unittest.TestCase):
-    """Training fits the rate map of the composition, on a target with large offsets where that matters."""
+    """Training fits the rate map of the composition on a target with large offsets where the composition affects the rate."""
 
     # pylint: disable=invalid-name  # A_bar: the notation of Chen et al., IROS 2023 (legged_learning/acom/README.md).
 
@@ -1217,7 +1217,7 @@ class TestShippedRobots(unittest.TestCase):
 
         The network's inputs are the MPC model's joints one for one: Pinocchio's
         order minus model_settings.fixed_joint_names. The task file's initial state
-        names every active joint once, which cross-checks them against a block of
+        lists every active joint once, which cross-checks them against a block of
         the task file the generator does not read.
         """
         for robot in train_main.robot_names():
@@ -1239,7 +1239,7 @@ class TestShippedRobots(unittest.TestCase):
                         if n not in fixed_joints
                     ],
                 )
-                # The initial state names every joint of the network's input, and only those.
+                # The initial state lists every joint of the network's input, and only those.
                 self.assertEqual(
                     sorted(
                         entry.joint
@@ -1253,12 +1253,12 @@ class TestShippedRobots(unittest.TestCase):
                 )
 
     def test_joint_permutation_is_the_identity(self):
-        """Asserted, not assumed: MuJoCo and Pinocchio agree on every shipped robot.
+        """Verifies that MuJoCo and Pinocchio agree on every shipped robot.
 
         Each MJCF declares its joints in Pinocchio's order, so the permutation the
-        generator applies is the identity. A non-identity one is not an error -
-        the reordering exists to handle it - but it would mean the two model
-        files have drifted apart, which deserves a look.
+        generator applies is the identity. A non-identity permutation is not an
+        error (the reordering exists to handle it), but it would mean the two model
+        files have drifted apart, which warrants investigation.
         """
         for robot in train_main.robot_names():
             with self.subTest(robot=robot):

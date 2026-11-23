@@ -67,8 +67,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The blocks of the task file the MPC interfaces build their terms from, read
  * as they read them: a textproto through loadTaskFile() and the typed
  * conversion of each block. What they read, that a value that does not parse is
- * refused naming the file, its line and its column, and that a value the term
- * cannot take is refused naming its field.
+ * refused reporting the file, its line and its column, and that a value the
+ * term cannot take is refused identifying its field.
  */
 namespace ocs2::legged {
 namespace {
@@ -83,7 +83,7 @@ std::string writeFile(absl::string_view name, absl::string_view content) {
   return path;
 }
 
-// The header of a task file, which names its schema.
+// The header of a task file, which specifies its schema.
 constexpr char kTaskHeader[] = "# proto-message: legged_mpc_config.TaskFile\n";
 
 /** The task file of the textproto `content` below kTaskHeader, written to

@@ -119,7 +119,7 @@ enum class ContactPlanningValidation {
  * @param file The parsed file (nproto::LoadTextprotoFile()).
  * @param validation Whether to run ContactPlanningConfig::validateStatus().
  * @return The configuration, or InvalidArgument for an empty name in a term
- * list (naming the list and the index), for a threading or a target that is
+ * list (identifying the list and index), for a threading or a target that is
  * none of its names, for a shared.nom_pos_com_rt_feetmean_ewrt_world_z that is
  * given but not positive and, with kValidate, every rejection of
  * validateStatus().

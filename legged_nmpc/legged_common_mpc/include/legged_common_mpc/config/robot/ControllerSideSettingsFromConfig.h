@@ -60,8 +60,8 @@ struct ControllerSideConfig {
    * invalid: it is then not applied and `problems` says why.
    */
   std::optional<ContactWrenchGate::Config> contactWrenchGate;
-  /** What was found wrong, each naming its field: a running consumer keeps what
-   * it has, a start-up refuses the file. */
+  /** What was found wrong, each identifying its field: a running consumer keeps
+   * what it has, a start-up refuses the file. */
   std::vector<std::string> problems;
 };
 

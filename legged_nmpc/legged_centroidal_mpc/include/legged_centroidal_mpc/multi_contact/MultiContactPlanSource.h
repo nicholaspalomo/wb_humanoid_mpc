@@ -59,10 +59,10 @@ struct MultiContactPlanSource {
  * the working directory, or else from the binary's runfiles
  * (robot::resolveResourcePath()), as a repository-relative path.
  *
- * @return InvalidArgument naming the task file's field when a path is empty;
- * NotFound naming a file that is in neither place; FailedPrecondition, with
- * both hashes, for a plan made for another contact set or terrain; the
- * loaders' errors otherwise.
+ * @return InvalidArgument identifying the task file's field when a path is
+ * empty; NotFound reporting a file that is in neither place;
+ * FailedPrecondition, with both hashes, for a plan made for another contact set
+ * or terrain; the loaders' errors otherwise.
  */
 absl::StatusOr<MultiContactPlanSource> loadMultiContactPlanSource(
     absl::string_view scenarioFile, absl::string_view planFile);
@@ -116,7 +116,7 @@ struct PlannedMotionSettings {
 };
 
 /**
- * The settings of `config`. InvalidArgument naming the field
+ * The settings of `config`. InvalidArgument identifying the field
  * (multi_contact_plan.<block>.<field>) of a value that is not finite, or not
  * positive where the field must be (the lead, the tolerances, the lift
  * height, the contact_swing weight and landing window, the barrier's mu and

@@ -78,8 +78,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *     residual reads the quaternion through its direction only (any length,
  * ambient Jacobian orthogonal to xi);
  *   - at a level state the orientation rows' tangent Jacobian is P_3 =
- * antidiag(1, 1, 1) - the rows (yaw, pitch, roll) of the body rotation (x, y,
- * z) - whatever the reference, and the whole body's angular-velocity rows' only
+ * antidiag(1, 1, 1) (the rows (yaw, pitch, roll) of the body rotation (x, y,
+ * z)) whatever the reference, and the whole body's angular-velocity rows' only
  * when the state and the reference rotate the same (at rest here), so the
  * tangent Gauss-Newton Hessian and gradient are the Euler differences' in body
  * coordinates to 1e-12 against a reference tilted about at most one axis; a

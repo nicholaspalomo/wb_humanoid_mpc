@@ -48,7 +48,7 @@ namespace ocs2::legged {
  *
  * Each member has the meaning and the unit of the reference file's field of the
  * same name (reference_file.proto). The ones the file must give are 0 here; the
- * others hold the field's default.
+ * others store the field's default.
  */
 struct ReferenceSettings {
   /** [m/s] The speed a base pose command travels at. */

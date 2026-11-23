@@ -43,7 +43,7 @@ struct TopicStatistics {
   // The Python bus counts the same (robot_ipc/bus.py TopicStatistics).
   // LINT.IfChange(topic_statistics)
   /**
-   * Samples handed to the topic's DDS writer - not samples delivered: a
+   * Samples passed to the topic's DDS writer - not samples delivered: a
    * BEST_EFFORT sample can still be lost on the link, and a newer sample
    * replaces one a reliable KEEP_LAST writer is still repairing. The
    * subscriber's `missed` and `sampleLost` show what a link lost.
@@ -58,7 +58,7 @@ struct TopicStatistics {
   uint64_t sendDropped = 0;
   /** Samples taken from the topic's DDS reader. */
   uint64_t received = 0;
-  /** Samples handed to the subscription's handler (including those whose
+  /** Samples passed to the subscription's handler (including those whose
    * handler then threw). */
   uint64_t delivered = 0;
   /** Delivery::kLatest only: samples replaced by a newer one of the same topic

@@ -150,7 +150,7 @@ def render_message(
       output_format: A name of message_decoding.OUTPUT_FORMATS.
 
     Returns:
-      The printed message, or a `#` comment naming its type and size when it does not decode.
+      The printed message, or a `#` comment listing its type and size when it does not decode.
 
     Raises:
       message_decoding.FieldPathError: A path of `fields` is not a field of the message.

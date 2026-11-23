@@ -52,7 +52,7 @@ gantry_hold: "weld_constraint"
 # LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoSimInterface.h:gantry_hold_names)
 
 # The ball the GUI's Dodgeball tab throws, by name (robot_runtime/mujoco_sim_interface/.../Projectile.h). MuJoCo
-# compiles its model once at load and bodies cannot be added afterwards, so naming one here appends a free-floating
+# compiles its model once at load and bodies cannot be added afterwards, so specifying one here appends a free-floating
 # sphere to the scene BEFORE it is compiled. Until a throw arms it, it is parked 100 m above the scene with its
 # collisions off and its weight held by gravity compensation; it is parked again once it has come to rest, after ten
 # seconds in play at most, and whenever the robot is caught on the gantry.
@@ -64,7 +64,7 @@ gantry_hold: "weld_constraint"
 #
 # Remove the key, or set it empty, to compile the scene exactly as it is on disk. The Throw button then still works:
 # with no ball to fly, the simulator applies the momentum the ball would have ARRIVED with as a one-step force on the
-# base - a lower bound on the push, since a real ball that bounces off hands over more.
+# base - a lower bound on the push, since a real ball that bounces off transfers more.
 #
 # Simulation only. It changes nothing about the MPC, and a contact with the ball is excluded from the ground-truth
 # contact mask and from the ZMP marker, so a ball against a swing foot is never mistaken for the ground.
@@ -173,8 +173,8 @@ arm_swing {
 #
 # ALL THREE LISTS ARE EMPTY. The centroidal MPC refuses the base_pose and wrench families on any set other than the
 # biped's two feet (checkCentroidalContactSet()): they read the biped's gait phase and a left and a right foot. The
-# foothold family runs on a legged set, such as this robot's four legs, but it places swinging contacts only. The blocks are kept so that the file carries every parameter of the schema, each at the value that makes it a
-# no-op, and so that the refusal names a heuristic if one is uncommented.
+# foothold family runs on a legged set, such as this robot's four legs, but it places swinging contacts only. The blocks are kept so that the file includes every parameter of the schema, each at the value that makes it a
+# no-op, and so that the refusal reports a heuristic if one is uncommented.
 #
 # Orientation sign: the heuristic offsets are ZYX Euler angles of the base at the Euler boundary, about a z-up world,
 # so a POSITIVE pitch puts the nose DOWN.
@@ -390,7 +390,7 @@ rollout {
 
 mpc {
   time_horizon: 1.0  # [s], the OCS2 example's
-  # solution_time_window is absent: every policy carries the whole horizon.
+  # solution_time_window is absent: every policy covers the full horizon.
   cold_start: false
 
   debug_print: false

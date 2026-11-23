@@ -52,7 +52,7 @@ gantry_hold: "weld_constraint"
 # LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoSimInterface.h:gantry_hold_names)
 
 # The ball the GUI's Dodgeball tab throws, by name (robot_runtime/mujoco_sim_interface/.../Projectile.h). MuJoCo
-# compiles its model once at load and bodies cannot be added afterwards, so naming one here appends a free-floating
+# compiles its model once at load and bodies cannot be added afterwards, so specifying one here appends a free-floating
 # sphere to the scene BEFORE it is compiled. Until a throw arms it, it is parked 100 m above the scene with its
 # collisions off and its weight held by gravity compensation; it is parked again once it has come to rest, after ten
 # seconds in play at most, and whenever the robot is caught on the gantry.
@@ -64,7 +64,7 @@ gantry_hold: "weld_constraint"
 #
 # Remove the key, or set it empty, to compile the scene exactly as it is on disk. The Throw button then still works:
 # with no ball to fly, the simulator applies the momentum the ball would have ARRIVED with as a one-step force on the
-# base - a lower bound on the push, since a real ball that bounces off hands over more.
+# base - a lower bound on the push, since a real ball that bounces off transfers more.
 #
 # Simulation only. It changes nothing about the MPC, and a contact with the ball is excluded from the ground-truth
 # contact mask and from the ZMP marker, so a ball against a swing foot is never mistaken for the ground.

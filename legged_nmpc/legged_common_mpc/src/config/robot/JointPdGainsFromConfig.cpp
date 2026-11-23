@@ -112,8 +112,8 @@ absl::StatusOr<JointPdGainsDefaults> gainSet(
   return gains;
 }
 
-/** The controller constants of `file` into `gains`; InvalidArgument naming the
- * field for one out of its range. */
+/** The controller constants of `file` into `gains`; InvalidArgument reporting
+ * the field for one out of its range. */
 absl::Status readControllerConstants(const mpc_config::JointPdGainsFile& file,
                                      JointPdGains& gains) {
   // LINT.IfChange(controller_constants)

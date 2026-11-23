@@ -27,7 +27,7 @@
 
 """TODO comments say who or what tracks them: `TODO: bug 123 - <text>` or `TODO(<owner or bug>): <text>`.
 
-The Google C++ Style Guide (TODO comments) and the Google Python Style Guide (3.12) want a TODO to carry a bug, a link
+The Google C++ Style Guide (TODO comments) and the Google Python Style Guide (3.12) want a TODO to include a bug, a link
 or a person, so that whoever reads it can find out more. Both forms are accepted, in C++, Python, shell and Starlark
 comments:
 

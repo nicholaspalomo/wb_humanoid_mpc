@@ -25,11 +25,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The robot model filegroups ship their configuration and nothing that merely sits beside it.
+"""The robot model filegroups ship their configuration and nothing that is merely next to it.
 
-Every robot package globs its directories (`config/**`, `urdf/**`, ...), and git-ignored side files sit next to the
+Every robot package globs its directories (`config/**`, `urdf/**`, ...), and git-ignored side files are next to the
 configuration: the `<file>.bak` backup the tuning GUI's Save keeps. The globs used to take them along, so every test that
-lists a robot package as data ran against whatever stale backups the working tree held. The filegroups exclude them now
+lists a robot package as data ran against whatever stale backups the working tree contained. The filegroups exclude them now
 (bazel/robot_files.bzl, ROBOT_FILE_EXCLUDES); this test walks what they actually put in the runfiles.
 """
 
@@ -74,7 +74,7 @@ class TestRobotPackagesShipNoSideFiles(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        # This file's directory in the runfiles is robot_models/tests; its parent holds every robot package listed as data.
+        # This file's directory in the runfiles is robot_models/tests; its parent contains every robot package listed as data.
         cls.root = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), ".."
         )

@@ -51,8 +51,8 @@ namespace ocs2::legged {
  * Measured against the target trajectories' desired state directly, the
  * reference would be the UNSHAPED target: level roll and pitch and the
  * operator's height. On a robot whose base-pose heuristics are live, that left
- * one term - weighted by terminalCostScaling on the last node, easily more than
- * the whole running horizon's base-pose weight - pulling the end of every
+ * one term (weighted by terminalCostScaling on the last node, easily more than
+ * the full running horizon's base-pose weight) pulling the end of every
  * horizon back to the pose the heuristics had just moved every other node away
  * from. This routes the reference through
  * SwitchedModelReferenceManager::shapePoseBaseRtWorld(), the one definition of

@@ -160,7 +160,7 @@ def copy_robot_config(package: str, laptop: str) -> str:
     )
 
 
-# A task file that names its schema and does not parse: the parser's refusal, not the missing header's.
+# A task file that specifies its schema and does not parse: the parser's refusal, not the missing header's.
 _UNPARSABLE_TASK = (
     "# proto-message: legged_mpc_config.TaskFile\ntelemetry_frequency: {\n"
 )

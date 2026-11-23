@@ -47,7 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * legged_nmpc/legged_mpc_config, read strictly
  * (nproto::LoadTextprotoFile(): an unknown or retired field, a value of the
  * wrong type, a file of another message or a file whose leading comment block
- * has no `# proto-message:` line is an InvalidArgument naming the file, the
+ * has no `# proto-message:` line is an InvalidArgument reporting the file, the
  * line and the column). For the roots that take their files by path; everything
  * below them takes the structs.
  */
@@ -99,9 +99,9 @@ absl::StatusOr<mpc_config::JointPdGainsFile> loadJointPdGainsFile(
 
 /**
  * The text of a task file, read as strictly as loadTaskFile() reads the file
- * (the same parser, and the same leading-comment check: the text must name its
- * schema with `# proto-message:`); `source` names the text in errors, as a path
- * would
+ * (the same parser, and the same leading-comment check: the text must specify
+ * its schema with `# proto-message:`); `source` identifies the text in errors,
+ * as a path would
  * ("<source>:<line>:<column>: ..."). For a file that arrives as text, such as
  * the tuning GUI's Save on the bus (ConfigFileSave), which must be checked
  * before it is written anywhere.
@@ -148,8 +148,8 @@ std::string jointPdGainsFileBeside(absl::string_view taskFile);
 
 /**
  * jointPdGainsFileBeside(), for a robot process, which must not start without
- * its gains: NotFound naming the file (and the task file it belongs to) when it
- * is not a regular file, such as a robot directory without
+ * its gains: NotFound reporting the file (and the task file it belongs to) when
+ * it is not a regular file, such as a robot directory without
  * joint_pd_gains.textproto, which would otherwise leave the controller on its
  * built-in gains, chosen for no robot.
  */
@@ -161,11 +161,11 @@ absl::StatusOr<std::string> existingJointPdGainsFileBeside(
  * (contactPlanningFileBeside()), or nullopt when the robot has none: the robots
  * that do not plan their contacts ship no such file, and run the planner's
  * library defaults (contactPlanningConfigFromOptionalFile()) where one is built
- * anyway. The task file itself holds no contact planner configuration any more
- * (TaskFile's retired field contact_planning).
+ * anyway. The task file itself contains no contact planner configuration any
+ * more (TaskFile's retired field contact_planning).
  *
  * @return The file; nullopt when there is no file of that name; Unavailable
- * naming the path when it cannot be looked at (a permission or I/O error),
+ * reporting the path when it cannot be looked at (a permission or I/O error),
  * FailedPrecondition when it is not a regular file, and
  * loadContactPlanningFile()'s error for a file that does not parse.
  */
@@ -174,7 +174,7 @@ loadContactPlanningFileBeside(absl::string_view taskFile);
 
 /**
  * `status` with its message prefixed by `path` ("<path>: <message>"), for an
- * error of a conversion of the file at `path`, whose messages name the field
+ * error of a conversion of the file at `path`, whose messages report the field
  * but not the file; OK stays OK.
  */
 absl::Status withConfigFile(const absl::Status& status, absl::string_view path);

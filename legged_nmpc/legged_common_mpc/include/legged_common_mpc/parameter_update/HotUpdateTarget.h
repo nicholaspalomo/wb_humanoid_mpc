@@ -53,7 +53,7 @@ namespace ocs2::legged {
  * SqpSolver whose per-worker problems and settings the hot-field appliers
  * (HotFieldApplier.h) update, the reference manager and the coordinates the
  * file's weights are addressed on. MpcParameterUpdaterModule builds one per
- * reload and hands it to every applier in turn.
+ * reload and passes it to every applier in turn.
  *
  * It also converts, once per reload, the blocks that several appliers read
  * (footConstraint(), terminalCostScaling()), so that a refused block is

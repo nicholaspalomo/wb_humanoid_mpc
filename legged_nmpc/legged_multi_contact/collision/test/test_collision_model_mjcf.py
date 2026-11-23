@@ -28,7 +28,7 @@
 
 """Tests that the DRC Atlas's collision model copies the collision geoms of atlas.xml (design section 5.4).
 
-Every link names the MJCF body its geometry comes from; the body's joint must be the link's parent joint (the pelvis's
+Every link specifies the MJCF body its geometry comes from; the body's joint must be the link's parent joint (the pelvis's
 free joint is "root_joint"), and the link's shape must be one of the body's collision geoms, number for number.
 """
 

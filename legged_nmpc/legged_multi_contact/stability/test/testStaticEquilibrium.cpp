@@ -203,7 +203,7 @@ TEST(StaticEquilibriumTest, TwoFlatFeetGiveTheHullOfTheSoles) {
   const std::vector<Eigen::Vector2d> polygon = polygonOf(twoFeet());
   ASSERT_GE(polygon.size(), 4u);
   // The convex hull of the two soles: a rectangle, exactly (on flat ground the
-  // cones' linearization does not matter).
+  // cones' linearization has no effect).
   const double xMin = kFootX - kSoleHalfLength;
   const double xMax = kFootX + kSoleHalfLength;
   const double yMax = kFootY + kSoleHalfWidth;

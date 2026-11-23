@@ -46,7 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * selects: the terms of its costs, soft_constraints and hard_constraints lists,
  * its contact schedule source, its contact input parameterization and its
  * centroidal model, each resolved by the registry that owns the names; their
- * messages name the textproto's fields.
+ * messages report the textproto's fields.
  *
  * The retired fields (use_dcm_terminal_cost, use_contact_planning, the
  * mpc_tasks nesting, ...) cannot reach these functions: the strict parser
@@ -79,15 +79,16 @@ inline FormulationLogging formulationLoggingFor(bool verbose) {
  * @param taskFile The typed task file.
  * @param logging Whether the terms are logged (the interface's
  * interface.verbose).
- * @return The terms, or InvalidArgument naming the list entry (`costs[2]`) of
- * an unknown name or the entries of a refused combination.
+ * @return The terms, or InvalidArgument identifying the list entry (`costs[2]`)
+ * of an unknown name or the entries of a refused combination.
  */
 absl::StatusOr<MpcFormulationTasks> mpcFormulationTasksFromConfig(
     const mpc_config::TaskFile& taskFile, FormulationLogging logging);
 
 /**
  * Refuses the combinations of terms that are not a formulation, each with a
- * message naming the entries to change: both terminal costs; `zero_velocity` or
+ * message identifying the entries to change: both terminal costs;
+ * `zero_velocity` or
  * `normal_velocity` both hard and soft; some but not all of the three
  * contact-implicit terms; `contact_complementarity` beside the hard
  * `zero_wrench`; no `zero_wrench` and no cone; `force_weighted_slip` beside
@@ -148,8 +149,8 @@ absl::StatusOr<CentroidalModelType> centroidalModelTypeFromName(
  * centroidal_model_type, which the parser refuses with the names (a retired
  * field of TaskFile).
  *
- * @return InvalidArgument naming centroidal_model when the file does not set it
- * or names no centroidal model.
+ * @return InvalidArgument identifying centroidal_model when the file does not
+ * set it or specifies an unknown centroidal model.
  */
 absl::StatusOr<CentroidalModelType> centroidalModelTypeFromConfig(
     const mpc_config::TaskFile& taskFile);

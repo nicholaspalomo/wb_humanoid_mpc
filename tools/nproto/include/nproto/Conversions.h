@@ -33,7 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // an API of its own; include the generated <file>.nproto.pb.h instead.
 //
 // Every helper converts INTO the object it is given and reuses what that object
-// already holds, so that converting a value into an object of the same shape
+// already stores, so that converting a value into an object of the same shape
 // does not allocate:
 //
 // - Eigen vectors and std::vector of scalars resize to the same size (a no-op)
@@ -46,12 +46,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //   removes, cleared, for the next longer one;
 // - an absl::btree_map, std::map or protobuf Map whose key set is the value's
 //   is updated in place; any other key set rebuilds the map, which allocates;
-// - a std::optional or std::variant that already holds the alternative is
+// - a std::optional or std::variant that already stores the alternative is
 // assigned in place.
 //
 // FromProto() fails only on an enum number its enum does not define. The errors
-// name the field path, "annotations.target_contact_patches[2].kind: 7 is not a
-// value of legged_mpc_msgs.TargetContactPatch.Kind", and building them
+// include the field path, "annotations.target_contact_patches[2].kind: 7 is not
+// a value of legged_mpc_msgs.TargetContactPatch.Kind", and building them
 // allocates, which only an error does.
 
 #pragma once

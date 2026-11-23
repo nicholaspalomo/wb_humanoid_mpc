@@ -21,7 +21,7 @@ The launch files of every robot start the GUI with that robot's files, next to t
 `-dummy-sim` and `-mpc`). It publishes the walking command at 25 Hz while it runs, so a second publisher of
 `operator/walking_velocity_command` (a script, the keyboard or Xbox teleop) competes with its sticks, and the MPC
 alternates between the two. To drive the robot from a teleoperation publisher and keep the GUI's FSM and tuning tabs,
-hand the topic over:
+disable GUI walking commands:
 
 <!-- LINT.IfChange(walking_commands) -->
 - `--walking_commands=off` starts the GUI without publishing walking commands (`publish`, the default, publishes them);
@@ -57,8 +57,8 @@ of the README's topic table. `remote_control/operator_bus.py` lists the rows the
 |---|---|---|
 | `operator/walking_velocity_command` | `WalkingVelocityCommand` | the sticks and the height slider (or the Xbox controller), at 25 Hz, always unless handed to a teleoperation publisher (above): the height slider moves the gantry in simulation |
 | `operator/fsm_command` | `FsmCommand` | the FSM mode selector and the gantry checkbox; `sequence` starts at the wall clock in nanoseconds and rises by one per command, so a restarted GUI still counts up |
-| `operator/mpc_parameters` | `legged_mpc_config.MpcParameterUpdate` | the MPC Parameters tab: the whole task file and, for a robot with a contact planner, the whole contact-planning file, with the operator's values, and the task file's identity (`config_path`) |
-| `operator/pd_gains` | `legged_mpc_config.JointPdGainsUpdate` | the Joint PD Gains tab: the whole PD gains file with the operator's values, paired with its configuration path (`config_path`) and schema fingerprint |
+| `operator/mpc_parameters` | `legged_mpc_config.MpcParameterUpdate` | the MPC Parameters tab: the full task file and, for a robot with a contact planner, the full contact-planning file, with the operator's values, and the task file's identity (`config_path`) |
+| `operator/pd_gains` | `legged_mpc_config.JointPdGainsUpdate` | the Joint PD Gains tab: the full PD gains file with the operator's values, paired with its configuration path (`config_path`) and schema fingerprint |
 | `operator/joint_targets` | `JointTargets` | the Joint Targets tab, by joint name, in JOINT_PD only |
 | `operator/dodgeball_throw` | `DodgeballThrow` | the Dodgeball tab's throw (`tk_app/dodgeball.py` `throw_message`) |
 | `operator/config_save` | `ConfigFileSave` | a tuning tab's Save: the exact text of the saved task, reference or PD gains file, for the robot's store (below); also `push_robot_config` |
@@ -66,7 +66,7 @@ of the README's topic table. `remote_control/operator_bus.py` lists the rows the
 | `robot/config_save_status` (subscribed) | `ConfigFileSaveStatus` | the robot's answer to each save, which the tab's status line shows |
 
 The tuning payloads are the files, typed (legged_nmpc/legged_mpc_config/README.md, "Live updates"): a block the
-update does not carry means its defaults, as at start-up, so the tabs publish the whole of each file. A receiver built
+update does not include means its defaults, as at start-up, so the tabs publish each complete file. A receiver built
 from another commit that still subscribes with another type drops the message, and the bus logs the mismatch; one with
 the same type refuses a payload of another schema version (a field it does not know, or, for the MPC parameters and PD
 gains, another `schema_fingerprint`, which `operator_bus.mpc_parameter_update()` and `operator_bus.joint_pd_gains_update()`
@@ -97,8 +97,8 @@ binary is missing, it says to run
 ### The files
 
 The tabs tune the textprotos of a robot package's `config/` directory. Each is parsed strictly into a message of
-`legged_nmpc/legged_mpc_config` (its README holds the conventions; the field comments of the `.proto` files say what
-each value means) and starts with the header that names it, `# proto-file:` and `# proto-message:`:
+`legged_nmpc/legged_mpc_config` (its README documents the conventions; the field comments of the `.proto` files say what
+each value means) and starts with the header that identifies it, `# proto-file:` and `# proto-message:`:
 
 | File | Message | Tab | Read back while the stack runs by |
 |---|---|---|---|
@@ -114,7 +114,7 @@ only and has no tab.
 
 1. Start the stack with its launch file (`make launch-<robot>-sim`), which opens the GUI on that robot's files.
 2. Move a slider, tick a checkbox or pick a name. On the MPC Parameters and Joint PD Gains tabs, 300 ms after the last
-   change, the tab publishes the whole edited file (the topics above); nothing is written to disk yet. The running
+   change, the tab publishes the full edited file (the topics above); nothing is written to disk yet. The running
    stack applies the fields marked `RELOAD_HOT` at once, on either formulation: the parameter updater of the
    centroidal and of the whole-body MPC applies them before its next solve, and the robot process applies the contact
    estimator, the contact wrench gate and the PD gains. A field marked `RELOAD_START_UP` is labeled "restart": the
@@ -160,16 +160,16 @@ legged_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). So 
 | Status line | Meaning |
 |---|---|
 | Saved on the laptop · saving on the robot… | sent; no answer yet |
-| Saved on the laptop and on the robot (`<stored path>`) | both copies hold the text |
+| Saved on the laptop and on the robot (`<stored path>`) | both copies match |
 | Saved on the laptop and on the robot (`<stored path>`) … robot unchanged | the robot's copy was the same text already |
 | Saved on the laptop · the robot refused it: `<message>` | another robot, configuration or schema version, or a file the robot would not start with: its copy is untouched |
 | Saved on the laptop · the robot could not store it: `<message>` | a write failed: its copy is the one it had |
 | Saved on the laptop · the robot did not answer in 5 s: the robot's copy is unknown; Save again to retry (a repeat answers unchanged) | no answer yet; a late answer still replaces the line |
-| Saved on the laptop · not sent to the robot: `<reason>` | the bus dropped it (its send queue was full), the GUI has no bus, or no task file beside the file names the robot |
+| Saved on the laptop · not sent to the robot: `<reason>` | the bus dropped it (its send queue was full), the GUI has no bus, or no task file beside the file specifies the robot |
 | Saved on the laptop · the robot has no store and reads this file (`<path>`) | a robot process started without a store on the same checkout (`bazel run` in the dev container) reads the laptop's file itself |
 | Saved on the laptop · the robot has no store: it reads `<path>` in place; this Save did not change it | a robot process without a store that reads a file of its own (another computer, another checkout): its copy differs, shown as a problem |
 
-`remote_control/robot_config_save.py` holds the saver (`RobotConfigSaver`, one for the GUI, matched by sequence) and
+`remote_control/robot_config_save.py` implements the saver (`RobotConfigSaver`, one for the GUI, matched by sequence) and
 the status lines, without Tk; `tk_app/robot_save_status.py` polls it for a tab.
 
 `push_robot_config` sends a file the same way from the command line - after an editor's save, or as a scripted check
@@ -180,7 +180,7 @@ bazel run //legged_nmpc/remote_control:push_robot_config -- robot_models/unitree
 ```
 
 It tells the kind by the file's `# proto-message:` header, parses the file strictly first, and publishes as the
-`config_push` node of the network file (a running GUI holds `operator`). The first messages of a freshly bound socket
+`config_push` node of the network file (a running GUI uses `operator`). The first messages of a freshly bound socket
 can be lost before the robot's subscriber connects, so it repeats the same save, under the same sequence, every 0.5 s
 until the robot answers that sequence or 10 s pass; the robot answers a repeat with the status it recorded. It exits 0
 (`EXIT_IN_SYNC`) when the robot's copy is the file - stored, already the same, or the very file a robot without a store
@@ -207,8 +207,7 @@ file as it was as `<file>.bak`. The text written is what the robot's copy receiv
 
 ### What a tab shows
 
-The MPC Parameters, Joint PD Gains and Command Limits tabs are built from the schemas of their files, not from lists in
-the tabs. `remote_control/config_schema.py` walks a file's message descriptor and yields a parameter per number, bool,
+The MPC Parameters, Joint PD Gains and Command Limits tabs are generated from the schemas of their files. `remote_control/config_schema.py` walks a file's message descriptor and yields a parameter per number, bool,
 enum and registry name, with what the field's `(legged_mpc_config.tuning)` option says about it
 (`tuning_options.proto`): its unit, its slider range or log scale, whether the running stack applies it (`RELOAD_HOT`)
 or only the next start (`RELOAD_START_UP`), which formulations read it (`formulations`: "centroidal", "whole_body";
@@ -224,7 +223,7 @@ operator types the name, and the receiving registry checks it. A term list shows
 A row is labeled by its field names: the dotted path from below its block (`joint_positions[back_bkz]`,
 `pos_base_rt_world_ewrt_world.x`), each element of a list by its key. The label adds the unit and, where they apply, "restart" (a
 `RELOAD_START_UP` field; every formulation applies its hot fields live), "not applicable: the whole-body MPC does not
-read it" (a task file field of the other formulation: a task file that names a `centroidal_model` is the centroidal
+read it" (a task file field of the other formulation: a task file that sets a `centroidal_model` is the centroidal
 MPC's, any other the whole-body MPC's, `config_schema.formulation_of()`), "not applicable:
 contact_input_parameterization is ...", "default" (the file leaves the field out) or "unset". No option renames a
 field, and the comments of the file are not shown.
@@ -240,10 +239,10 @@ tuning options) and its conversion in C++: the tab shows it with no GUI code
 for a field that neither renders nor states why not, or that does not say who applies it, and
 `test/test_config_registries.py` for a registry the registries' file does not list.
 
-`remote_control/tuned_file.py` holds a file while it is tuned (`TunedFile`), without Tk: a slider moved is a change of
+`remote_control/tuned_file.py` manages a file while it is tuned (`TunedFile`), without Tk: a slider moved is a change of
 it, the edited file is made from the changes on demand, and only `save()` writes. The Joint Targets tab takes the
 joints of the PD gains file and their defaults from the reference file's `default_joint_state`; every task-file choice whose
-schema names a `base_controller_label` (the contact estimator's "Contact estimator") is a drop-down of the Base
+schema specifies a `base_controller_label` (the contact estimator's "Contact estimator") is a drop-down of the Base
 Controller tab too, built from the schema and showing the MPC tab's value, the default included.
 
 ## The FSM state and the joysticks

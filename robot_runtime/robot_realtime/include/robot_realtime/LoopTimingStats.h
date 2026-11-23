@@ -55,7 +55,7 @@ struct CycleTiming {
  * Accumulates the realtime loop's period, compute time, overruns and wake-up
  * latency over a reporting window, and condenses them into a LoopTimingSnapshot
  * when the window closes. Allocation-free and lock-free; owned by the realtime
- * thread, which hands the snapshot on:
+ * thread, which passes the snapshot on:
  *
  *   if (stats.addCycle(wakeup, monotonicNow())) {
  *     timingBuffer.writeSlot() = stats.lastSnapshot();

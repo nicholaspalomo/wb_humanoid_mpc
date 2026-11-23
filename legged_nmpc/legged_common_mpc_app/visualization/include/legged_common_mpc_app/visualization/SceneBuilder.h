@@ -104,7 +104,7 @@ struct SceneInputs {
  * node's state, not projected to the ground), and the footholds where a foot
  *     lands within the horizon.
  *
- * Every scene carries every marker path, empty when there is nothing to draw,
+ * Every scene includes every marker path, empty when there is nothing to draw,
  * so that what is no longer true disappears. Not thread-safe: one thread builds
  * the scenes (the visualization thread).
  */

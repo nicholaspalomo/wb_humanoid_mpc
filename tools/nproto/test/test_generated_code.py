@@ -30,13 +30,13 @@
 Over every file generated for nproto's test protos, for legged_mpc_msgs and for legged_mpc_config:
 - it is clang-format clean under the repository's .clang-format;
 - every lint check of the registry (tools/hooks/checks.py) that reads C++ finds nothing in it, as in the hand-written
-  code: `no-auto`, `pointer-nullability` (every raw pointer, the output parameters of ToProto() / FromProto(), carries
+  code: `no-auto`, `pointer-nullability` (every raw pointer, the output parameters of ToProto() / FromProto(), has
   `absl_nonnull` or `absl_nullable`, and the file includes absl/base/nullability.h), `std-integer-type`, the Google
   style and Tips of the Week checks, ...;
 - a struct header (<file>.nproto.h) includes standard headers, Eigen, other struct headers and, for a map field,
   absl/container/btree_map.h only: no protobuf and no other Abseil header.
 
-`make lint` cannot check the generated code, which lives in bazel-out; this test runs the same checks over it.
+`make lint` cannot check the generated code, which is in bazel-out; this test runs the same checks over it.
 """
 
 import glob

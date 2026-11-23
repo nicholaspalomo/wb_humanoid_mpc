@@ -229,9 +229,9 @@ std::optional<InitialStateGap> ClosedLoopDriver::lastSolveInitialStateGap()
 }
 
 std::optional<double> ClosedLoopDriver::maxUnitQuaternionNormDeviation() const {
-  // The SQP's whole solution, every node's stored state; empty before the first
-  // solve. The final time asks for the whole horizon (SqpSolver hands its
-  // solution out whole anyway).
+  // The full SQP solution (every node's stored state); empty before the first
+  // solve. The final time requests the full horizon (SqpSolver returns the
+  // full solution anyway).
   const SolverBase& solver = *mpc_->getSolverPtr();
   PrimalSolution solution;
   solver.getPrimalSolution(/*finalTime=*/std::numeric_limits<scalar_t>::max(),
@@ -603,8 +603,8 @@ MpcLinkFactory ClosedLoopDriver::lockstepMpcLinkFactory(
   InProcessMpcLink::Config config;
   config.solverThreadName = std::string(solverName);
   config.execution = InProcessMpcLink::Execution::kCaller;
-  // The observation of every solve, to the motion manager as the MPC node's
-  // server hands it over: its input carries the measured joint motion
+  // The observation of every solve, forwarded to the motion manager from the
+  // MPC node's server: its input contains the measured joint motion
   // (ProceduralMpcMotionManager::observe()). The driver owns both; the link
   // dies first.
   // LINT.IfChange(observation_hand_over)

@@ -72,7 +72,7 @@ struct RobotStateRecord {
 };
 
 /** A recording: the joint names of the description, in the order of the
- * records' joint vectors. Every record holds the flags of the same contact
+ * records' joint vectors. Every record stores the flags of the same contact
  * set. */
 struct RecordedRobotStates {
   std::vector<std::string> jointNames;
@@ -91,7 +91,7 @@ RobotStateRecord recordRobotState(
  * `numContacts` contacts, its joints matched by name (`jointNames`, the order
  * of the record's joint vectors): the order of a RobotDescription's joints
  * differs from one process to the next. InvalidArgument when the recording's
- * joints are not exactly the description's, or when the record holds the flags
+ * joints are not exactly the description's, or when the record stores the flags
  * of another number of contacts than `numContacts`.
  */
 absl::StatusOr<robot::model::RobotState> toRobotState(

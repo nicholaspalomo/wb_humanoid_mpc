@@ -63,8 +63,8 @@ struct ViewerFlagValues {
    * configuration's mujoco_viewer chooses (viewerNamesFromFlags()).
    */
   std::string viewer;
-  /** --plot_config: the plot configuration whose mujoco_viewer names the viewer
-   * when `viewer` is empty; empty: none. */
+  /** --plot_config: the plot configuration whose mujoco_viewer specifies the
+   * viewer when `viewer` is empty; empty: none. */
   std::string plotConfig;
   /** --web_viewer_address: the interface the web viewer binds. */
   std::string webViewerAddress;
@@ -94,12 +94,12 @@ inline constexpr absl::string_view kDefaultViewerName =
  * Returns the viewer preference list of the robot binaries, by precedence:
  *   1. --viewer when it is given (not blank), checked with parseViewerNames();
  *   2. otherwise the mujoco_viewer of the plot configuration --plot_config
- * names, when one is named: the file is read strictly
+ * specifies, when one is specified: the file is read strictly
  * (nproto::LoadTextprotoFile(), a legged_rerun_viewer_proto.PlotConfig) and
  * its list checked with checkViewerNames(); a file that lists none gives
  * kDefaultViewerName;
  *   3. otherwise kDefaultViewerName.
- * The plot configuration is read only in case 2. Errors name the flag:
+ * The plot configuration is read only in case 2. Errors report the flag:
  * InvalidArgument for a list that is refused or a file that does not parse (at
  * its <file>:<line>:<column>), and the error of a file that cannot be read
  * (NotFound, ...). Logs where the list came from in cases 2 and 3. Reads a
@@ -116,7 +116,7 @@ absl::StatusOr<std::vector<std::string>> viewerNamesFromFlags(
  * hosts (split at commas, blanks dropped), the cores
  * (`default` is `defaultViewerCores`) and MUJOCO_EGL_DEVICE_ID (a device
  * index), and then every web viewer option (validateViewerSettings()). An error
- * names the flag or the variable.
+ * reports the flag or the variable.
  */
 absl::StatusOr<robot::mujoco_sim_interface::ViewerSettings>
 viewerSettingsFromFlags(const ViewerFlagValues& flags,

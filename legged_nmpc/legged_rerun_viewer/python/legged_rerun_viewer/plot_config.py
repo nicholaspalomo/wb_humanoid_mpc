@@ -30,7 +30,7 @@
 A plot configuration selects which topics, signals, wildcards, contract tabs or panels to display on 2D line graphs in
 the Rerun viewer, either from a typed textproto file (legged_rerun_viewer_proto.PlotConfig) or a line-delimited text
 file. It also bounds what the bridge records of viz/telemetry: the plotted groups only (telemetry_selection()), at most
-at telemetry_rate_hz. A textproto also names the MuJoCo viewer of the robot process (mujoco_viewer), which the robot
+at telemetry_rate_hz. A textproto also specifies the MuJoCo viewer of the robot process (mujoco_viewer), which the robot
 reads from the same file (legged_nmpc/legged_common_mpc_app/robot/README.md, --plot_config); this module checks it
 as the robot does.
 """

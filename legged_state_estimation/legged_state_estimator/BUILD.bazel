@@ -218,7 +218,7 @@ cc_library(
 )
 
 # The real-time property: once the workspace is sized, a step makes no heap allocation. A target of its own, because the
-# allocation counter replaces malloc for the whole binary.
+# allocation counter replaces malloc for the binary.
 cc_test(
     name = "test_kalman_filter_allocations",
     size = "small",

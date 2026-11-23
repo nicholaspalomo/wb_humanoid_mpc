@@ -332,8 +332,8 @@ bool isFlowMap(absl::string_view label) {
  * (EndEffectorKinematicsTwistConstraint::getLinearApproximation(): the dropped
  * term is the map's derivative times the angular velocity). Its Jacobian is
  * exact only where the foot does not turn, which a stance foot at the solution
- * does not: the tangent check holds it to its finite differences at a still
- * point and leaves it out at a moving one.
+ * does not: the tangent check compares it against its finite differences at a
+ * still point and leaves it out at a moving one.
  */
 bool linearizesWithTheFootAtRest(absl::string_view label) {
   return absl::StrContains(label, "_zeroVelocity");
@@ -594,8 +594,8 @@ TEST_P(QuaternionInvariances,
   // The procedural arm swing reads the REFERENCE's heading, not the node's
   // (SwitchedModelReferenceManager:: getDesiredState()), so the state costs'
   // Jacobians, which hold the reference constant, are exact with it on. It is
-  // switched on wherever the robot names its arm joints - also on the robots
-  // whose shipped ACoM cost turns it off - so that this check would catch a
+  // switched on wherever the robot specifies its arm joints (even on the robots
+  // whose shipped ACoM cost turns it off) so that this check would catch a
   // reference that went back to reading the state.
   interface_->getSwitchedModelReferenceManagerPtr()->setArmSwingReferenceActive(
       interface_->modelSettings().hasArmSwingJoints);

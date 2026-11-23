@@ -47,7 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * Random OCS2 objects for the conversion tests, deterministic for a given
  * generator state. The primal solutions look like those of OCS2's
  * multiple-shooting solvers: the two nodes of an event share one time, the
- * post-event indices point at the second of them, and the controller is built
+ * post-event indices reference the second of them, and the controller is built
  * on the time trajectory; a ManifoldLinearController exactly as the SQP builds
  * it on a state manifold (multiple_shooting::toPrimalSolution()).
  */
@@ -122,7 +122,7 @@ CommandData randomCommandData(std::mt19937& generator,
  * A primal solution of the given shape, with a controller of the given type
  * built on its time trajectory. A MANIFOLD_LINEAR controller comes from
  * multiple_shooting::toPrimalSolution(..., shape.stateManifold): its pre-event
- * nodes and its last node carry the anchor, input and gain of the node before
+ * nodes and its last node store the anchor, input and gain of the node before
  * them, not their own state.
  */
 PrimalSolution randomPrimalSolution(std::mt19937& generator,

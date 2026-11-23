@@ -61,7 +61,7 @@ void countAllocation() {
 
 // glibc's own entry points. Defining the allocation functions in the binary
 // interposes them on every caller in the process; free needs no counting and
-// stays glibc's. The parameters carry the C library's names (nmemb, ptr,
+// stays glibc's. The parameters use the C library's names (nmemb, ptr,
 // memptr): glibc declares them as __nmemb, __ptr and __memptr, and a definition
 // must not name them differently
 // (readability-inconsistent-declaration-parameter-name).

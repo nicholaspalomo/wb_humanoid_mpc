@@ -99,8 +99,8 @@ constexpr size_t kSwingFoot = kContactLeftIndex;
  * while the mode schedule called a foot a swing foot. That gate was sound for
  * exactly one reason: the hard `zero_wrench` constraint had already pinned the
  * swinging foot's wrench to zero, so there was nothing for a cone to bound. The
- * contact-implicit formulation removes `zero_wrench` -
- * checkMpcFormulationTasks() insists on it - and the gate then leaves a foot
+ * contact-implicit formulation removes `zero_wrench`
+ * (checkMpcFormulationTasks() insists on it), and the gate then leaves a foot
  * the schedule calls a swing foot with an unbounded wrench: adhesion, unlimited
  * friction, a center of pressure anywhere. On the shipped DRC Atlas it is worse
  * still, because `contactInputParameterization: basis_vectors` makes the
@@ -183,7 +183,7 @@ TEST(ContactConstraintScheduleGatingPredicate,
   EXPECT_FALSE(contactConstraintsAreScheduleGated(tasks));
   EXPECT_TRUE(usesContactImplicitFormulation(tasks));
 
-  // Any one of the three names the formulation.
+  // Any one of the three identifies the formulation.
   MpcFormulationTasks slipOnly;
   slipOnly.softConstraints.insert(MpcSoftConstraintType::kForceWeightedSlip);
   EXPECT_TRUE(usesContactImplicitFormulation(slipOnly));
@@ -455,7 +455,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
 
 TEST_F(ContactConstraintScheduleGatingTest,
        theCenterOfPressureRowsAreHomogeneousSoTheZeroWrenchSatisfiesThem) {
-  // Unlike the two cones, these four rows carry no constant term, which is why
+  // Unlike the two cones, these four rows have no constant term, which is why
   // the gate is all that had to change. If they did, an always-active term
   // would be violated on every foot in flight.
   const PreComputation preComp;
@@ -529,7 +529,7 @@ TEST(ContactConeGatingPenalty, theSquaredHingeIsHotReloadable) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// The copy the SQP solver makes of the whole problem, once per worker thread.
+// The copy the SQP solver makes of the full problem, once per worker thread.
 // ---------------------------------------------------------------------------------------------------------------
 
 TEST_F(ContactConstraintScheduleGatingTest,
@@ -592,7 +592,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // this is the only bound there is and it must not bias the solution.
   //
   // It is the same defect as the ground-penetration log barrier, and it takes
-  // the same cure: a one-sided hinge whose zero sits on the boundary in value
+  // the same cure: a one-sided hinge whose zero lies on the boundary in value
   // AND gradient.
   const PreComputation preComp;
   const TargetTrajectories emptyTarget;
@@ -620,7 +620,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
   }
   EXPECT_EQ(ungated->getPenaltyName(), "SquaredHingePenalty");
 
-  // The gated term still carries the barrier, and that barrier really does have
+  // The gated term still uses the barrier, and that barrier really does have
   // the negative gradient described above - so this assertion is what makes the
   // one before it mean something rather than restating a tautology.
   const ScalarFunctionQuadraticApproximation gatedApprox =
@@ -701,8 +701,8 @@ TEST_F(ContactConstraintScheduleGatingTest,
                                           negativeLambda, emptyTarget, preComp);
   EXPECT_GT(cost, 0.0);
 
-  // The gated term is simply not evaluated during a scheduled swing, which is
-  // the whole defect.
+  // The gated term is not evaluated during a scheduled swing, which is the
+  // defect.
   EXPECT_FALSE(gated->isActive(kTime));
   EXPECT_TRUE(ungated->isActive(kTime));
 
@@ -722,7 +722,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
 // it stays that way. It is what gives the solver a reason to unload the foot
 // the plan wants in the air, and it is the mechanism by which a reduced-order
 // plan guides the whole-body MPC at all. Spreading the weight over both feet
-// instead - on the theory that the schedule should not decide contact - leaves
+// instead (on the theory that the schedule should not decide contact) leaves
 // the problem symmetric and pulls the swing foot's force up to half body
 // weight, against which the complementarity term pins the foot to within a few
 // millimeters of the ground.
@@ -1134,7 +1134,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
         << ": the working point needs a tangential force";
     // Positive control: here the curvature of the normal half of the friction
     // row, mu^2 r / (mu^2 Fz^2 + r)^(3/2), is three orders of magnitude above
-    // the tolerance, so a wrong one - or the gated row's zero - fails the loop
+    // the tolerance, so a wrong one (or the gated row's zero) fails the loop
     // below.
     const scalar_t muSquareFz =
         config.frictionCoefficient * config.frictionCoefficient *

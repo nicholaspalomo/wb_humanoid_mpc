@@ -89,7 +89,7 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
   LOG(INFO) << "Input dim: " << mpcRobotModelADPtr_->getInputDim();
   LOG(INFO) << "Parameters dim: " << n_parameters_;
 
-  // The library name carries the version of the residual, so that a library
+  // The library name includes the version of the residual, so that a library
   // taped from an earlier one is never loaded from the cache in its place (the
   // robots ship recompile_libraries_cpp_ad: false): "_logMap" is the
   // orientation error Log(q_ref (x) q^-1) of computeTaskSpaceErrors(), which

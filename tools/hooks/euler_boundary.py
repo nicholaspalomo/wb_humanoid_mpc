@@ -27,7 +27,7 @@
 
 """Keeps the Euler angles at the boundary of the MPC's formulation.
 
-The formulation reads the base orientation only as a unit quaternion; Euler angles live at the conversion points of
+The formulation reads the base orientation only as a unit quaternion; Euler angles are only at the conversion points of
 legged_nmpc/docs/quaternion_base_orientation/README.md, section 4.2 (the tuning, the references and heuristics, the
 display), all of which go through legged_common_mpc/orientation/EulerBoundary.h or the robot models' `*EulerZyx`
 accessors. This check keeps the Euler API out of the code that must not convert:
@@ -40,14 +40,14 @@ accessors. This check keeps the Euler API out of the code that must not convert:
                   residual BaseOrientation, the taped end-effector kinematics), in the trees FORMULATION_TREES of lib/ocs2
                   (the centroidal model's flow map and mapping, taped by the centroidal MPC), and in the robot-model
                   headers ROBOT_MODEL_HEADERS:
-                    - an identifier that names the Euler API: one containing `EulerZyx`, `EulerAnglesZyx` or
+                    - an identifier that references the Euler API: one containing `EulerZyx`, `EulerAnglesZyx` or
                       `ZyxEulerAngles` in any capitalization (`EulerZYX`, `eulerZyxFromQuaternion`,
                       `getEulerzyxBaseRtWorld`, `getEulerAnglesZyxDerivativesFromWorldRates`, ...);
                     - an #include of `RotationDerivativesTransforms.h` or `orientation/EulerBoundary.h`.
                   Comments and string literals are not read.
 
-The robot-model headers are the one place in scope that converts: their boundary lines carry `NOLINT(euler-boundary):
-Euler boundary accessor (design section 4.2)` where they name the Euler API (the EulerBoundary.h include and the
+The robot-model headers are the one place in scope that converts: their boundary lines have `NOLINT(euler-boundary):
+Euler boundary accessor (design section 4.2)` where they reference the Euler API (the EulerBoundary.h include and the
 `*EulerZyx` accessors). Any other finding is a conversion in the formulation: read the quaternion (`getQuatBaseRtWorldXyzw`), the heading
 (`getYawBaseRtWorld`) or the body angular velocity instead.
 

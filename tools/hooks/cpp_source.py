@@ -29,7 +29,7 @@
 
 Two views of a C++ source:
 
-- `tokenize()` splits it into tokens - identifiers, numbers, punctuators, comments and string or character literals -
+- `tokenize()` splits it into tokens (identifiers, numbers, punctuators, comments and string or character literals),
   each with its line, its column and whether whitespace precedes it (`ws_before`). Preprocessor directives are skipped
   with their continuation lines, or kept as one `preprocessor` token each. It handles raw strings (`R"d(...)d"`),
   digit separators (`1'000`), `//` comments continued by a backslash and directives continued the same way.
@@ -652,7 +652,7 @@ def _is_access_label(tokens: tuple[Token, ...], start: int, colon: int) -> bool:
 
 
 class Statement(NamedTuple):
-    """A run of tokens that one `;` or one opening `{` of a body ends, with the scopes it sits in."""
+    """A run of tokens that one `;` or one opening `{` of a body ends, with the scopes it is in."""
 
     start: int  # index of its first token
     end: int  # index of its terminator, the `;` or the `{` (len(tokens) when there is none)

@@ -73,7 +73,7 @@ struct LocomotionHeuristicModelParameters {
    * left / right hip.
    *
    * The landmark `hip_centered_stepping` places the foot under. Found by
-   * walking up the kinematic tree from the joint that carries the leg's first
+   * walking up the kinematic tree from the parent joint of the leg's first
    * contact to the last joint before the floating base (hipJointOf()), which is
    * the hip however the URDF happens to name it, and falling back to that
    * contact's own horizontal position relative to the base, in the heading

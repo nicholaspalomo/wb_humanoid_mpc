@@ -127,7 +127,7 @@ RealtimePolicyEvaluator::RealtimePolicyEvaluator(
       nodeInput_(vector_t::Zero(sizeOf(dimensions.inputDim))),
       planState_(vector_t::Zero(sizeOf(dimensions.stateDim))) {
   if (stateManifold_ != nullptr) {
-    // Once, here: evaluate() hands the manifold states of dimensions.stateDim
+    // Once, here: evaluate() passes the manifold states of dimensions.stateDim
     // without checking them again.
     ABSL_CHECK_EQ(stateManifold_->getAmbientDim(), dimensions_.stateDim)
         << "[RealtimePolicyEvaluator] The state manifold's ambient dimension "

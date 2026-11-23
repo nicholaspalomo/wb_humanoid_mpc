@@ -28,7 +28,7 @@
 """Every wheel of a shipped robot spins freely and rolls on one cylinder: the rolling contact's geometry.
 
 A wheel is a URDF `continuous` joint, so Pinocchio and the robot runtime give it no position bound, and in the robot's
-MJCF an unlimited hinge of the same name. Its body carries exactly one collision geom, a cylinder coaxial with the hinge
+MJCF an unlimited hinge of the same name. Its body has exactly one collision geom, a cylinder coaxial with the hinge
 with `condim="3"`: the MPC's rolling contact is the lowest point of that cylinder, wheel
 center minus radius times the ground normal, which holds only for an upright cylinder on the wheel's own axis.
 """

@@ -48,9 +48,9 @@ namespace ocs2::legged {
 /**
  * The quadratic input effort cost (input_quadratic_cost), 1/2 (u - u_ref)' R (u
  * - u_ref), with the reference manager's getDesiredInput() as u_ref.
- * Input-only: it holds no state weight, and its derivatives with respect to the
- * state are zeros of the evaluated state's size, so that no state-sized matrix
- * of it has to follow the state's layout.
+ * Input-only: it stores no state weight, and its derivatives with respect to
+ * the state are zeros of the evaluated state's size, so that no state-sized
+ * matrix of it has to follow the state's layout.
  *
  * The reference manager must outlive it. Like every OCS2 term it is cloned for
  * each solver thread; its const functions are safe to call concurrently,

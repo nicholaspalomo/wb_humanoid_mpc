@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The Joint PD Gains tab on the bus: a change is published as the whole edited file, and only Save writes it.
+"""The Joint PD Gains tab on the bus: a change is published as the full edited file, and only Save writes it.
 
 The tab is given the GUI's publisher of operator/pd_gains over a bus that records, so the tests assert on the
 legged_mpc_config.JointPdGainsUpdate that would have gone out. The tab works on a copy of the DRC Atlas file. The

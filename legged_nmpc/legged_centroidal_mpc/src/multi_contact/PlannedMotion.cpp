@@ -227,7 +227,7 @@ absl::StatusOr<vector_t> knotState(
   return state;
 }
 
-/** The phase of `phase`, or InvalidArgument naming its index. */
+/** The phase of `phase`, or InvalidArgument reporting its index. */
 absl::StatusOr<PlannedContactPhase> plannedPhase(
     const multi_contact::config::MultiContactPlan::ContactPhase& phase,
     size_t index) {

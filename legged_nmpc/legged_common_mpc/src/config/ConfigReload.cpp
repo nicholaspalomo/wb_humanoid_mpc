@@ -179,8 +179,8 @@ bool presenceMatters(const FieldDescriptor& field) {
   return field.has_presence() && !field.has_default_value();
 }
 
-/** Whether the value field `field` holds the same values in `running` and
- * `reloaded`, presence included where it matters. */
+/** Whether the value field `field` has the same values in `running` and
+ * `reloaded`, including explicit presence where tracked. */
 bool sameValues(const Message& running,
                 const Message& reloaded,
                 const FieldDescriptor& field) {

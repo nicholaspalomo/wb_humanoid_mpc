@@ -43,13 +43,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_core/ResourcePaths.h"
 
 /*
- * The CppAD library folder of the MPCs carries the state layout's tag
+ * The CppAD library folder of the MPCs includes the state layout's tag
  * (common/StateLayout.h, design decision D14 of
  * legged_nmpc/docs/quaternion_base_orientation/README.md). Every shipped task
  * file sets model_settings.recompile_libraries_cpp_ad: false, and a library is
  * reused whenever its .so file exists, so a library taped for another state
- * layout - a stale one of an untagged layout sits one folder up, in the folder
- * without the tag - must never be loaded for the quaternion layout: the folder
+ * layout (a stale one of an untagged layout is one folder up, in the folder
+ * without the tag) must never be loaded for the quaternion layout: the folder
  * of every MPC is cppad_code_gen/cppad_<mpc><robot>/<tag>, the tag its last
  * path component, and the tag is pinned here with its spelling, so that
  * changing it (and so regenerating every library) is a deliberate edit of this

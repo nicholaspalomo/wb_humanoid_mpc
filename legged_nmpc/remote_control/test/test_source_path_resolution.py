@@ -307,7 +307,7 @@ class TestResolveConfigFiles(FakeCheckoutTestCase):
         )
 
     def test_nothing_given_falls_back_to_a_shipped_robot(self):
-        # The fake checkout holds the first default task file.
+        # The fake checkout contains the first default task file.
         files = config_files.resolve_config_files(repo_root=self.repo_root)
         self.assertEqual(
             files.task_file,

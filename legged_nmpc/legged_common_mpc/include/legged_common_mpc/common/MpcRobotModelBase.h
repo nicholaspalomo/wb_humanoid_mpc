@@ -118,12 +118,12 @@ inline constexpr int kTwistYawRateIndex = kPositionDim + kZAxisIndex;
 
 /**
  * The state and input layout of one MPC formulation: where the base pose, the
- * joints and the contact wrenches sit in the state and input vectors, and how
- * to read and write them, for scalar_t and for the CppAD scalar.
+ * joints and the contact wrenches are located in the state and input vectors,
+ * and how to read and write them, for scalar_t and for the CppAD scalar.
  *
  * Each formulation derives one. It keeps a reference to the ModelSettings it is
  * built with, which must outlive it, and is cloned into every term that needs
- * it. The base class holds the layout's sizes and its tuning layout
+ * it. The base class stores the layout's sizes and its tuning layout
  * (getTuningLayout()), and its const functions are safe to call concurrently.
  *
  * Layout-agnostic accessors. A consumer reads and writes the state only through
@@ -139,8 +139,8 @@ inline constexpr int kTwistYawRateIndex = kPositionDim + kZAxisIndex;
  * accessors (getEulerzyxBaseRtWorld / setEulerzyxBaseRtWorld,
  * getPoseeulerzyxBaseRtWorld / setPoseeulerzyxBaseRtWorld, and
  * setTurnAngvelBaseRtWorldEwrtBase) are for the human-facing inputs and
- * outputs only - commands and their knots, the locomotion-heuristic seam,
- * telemetry and display - and are in double precision for every SCALAR_T.
+ * outputs only (commands and their knots, the locomotion-heuristic seam,
+ * telemetry and display), and are in double precision for every SCALAR_T.
  */
 template <typename SCALAR_T>
 class MpcRobotModelBase {
@@ -424,18 +424,18 @@ class MpcRobotModelBase {
    * first sample, which the targets read and the gait switches do not
    * (ProceduralMpcMotionManager::observe(); design defects D1, D1b, D2).
    *
-   * A state that holds the base velocity is read, and `jointVelocities` is not:
-   * the whole-body w_W = R(xi) w_B. The centroidal state holds the normalized
-   * centroidal momentum h instead, and Pinocchio's centroidal momentum map m h
-   * = A_b(q) v_b + A_j(q) dq_j gives the base velocity v_b = A_b^-1 (m h - A_j
-   * dq_j) (CentroidalMpcRobotModel): pass the measured joint velocities,
-   * getJointVelocities() of the observation's state and input, which the MRT
-   * writes. Zero joint velocities do not give the base twist but the twist of
-   * the robot with its joints locked, w = I_G^-1 L, off from the base's by
-   * I_G^-1 (A_j dq_j)_ang, the joints' angular momentum over the locked
-   * inertia: on a walking humanoid more than the base's own yaw rate (design
-   * README section 2.9). One Pinocchio pass on the centroidal model, so call it
-   * once per solve, not per node. Double precision only.
+   * A state that stores the base velocity is read, and `jointVelocities` is
+   * not: the whole-body w_W = R(xi) w_B. The centroidal state stores the
+   * normalized centroidal momentum h instead, and Pinocchio's centroidal
+   * momentum map m h = A_b(q) v_b + A_j(q) dq_j gives the base velocity v_b =
+   * A_b^-1 (m h - A_j dq_j) (CentroidalMpcRobotModel): pass the measured joint
+   * velocities, getJointVelocities() of the observation's state and input,
+   * which the MRT writes. Zero joint velocities do not give the base twist but
+   * the twist of the robot with its joints locked, w = I_G^-1 L, off from the
+   * base's by I_G^-1 (A_j dq_j)_ang, the joints' angular momentum over the
+   * locked inertia: on a walking humanoid more than the base's own yaw rate
+   * (design README section 2.9). One Pinocchio pass on the centroidal model, so
+   * call it once per solve, not per node. Double precision only.
    */
   virtual vector6_t getTwistBaseRtWorldEwrtWorld(
       const vector_t& state, const vector_t& jointVelocities) const = 0;
@@ -494,7 +494,7 @@ class MpcRobotModelBase {
   /**
    * The tuning-layout vector of `state`, the inverse of stateFromTuning()
    * (tuningLayoutFromState(), the Euler angles of the normalized quaternion).
-   * InvalidArgument, naming the tuning layout, when `state` does not have
+   * InvalidArgument, identifying the tuning layout, when `state` does not have
    * getStateDim() entries.
    */
   virtual absl::StatusOr<vector_t> tuningFromState(

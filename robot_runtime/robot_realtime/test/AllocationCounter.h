@@ -37,7 +37,7 @@ namespace robot::realtime {
  * The number of heap allocations this process has made so far.
  *
  * Linking this library into a binary interposes malloc, calloc, realloc,
- * aligned_alloc, memalign and posix_memalign for the whole process, forwarding
+ * aligned_alloc, memalign and posix_memalign for the process, forwarding
  * each to glibc's own implementation after counting it. That catches every
  * allocation, including Eigen's, which calls std::malloc directly rather than
  * operator new, and operator new's for over-aligned types. Only for test and

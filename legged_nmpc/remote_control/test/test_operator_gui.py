@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""OperatorGui, the loop that runs the window against the bus: what one tick publishes, and what it hands the window.
+"""OperatorGui, the loop that runs the window against the bus: what one tick publishes, and what it passes to the window.
 
 The headless tests drive OperatorGui with a stand-in window that records what it is told; the display tests build the
 real App over an operator bus that records, and check the wiring end to end: the walking command of the on-screen
@@ -55,7 +55,7 @@ from remote_control import teleop
 
 
 class FakeApp:
-    """Records what OperatorGui tells the window, and holds the command of its sticks."""
+    """Records what OperatorGui tells the window, and stores the command of its sticks."""
 
     def __init__(self) -> None:
         self.fsm_command_callback: Callable[[str], None] | None = None

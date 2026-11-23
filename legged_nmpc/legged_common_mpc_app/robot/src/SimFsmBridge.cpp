@@ -70,7 +70,7 @@ SimFsmBridge::SimFsmBridge(
 
 bool SimFsmBridge::processCommands(std::string& currentModeName) {
   OperatorCommandMailbox& commands = state_.commands();
-  // Handed over first and unconditionally: a throw is independent of the FSM,
+  // Forwarded first and unconditionally: a throw is independent of the FSM,
   // and the early return below fires on every cycle in which no mode change is
   // pending - which is almost all of them.
   robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow throwCommand;

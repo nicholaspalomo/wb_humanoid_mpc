@@ -20,7 +20,7 @@ gaits {
 }
 
 # Driving: every wheel stays on the ground while the base moves, and the no-slip constraint of each wheel turns the
-# commanded base twist into wheel speeds. Its modes are those of stance; the gait of its own names the phase in the
+# commanded base twist into wheel speeds. Its modes are those of stance; the separate gait identifies the phase in the
 # gait switching table and in the telemetry.
 gaits {
   name: "drive"
@@ -35,7 +35,7 @@ gaits {
 # - drive takes every other command: its upper bounds of 10 m/s and 10 rad/s are above any command the reference files
 #   allow. It gives way to stance once the command is below 0.05 m/s and 0.05 rad/s and the stride-mean motion below
 #   0.1 m/s and 0.1 rad/s (its lower bounds plus its error thresholds of 0.05).
-# drive's lower bounds sit below stance's upper bounds, so that a command near one bound does not switch back and
+# drive's lower bounds are below stance's upper bounds, so that a command near one bound does not switch back and
 # forth.
 gait_switching {
   rows {

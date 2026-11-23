@@ -2,9 +2,9 @@
 
 #### Co-dependent changes: use IFTTT directives (`LINT.IfChange` / `LINT.ThenChange`)
 
-When code or configuration in one place must stay in sync with code elsewhere - but DRY cannot eliminate the duplication (for example, package registrations, launch targets, system dependencies, or Bazel repository rules) - mark the dependency with `LINT.IfChange` / `LINT.ThenChange` directives so changes to one side prompt review of the other. Add these directives proactively when creating new co-dependent content, not just when maintaining existing pairs.
+When code or configuration in one place must stay in sync with code elsewhere, and DRY cannot eliminate the duplication (for example, package registrations, launch targets, system dependencies, or Bazel repository rules), mark the dependency with `LINT.IfChange` / `LINT.ThenChange` directives so changes to one side prompt review of the other. Add these directives proactively when creating new co-dependent content, not just when maintaining existing pairs.
 
-Keep the guarded block as small as possible. Prefer several small labeled source->target pairs over one large catch-all block unless the whole region genuinely needs to change together. Directives are enforced via `ifttt-lint`.
+Keep the guarded block as small as possible. Prefer several small labeled source->target pairs over one large catch-all block unless all of it genuinely needs to change together. Directives are enforced via `ifttt-lint`.
 
 <details>
 <summary>Example</summary>
@@ -40,7 +40,7 @@ The editor's clangd is a compiler front end outside that budget too: `tools/ide/
 background index with two workers at low priority, and changes must not raise them (`tools/ide/README.md`).
 <!-- LINT.ThenChange(//tools/ide/clangd_in_dev_container.sh:clangd_flags) -->
 
-Separate containers each size their builds to the whole machine, so `tools/bazel` (which Bazelisk runs in place of
+Separate containers each size their builds to the host's full RAM, so `tools/bazel` (which Bazelisk runs in place of
 Bazel in the dev container, in CI and in `make ci-local`) makes the `build`, `test` and `coverage` commands of every
 container take turns through a lock file in the shared checkout. A second build waits and says why. Do not bypass it
 (`BAZELISK_SKIP_WRAPPER`), and keep that script POSIX `sh`: the dev container's `BASH_ENV` makes every bash script
@@ -67,20 +67,20 @@ written.
 
 The rules cover first-party code. Vendored code under `lib/` is left as it comes, with two exceptions for the OCS2
 sources in `lib/ocs2` (not the CppAD and iit copies in `lib/ocs2/thirdparty`): they stay Boost-free, and their raw
-pointers carry nullability annotations. Generated code is held to the rules through its generator
+pointers have nullability annotations. Generated code is held to the rules through its generator
 (`tools/nproto/nproto_generator.py`) rather than by linting `bazel-bin`; the generated ACOM weight headers are listed in
 `tools/hooks/lint_files.py` and skipped. Every C++ and Python file starts with the BSD-3 license comment block of
 the repository's license file: the holder line, the three conditions and the disclaimer (`license-header`, `py-license-header`; cpplint
 `legal/copyright` only looks for the word). A new file's holder line is
 `Copyright (c) <year>, Nicholas Palomo. All rights reserved.`; an existing holder line is kept, and a holder line
-without its holder gets the one `git log` names.
+without its holder gets the one shown by `git log`.
 
 A rule that a tool checks is a hard failure: there is no baseline file and no grandfathered finding. Fix the finding.
 Where a rule is genuinely wrong for one line, say why on that line: `// NOLINT(<check>): <reason>` (`#` in Python,
 shell and Starlark; or `NOLINTNEXTLINE`, or a `NOLINTBEGIN` / `NOLINTEND` pair around a block), for pylint's own
 messages `# pylint: disable=<message>  # <reason>` (a block pragma alone on its line may say why on the comment line
 above it), and for mypy `# type: ignore[<code>]  # <reason>`. A marker without a check name or without a reason fails
-the lint (`nolint-category`, `nolint-reason`, `py-pragma-reason`), and so does a marker that names no known check
+the lint (`nolint-category`, `nolint-reason`, `py-pragma-reason`), and so does a marker for an unknown check
 (`nolint-unknown`), one for the repository's own checks that suppresses nothing (`nolint-unused`), an unclosed
 `NOLINTBEGIN` (`nolint-unbalanced`), a bare `# type: ignore` (`py-type-comment`) and `# pylint: skip-file`
 (`py-pragma-reason`). The agent rules below are the ones no tool can check. They apply to new code and to the code a change touches; they are not
@@ -100,7 +100,7 @@ a reason to restyle unrelated code in the same change.
   whose template argument is a lambda type that cannot be spelled.
 - **`absl::Status` and `absl::StatusOr` are never dropped.** Handle the value, return it, or call `.IgnoreError()` with
   a comment saying why. A `(void)` cast does not count.
-- **Literal arguments** carry `/*parameterName=*/` comments, with the name copied from the callee's declaration
+- **Literal arguments** include `/*parameterName=*/` comments, with the name copied from the callee's declaration
   (`tools/hooks/argument_comments.py`; clang-tidy's `bugprone-argument-comment` checks the names) - not only as a last
   resort. A literal that the function name already explains (`std::pow(x, 2)` or `v.resize(3)` in a test, where
   literals need no name) needs none.
@@ -110,7 +110,7 @@ a reason to restyle unrelated code in the same change.
   literal's type, so the arithmetic is unchanged, with a short comment when its meaning or unit is not obvious. Exempt:
   0 and 1, a floating 0.5 or 2.0 as a factor of `*` or `/` (the integer 2 never is), and literals in a constant's
   definition or an enumerator; tests, test support and test-only libraries, benchmarks, the generated ACoM weight
-  headers, the clang-tidy fixtures and lib/ocs2/thirdparty are not read. A literal that must stay carries
+  headers, the clang-tidy fixtures and lib/ocs2/thirdparty are not read. A literal that must stay uses
   `// NOLINT(magic-number): <reason>`. The generic dimensions are in `lib/ocs2/core/include/ocs2_core/Dimensions.h`.
 - **Naming.** Types, constants and enumerators (`kName`), namespaces, macros and the trailing `_` of class data members
   follow the guide. Functions, methods, variables and parameters are camelCase as in OCS2, whose virtual functions we
@@ -118,9 +118,9 @@ a reason to restyle unrelated code in the same change.
   `PascalCase.h` / `PascalCase.cpp` and tests `testThing.cpp`. OCS2's lowercase type aliases (`scalar_t`, `vector_t`)
   and `SCALAR_T` template parameters stay.
 - **Header guards** are `#pragma once`, not `#define` guards.
-- **Namespaces.** First-party code lives in `ocs2::legged` and `robot::`, not under a project-owned top-level name.
+- **Namespaces.** First-party code goes in `ocs2::legged` and `robot::`, not under a project-owned top-level name.
   Never name a nested namespace `testing`, `std`, `absl` or `util` (ToTW #130), nor `Eigen` or `pinocchio`.
-  Implementation details may live in a nested `internal` namespace, as `nproto::internal` does. Packages, proto
+  Implementation details may go in a nested `internal` namespace, as `nproto::internal` does. Packages, proto
   packages and macros say `legged`, not `humanoid`, unless the code is about a humanoid robot; the repository, the Bazel
   module `wb_humanoid_mpc` and the deploy names `wb-humanoid-robot` keep their names, since existing setups and
   deployed machines use them.
@@ -132,7 +132,7 @@ a reason to restyle unrelated code in the same change.
   overloads, which do not throw, and convert failures to `absl::Status`.
 - **OCS2 class hierarchies** keep their protected data members, `std::shared_ptr` parameters and owning
   `T* absl_nonnull clone() const` returns, because the OCS2 base classes define them. New class hierarchies have private
-  data and hand over ownership with `std::unique_ptr`.
+  data and transfer ownership with `std::unique_ptr`.
 - **Status macros.** `RETURN_IF_ERROR` and `ASSIGN_OR_RETURN` (`legged_common_mpc/common/StatusMacros.h`) keep the
   names Google uses for them. Every other macro defined in a header starts with its library's prefix (`ROBOT_IPC_`,
   `NPROTO_`, `LEGGED_`, `WBMPC_`), and a macro defined in a `.cpp` file is `#undef`ined at the end of it.
@@ -196,11 +196,11 @@ Protocol Buffers and dependencies are enforced by the checks in `tools/hooks` to
   or `.yml` file under `robot_models/` or `legged_nmpc/`, whose configuration files are typed textprotos
   (`config-yaml`, legged_nmpc/legged_mpc_config/README.md);
 - one top-level message or enum per `.proto` file, named after it, with its nproto option, and no message reserves a
-  field name - `reserved "old";` or `reserved old;` - which protobuf's C++ text parser would silently skip: a retired
+  field name (`reserved "old";` or `reserved old;`), which protobuf's C++ text parser would silently skip: a retired
   field is listed in `(nproto.retired_field)` instead (`proto-file-layout`, tools/nproto/README.md);
-- every message names its next free field number (`// Next ID: N`) and opens with `reserved N to max;`
+- every message declares its next free field number (`// Next ID: N`) and opens with `reserved N to max;`
   (`proto-next-id`);
-- every `.textproto` names its schema in its leading comment block, `# proto-file: <path>` and
+- every `.textproto` specifies its schema in its leading comment block, `# proto-file: <path>` and
   `# proto-message: <package>.<Message>`, and the schema exists (`textproto-header`).
 <!-- LINT.ThenChange(//tools/hooks/checks.py:registry) -->
 
@@ -209,12 +209,12 @@ The base orientation is a unit quaternion (legged_nmpc/docs/quaternion_base_orie
 <!-- LINT.IfChange(orientation_rules) -->
 - no `SphericalZYX` root joint in the C++ of `legged_nmpc/`, `robot_runtime/` and
   `lib/ocs2/pinocchio/centroidal_model/` (`spherical-zyx`);
-- no Euler API - an identifier containing `EulerZyx`, `EulerAnglesZyx` or `ZyxEulerAngles` in any capitalization, or an
-  `#include` of `RotationDerivativesTransforms.h` or `orientation/EulerBoundary.h` - in the formulation directories of
+- no Euler API (an identifier containing `EulerZyx`, `EulerAnglesZyx` or `ZyxEulerAngles` in any capitalization, or an
+  `#include` of `RotationDerivativesTransforms.h` or `orientation/EulerBoundary.h`) in the formulation directories of
   `legged_nmpc/` (`dynamics`, `cost`, `constraint`, `end_effector`, `acom`, `parameter_update`, `pinocchio_model` and
   `contact` below `src/` and `include/<package>/`), in the formulation files (`LeggedPreComputation`,
   `WBMpcPreComputation`, `orientation/BaseOrientation` and lib/ocs2's `PinocchioEndEffectorKinematicsCppAd`), in
-  `lib/ocs2/pinocchio/centroidal_model/` and in the robot-model headers, whose Euler boundary accessors carry
+  `lib/ocs2/pinocchio/centroidal_model/` and in the robot-model headers, whose Euler boundary accessors use
   `NOLINT(euler-boundary): Euler boundary accessor (design section 4.2)` (`euler-boundary`; the full list is in
   `tools/hooks/euler_boundary.py`);
 - no linear interpolation of a state trajectory under `legged_nmpc/` outside the robot models: no one-argument
@@ -264,10 +264,10 @@ Agent rules (no tool checks these):
 - The `const` methods of a class are safe to call concurrently, or the class says it is not thread-safe.
 - Do not use gendered pronouns for unspecified people. Software is "it".
 
-#### Raw pointers carry nullability (`absl_nonnull` / `absl_nullable`)
+#### Raw pointers carry nullability annotations (`absl_nonnull` / `absl_nullable`)
 
 <!-- LINT.IfChange(nullability) -->
-Every raw-pointer declarator in first-party code and in `lib/ocs2` (not `lib/ocs2/thirdparty`) carries `absl_nonnull`
+Every raw-pointer declarator in first-party code and in `lib/ocs2` (not `lib/ocs2/thirdparty`) has `absl_nonnull`
 or `absl_nullable` directly after its `*`, the way `const` qualifies a const pointer:
 - parameters, returns, members, locals, template arguments, lambda parameters, range-for and condition variables, and
   aliases: `const Foo* absl_nonnull`, `std::vector<Foo* absl_nonnull>`, `Foo* absl_nonnull const p`;
@@ -385,7 +385,7 @@ Agent rules:
 - Never touch a returned local after `return`, including from `absl::Cleanup` or a destructor (#120).
 - In tests prefer `TEST` with local objects and free helpers to fixture state, and use a `*Peer` rather than `friend`
   (#122, #135).
-- Hold a member by value first, then as `std::optional`, and use `std::unique_ptr` only for ownership or polymorphism
+- Store a member by value first, then as `std::optional`, and use `std::unique_ptr` only for ownership or polymorphism
   (#123, #187).
 - Look a key up once: use `operator[]`, `try_emplace`, `insert().second` or `contains()`. Use heterogeneous lookup, not
   `std::string(view)` temporaries (#132, #144).
@@ -412,7 +412,7 @@ Not applied:
   superseded by #112; the removed spellings `absl::make_unique`, `absl::Nullable<>` and `absl::optional`; #90 (retired
   flags). #117's sink-parameter advice still applies (above); only its copy-elision background is superseded.
 - Not used here: #59, #198, #229.
-- Only partly applicable: #130's "one top-level namespace per project"; the code lives in `ocs2::legged`.
+- Only partly applicable: #130's "one top-level namespace per project"; the code is in `ocs2::legged`.
 
 #### Python: where this repository departs from the Google Python Style Guide
 
@@ -477,7 +477,7 @@ Agent rules:
 - No reflection as control flow (`hasattr(self, "_x")` caches: initialize the attribute in `__init__`), no `exec` or
   `eval`, and no import hacks. A test that executes a shipped notebook may `exec` it, with a pragma saying so.
 - `subprocess.Popen(preexec_fn=...)` is used only to set the parent-death signal (`PR_SET_PDEATHSIG`), which
-  `start_new_session` cannot do, and carries `# pylint: disable=subprocess-popen-preexec-fn  # <that reason>`.
+  `start_new_session` cannot do, and includes `# pylint: disable=subprocess-popen-preexec-fn  # <that reason>`.
 - Build strings with f-strings, `%` or `.format`, never `+`. Accumulate with `"".join` or `io.StringIO`. An error
   message matches the actual condition, shows interpolated values recognizably and stays greppable.
 - Docstrings:
@@ -503,9 +503,9 @@ snake_case name (a proto field, Python, a C++ field that mirrors a proto) stays 
 The README lists the closed vocabularies of quantities (`pos`, `linvel`, `angvel`, `quat`, `rotmat`, `force`,
 `wrench`, ...), frames (`world`, `base`, `com`, `heading`, `lfoot`, `contact`, ...), qualifiers (`des`, `ref`, `meas`,
 `est`, `err`, ...) and suffixes, the exemptions (joint-space quantities, dimensions and indices, types, third-party
-names), and the rename table. Orientations relate two frames and name no expressed-in frame (`quat_base_rt_world`); forces name the point they
-act at and no relative frame (`wrench_rfoot_ewrt_world`). Where the code does not make the frames clear, read the math;
-never guess, and never leave a `TODO(frame-naming)`: split a model-dependent value, add a missing word, or fix the math. The vocabulary lives in one place,
+names), and the rename table. Orientations relate two frames and omit the expressed-in frame (`quat_base_rt_world`); forces specify the point they
+act at and omit the relative frame (`wrench_rfoot_ewrt_world`). Where the code does not make the frames clear, read the math;
+never guess, and never leave a `TODO(frame-naming)`: split a model-dependent value, add a missing word, or fix the math. The vocabulary is defined in
 `tools/hooks/frame_naming.py`.
 
 Enforced by the checks in `tools/hooks`:
@@ -515,8 +515,8 @@ Enforced by the checks in `tools/hooks`:
   identifier with a legacy quantity word (`position`, `velocity`, `orientation`, `quaternion`, `rotation`,
   `acceleration`, `force`, `torque`, `wrench`, `twist`, `momentum`, `pose`, their abbreviations and plurals) and no
   exemption is a legacy name (`frame-naming`);
-- a fixed-size vector declared with a name of frame and point words only (`center`, `com`, `stanceFoot`) names no
-  quantity, and a `TODO(frame-naming)` is never left in the code (`frame-naming`).
+- a fixed-size vector declared with a name of frame and point words only (`center`, `com`, `stanceFoot`) has no
+  quantity word, and a `TODO(frame-naming)` is never left in the code (`frame-naming`).
 <!-- LINT.ThenChange(//tools/hooks/checks.py:registry, //tools/hooks/frame_naming.py:quantities) -->
 
 #### Running the style checks
@@ -525,8 +525,8 @@ Enforced by the checks in `tools/hooks`:
 - `make format` applies clang-format, black, isort and the rewrites that cannot change behavior: floating-point radix
   points, `=` initialization, prefix `++`, unqualified integer types and quoted include spelling (the `fix_source` of
   each enforced check that has one).
-- `make fix` applies every automatic fix - the registry's `fix_source` rewrites, `make format`'s, and with
-  `TIDY_CHECKS=<glob>` clang-tidy's fix-its (`make lint-tidy-fix`) - and then runs `make lint`, whose findings are the
+- `make fix` applies every automatic fix (the registry's `fix_source` rewrites, `make format`, and with
+  `TIDY_CHECKS=<glob>` clang-tidy's fix-its via `make lint-tidy-fix`) and then runs `make lint`, whose findings are the
   ones left to fix by hand. Some of its rewrites can change behavior (`american-spelling` renames identifiers), so build
   and test afterwards.
 - `make lint` (`python3 -m tools.hooks.lint_code`) runs every check that needs no compiler: IFTTT, whitespace,

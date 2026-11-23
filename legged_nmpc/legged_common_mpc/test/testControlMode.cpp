@@ -35,9 +35,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_common_mpc/mrt/ControlMode.h"
 
 /*
- * The control mode names the MRT joint controllers and the sim fall recovery
- * share. Each of them used to spell the names and the two families out on its
- * own.
+ * The control mode identifies the MRT joint controllers and the sim fall
+ * recovery share. Each of them used to spell the names and the two families out
+ * on its own.
  */
 
 namespace ocs2::legged {

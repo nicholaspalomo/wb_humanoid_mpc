@@ -37,11 +37,11 @@ source path.
 Warnings (AGENTS.md, C++ "Warnings"): every cc_library, cc_binary and cc_test of a first-party BUILD file compiles with
 FIRST_PARTY_COPTS from bazel/copts.bzl, directly or through a module-level list built from it, and no BUILD or .bzl
 file spells a warning flag of its own. Two forms are allowed: `-Werror`, which only makes the shared warnings errors,
-and a `-Wno-...` that names its reason in a comment on its line, for a third-party header that one target includes.
+and a `-Wno-...` that states its reason in a comment on its line, for a third-party header that one target includes.
 Neither form may switch off what the shared list makes an error: `-w` (no warnings at all), `-fpermissive` (errors
 demoted to warnings), a bare `-Wno-error`, and `-Wno-error=<flag>` or `-Wno-<flag>` for a `-Werror=<flag>` of
 FIRST_PARTY_COPTS are refused with or without a reason.
-The flags themselves live in bazel/copts.bzl; tools/clang_tidy/clang_tidy.bzl names the clang warnings behind the
+The flags themselves are defined in bazel/copts.bzl; tools/clang_tidy/clang_tidy.bzl lists the clang warnings behind the
 `clang-diagnostic-*` checks of .clang-tidy, which no compiler sees.
 """
 

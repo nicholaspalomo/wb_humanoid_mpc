@@ -70,8 +70,8 @@ NormalizedWalkingVelocityCommand clampWalkingVelocityCommand(
  * ProceduralMpcMotionManager::setAndScaleVelocityCommand():
  * clampWalkingVelocityCommand() of its values.
  *
- * InvalidArgument naming the field when a value is not finite: a NaN would pass
- * std::clamp() unchanged and reach every target trajectory of the MPC.
+ * InvalidArgument identifying the field when a value is not finite: a NaN would
+ * pass std::clamp() unchanged and reach every target trajectory of the MPC.
  */
 absl::StatusOr<NormalizedWalkingVelocityCommand>
 walkingVelocityCommandFromProto(

@@ -497,7 +497,7 @@ def _derive(geometry, task, limits, planning, gait="trot"):
 
 
 # The ranges LocomotionHeuristicConfig::validate() enforces with requirePositive / requireNonNegative, spelled out so
-# that each admissibility assertion names its key. test_admissibility_table_matches_validate keeps it in step with the
+# that each admissibility assertion identifies its key. test_admissibility_table_matches_validate keeps it in step with the
 # C++, which is how the checks of lateral_scale, max_force_com_ewrt_world_xy, max_wnorm_force_com_ewrt_world_xy, gain and longitudinal_scale
 # came to be missing before.
 MUST_BE_POSITIVE = (
@@ -526,7 +526,7 @@ OPTIONAL_KEYS = (
 
 
 def _mentions(lines, *phrases):
-    """Whether one of the report `lines` holds every one of `phrases`."""
+    """Whether one of the report `lines` contains every one of `phrases`."""
     return any(all(phrase in line for phrase in phrases) for line in lines)
 
 
@@ -1004,7 +1004,7 @@ class DcmTerminalCostReportTest(unittest.TestCase):
         )
         assert cost is not None, "the C++ registry has no DcmTerminalCost"
         self.assertEqual(derive.DCM_TERMINAL_COST, cost.group(1))
-        # The schema refuses the retired key with a replacement that names the cost.
+        # The schema refuses the retired key with a replacement that specifies the cost.
         retired = re.search(
             r'name: "%s"\s*replacement: "[^"]*%s'
             % (derive.RETIRED_DCM_TERMINAL_COST_KEY, derive.DCM_TERMINAL_COST),
@@ -1531,7 +1531,7 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
 
     def test_stepping_coefficients_do_not_depend_on_the_gait_flag(self):
         # HC2: `--gait` defaulted to trot and sized the stepping gains from its step period, so the printed block was
-        # right in one speed band. The stance-duration terms carry the cadence now, so every rung prints the same block.
+        # right in one speed band. The stance-duration terms set the cadence now, so every rung prints the same block.
         gaits = _gaits()
         geometry = _synthetic_geometry()
         for robot in sorted(derive.ROBOTS):
@@ -1559,7 +1559,7 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
     def assert_duty_clamp_is_just_below(
         self, clamp: float, smallest_duty: float
     ) -> None:
-        """minimum_duty_factor sits below the smallest duty factor of any gait, and only just below it.
+        """minimum_duty_factor is below the smallest duty factor of any gait, and only just below it.
 
         Above it, the clamp holds a real gait's beta up and scales that gait's force down. Far below it, the clamp lets
         1/beta run up to 1/clamp as a flight phase opens, which is the blow-up it exists to stop. The lower bound is
@@ -1828,10 +1828,10 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                 )
 
     def test_every_blend_starts_at_the_unattenuated_heuristic(self):
-        # UNIT_GAINS scale a heuristic's whole effect, and validate() admits 0 for each: a derivation printing 0 would
-        # hand out a block in which listing the heuristic changes nothing, so the sweep would start from "off". The
-        # starting point is the heuristic at full strength - Bledt's value, the textbook capture point, the hip's own
-        # x - which is 1.
+        # UNIT_GAINS scale a heuristic's full effect, and validate() admits 0 for each: a derivation printing 0 would
+        # output a block in which listing the heuristic changes nothing, so the sweep would start from "off". The
+        # starting point is the heuristic at full strength (Bledt's value, the textbook capture point, the hip's own
+        # x), which is 1.
         for robot in sorted(derive.ROBOTS):
             with self.subTest(robot=robot):
                 parameters = self._derive_robot(robot)[3]
@@ -2040,7 +2040,7 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
 
     def test_periodic_roll_peaks_at_mid_left_stance(self):
         # The one phase in the family that is derived rather than fitted, and the derivation is easy to invert by
-        # accident: phase [0, 0.5) is the LF mode, which names the foot IN CONTACT, so 0.25 is mid LEFT stance; and a
+        # accident: phase [0, 0.5) is the LF mode, which identifies the foot IN CONTACT, so 0.25 is mid LEFT stance; and a
         # positive roll raises the left side, i.e. drops the hip on the SWING side, which is what a biped does.
         block = self._derive_robot("drc_atlas")[3][
             "periodic_orientation_parameters"

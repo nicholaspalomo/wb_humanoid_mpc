@@ -58,7 +58,7 @@ def parse_targets(target_str: str) -> list[str]:
     return targets
 
 
-# The labels of each file read so far; one run reads a file once, however many directives point at it.
+# The labels of each file read so far; one run reads a file once, however many directives reference it.
 _LABEL_CACHE: dict[str, set[str]] = {}
 
 
@@ -183,7 +183,7 @@ def main() -> None:
     """Checks the files named on the command line, or every file git would ship; exits 1 on an error."""
     files = sys.argv[1:]
     if not files:
-        # What git would ship - tracked files and untracked ones that are not ignored - which is what the pre-commit
+        # What git would ship (tracked files and untracked ones that are not ignored), which is what the pre-commit
         # hook sees. Walking the tree instead would lint editor backups and build output the hook never checks.
         try:
             listed = subprocess.run(

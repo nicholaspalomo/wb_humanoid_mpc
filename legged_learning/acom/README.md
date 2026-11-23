@@ -22,7 +22,7 @@ In legged locomotion:
   $$\mathbf{r}_{\text{CoM}}(\mathbf{q}) = \frac{1}{m_{\text{total}}} \sum_{i=1}^n m_i \mathbf{r}_i(\mathbf{q}), \quad \frac{d}{dt}\mathbf{r}_{\text{CoM}}(\mathbf{q}) = \mathbf{v}_{\text{CoM}}$$
   Consequently, translational motion planning and MPC can track an absolute position target $\mathbf{r}_{\text{CoM}} \in \mathbb{R}^3$ without integration drift.
 
-- **Centroidal Angular Momentum ($\mathbf{L}_G$)** is fundamentally **non-holonomic**:
+- **Centroidal Angular Momentum ($\mathbf{L}_G$)** is **non-holonomic**:
   $$\mathbf{L}_G = \mathbf{A}_\omega(\mathbf{q}) \dot{\mathbf{q}} = \mathbf{I}_G(\mathbf{q}) \boldsymbol{\omega}_b + \mathbf{A}_{\omega, j}(\mathbf{q}) \dot{\mathbf{q}}_j$$
   where $\mathbf{A}_\omega(\mathbf{q})$ is the angular block of the Centroidal Momentum Matrix (CMM), and $\mathbf{I}_G(\mathbf{q})$ is the whole-body locked rotational inertia at the CoM.
 
@@ -33,7 +33,7 @@ Because the differential connection $\bar{\mathbf{A}}_{\omega, j}(\mathbf{q})$ h
 
 ### 1.2 The aCOM Coordinate Definition
 
-The core idea of Pratt et al. is to construct an **integrable configuration-dependent approximation**:
+Pratt et al. construct an **integrable configuration-dependent approximation**:
 $$\boldsymbol{\theta}_{\text{aCOM}}(\mathbf{q}): \mathcal{Q} \to \mathbb{R}^3$$
 such that its time derivative $\dot{\boldsymbol{\theta}}_{\text{aCOM}} = \mathbf{J}_{\text{aCOM}}(\mathbf{q})\dot{\mathbf{q}}$ best approximates $\boldsymbol{\omega}_{\text{locked}}$.
 
@@ -92,8 +92,8 @@ header records both of the exported epoch.
 No permutation is applied: $\operatorname{Exp}(\Delta\boldsymbol{\theta})$ reads the vector in its native order. The
 tracking cost compares two aCOM attitudes through the heading-tilt residual of
 `legged_common_mpc/orientation/BaseOrientation.h` (design section 2.8.1), whose rows are the twist heading about the
-world vertical and the tilt about the heading frame's y and x axes - the (yaw, pitch, roll) that `acom_weights` names,
-as `state_weights.eulerzyx_base_rt_world` names them for the base:
+world vertical and the tilt about the heading frame's y and x axes - the (yaw, pitch, roll) fields of `acom_weights`
+(matching `state_weights.eulerzyx_base_rt_world` for the base):
 
 $$\mathbf{e}_{\text{aCOM}} = \mathbf{e}_{HT}\big(\boldsymbol{\xi}_{\text{aCOM}}(\mathbf{x}),\ \boldsymbol{\xi}_{\text{aCOM}}(\mathbf{x}_{\text{ref}})\big)$$
 
@@ -216,7 +216,7 @@ $$\mathbf{e}_{\text{aCOM}} = \mathbf{e}_{HT}\big(\boldsymbol{\xi}_{\text{aCOM}}(
 
 The rows are (yaw, pitch, roll) of the heading-tilt residual (section 1.3). Its yaw row is wrapped to $(-\pi, \pi]$, so a
 heading error across $\pm\pi$ is the short way round, and its tilt rows are exactly independent of the yaw error: a turn
-of the whole robot about the vertical moves the yaw row alone.
+of the robot about the vertical changes the yaw row alone.
 
 Everything the replacement involves follows from that one entry (`CentroidalMpcInterface::setupOptimalControlProblem`):
 
@@ -259,8 +259,8 @@ stores the base orientation.
 #### CoM Jacobian
 
 Pinocchio's CoM Jacobian $\mathbf{J}_{\text{com}}$ ($3 \times n_v$) is with respect to its configuration tangent
-$\mathbf{v}$. The robot model's `getPinocchioTangentJacobian()` ($n_v \times n_x$) says how a state step moves the
-configuration in that tangent, and the CoM rows are their product:
+$\mathbf{v}$. The robot model's `getPinocchioTangentJacobian()` ($n_v \times n_x$) maps a state perturbation to
+that tangent, and the CoM rows are their product:
 
 $$\frac{\partial \mathbf{r}_{\text{CoM}}}{\partial \mathbf{x}} = \mathbf{J}_{\text{com}} \cdot \frac{\partial \mathbf{v}}{\partial \mathbf{x}}$$
 
@@ -273,10 +273,10 @@ on by hand, which would double-count it.
 
 #### aCOM Jacobian
 
-The aCOM attitude moves by the body tangent $\delta\boldsymbol{\varphi}_{\text{aCOM}} = \mathbf{R}(\Delta\boldsymbol{\theta})^\top \delta\boldsymbol{\varphi} + \mathbf{J}_r(\Delta\boldsymbol{\theta})\mathbf{J}_{\Delta\theta}\,\delta\mathbf{q}_j$
-(`acomAttitudeTangentJacobian`), with $\delta\boldsymbol{\varphi}$ the base rotation's body tangent, which the robot model's
-`getBaseRotationTangentJacobian()` $\mathbf{T}_{\text{rot}}(\mathbf{x})$ gives for a step of the orientation slots
-($\mathbf{E}^+(\boldsymbol{\xi})$, 3 x 4). The residual moves by $\mathbf{J}_{HT}(\boldsymbol{\xi}_{\text{aCOM}})$ of that:
+A perturbation of the aCOM attitude has body tangent $\delta\boldsymbol{\varphi}_{\text{aCOM}} = \mathbf{R}(\Delta\boldsymbol{\theta})^\top \delta\boldsymbol{\varphi} + \mathbf{J}_r(\Delta\boldsymbol{\theta})\mathbf{J}_{\Delta\theta}\,\delta\mathbf{q}_j$
+(`acomAttitudeTangentJacobian`), where $\delta\boldsymbol{\varphi}$ is the base rotation's body tangent, given by the robot model's
+`getBaseRotationTangentJacobian()` $\mathbf{T}_{\text{rot}}(\mathbf{x})$ for a step of the orientation slots
+($\mathbf{E}^+(\boldsymbol{\xi})$, 3 x 4). Applying $\mathbf{J}_{HT}(\boldsymbol{\xi}_{\text{aCOM}})$ gives the residual Jacobians:
 
 $$\frac{\partial \mathbf{e}_{\text{aCOM}}}{\partial \mathbf{x}_{\text{orientation}}} = \mathbf{J}_{HT}(\boldsymbol{\xi}_{\text{aCOM}})\,\mathbf{R}(\Delta\boldsymbol{\theta})^\top\,\mathbf{T}_{\text{rot}}(\mathbf{x}), \qquad
 \frac{\partial \mathbf{e}_{\text{aCOM}}}{\partial \mathbf{q}_j} = \mathbf{J}_{HT}(\boldsymbol{\xi}_{\text{aCOM}})\,\mathbf{J}_r(\Delta\boldsymbol{\theta})\,\mathbf{J}_{\Delta\theta}(\mathbf{q}_j)$$
@@ -299,12 +299,12 @@ $$\nabla^2_{\mathbf{x}} \mathcal{L} \approx \mathbf{J}_{\text{CoM}}^\top \mathbf
 
 ### 4.3 Arm Swing Guard
 
-While `com_and_acom_tracking_cost` is listed, `CentroidalMpcInterface` switches the procedural arm swing reference generator of `SwitchedModelReferenceManager` off (`setArmSwingReferenceActive`). This allows the aCOM cost to produce **emergent arm swing behavior**: the optimizer naturally counter-swings the arms to maintain whole-body orientation alignment during walking, resulting in more natural locomotion.
+While `com_and_acom_tracking_cost` is listed, `CentroidalMpcInterface` switches the procedural arm swing reference generator of `SwitchedModelReferenceManager` off (`setArmSwingReferenceActive`). This allows the aCOM cost to produce **emergent arm swing behavior**: the optimizer counter-swings the arms to maintain whole-body orientation alignment during walking.
 
 ### 4.4 Configuration
 
 Enable in the task file (the weights below show the layout;
-`robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto` carries Atlas's tuned values). The weights
+`robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto` contains Atlas's tuned values). The weights
 are the blocks `com_weights` and `acom_weights` (formerly `Q_com` and `Q_acom`), by name:
 ```textproto
 costs: "state_quadratic_cost"
@@ -419,12 +419,12 @@ twice as inaccurate as the one it replaced.
 
 The `--install_header` flag copies the generated `AcomSirenWeights<Robot>.h` directly into the C++ include path, ready for the next `bazel build`. It requires `BUILD_WORKSPACE_DIRECTORY`, which `bazel run` sets.
 
-Two guards sit on that flag, and they exist because the two ways of getting the architecture wrong fail very differently:
+That flag has two guards because the two architecture mismatches fail differently:
 
-* `--num_layers` counts **sinusoidal layers only**, excluding the linear readout, and defaults to 2. The C++ loader `static_assert`s on it, so a wrong value fails to **compile** - loud, and caught immediately.
+* `--num_layers` counts **sinusoidal layers only**, excluding the linear readout, and defaults to 2. The C++ loader `static_assert`s on it, so a wrong value fails at compile time.
 * `--hidden_dim` is **not** checked by the compiler. Every layer is `Eigen::Map`'d at runtime from the dimensions the header declares, so a narrower network installs, builds and runs perfectly while approximating the centroidal connection worse. `--install_header` therefore reads `W0_rows` out of the header currently on disk and refuses to replace it with a different width unless `--force_architecture` is given.
 
-Training returns the parameters at the **lowest validation loss**, not those of the final epoch, and prints both so the gap is visible. On a run that is allowed to finish, that gap is small - the learning rate is cosine-annealed over exactly `--epochs`, so the last iterate is already the converged one, and on the shipped recipe best-versus-final is under 0.1 % of RMSE against a 1.8 % spread across seeds. It matters for runs that are interrupted, that diverge, or that are given an architecture which trains unstably: a wider network is not automatically a better one, and at `--hidden_dim 256` the validation curve oscillates by more than an order of magnitude between epochs.
+Training returns the parameters at the **lowest validation loss**, not those of the final epoch, and prints both so the gap is visible. On a run that is allowed to finish, that gap is small - the learning rate is cosine-annealed over exactly `--epochs`, so the last iterate is already the converged one, and on the shipped recipe best-versus-final is under 0.1 % of RMSE against a 1.8 % spread across seeds. Best-epoch selection helps when a run is interrupted, diverges, or trains unstably: a wider network can be worse, and at `--hidden_dim 256` the validation curve oscillates by more than an order of magnitude between epochs.
 
 ### 6.2 Monitoring Training in TensorBoard
 
@@ -467,7 +467,7 @@ bazel test //legged_nmpc/legged_common_mpc:testAngularCenterOfMass
 # clone(), and the construction checks
 bazel test //legged_nmpc/legged_common_mpc:testComAndAcomTrackingCost
 
-# C++: the ACoM heading the contact planner is handed, and planned_heading_override's knots
+# C++: the ACoM heading passed to the contact planner, and planned_heading_override's knots
 bazel test //legged_nmpc/legged_common_mpc:testPlannedHeadingOverrideAcom
 
 # C++: does each SHIPPED weight header actually approximate the centroidal angular velocity, and is it indexed by
@@ -486,7 +486,7 @@ bazel test //legged_nmpc/legged_centroidal_mpc:testAcomWiring //legged_nmpc/legg
 
 Everything in `testAngularCenterOfMass`, and everything in the Python suite bar the synthetic-data convergence test, is
 **structural**: shapes, floating-base equivariance, the analytic Jacobian against finite differences, the joint ordering
-the generator derives, the header the exporter writes. All of it passes just as happily with an untrained network, with
+the generator derives, the header the exporter writes. All of it still passes with an untrained network, with
 zeroed weights, or with a header exported for a different robot - none of it looks at the quantity the network was fit
 to. `testComAndAcomTrackingCost` checks that the cost is a correct Gauss-Newton model of itself, which is also
 independent of how good the network is.
@@ -521,7 +521,7 @@ in `kAcomRobotCases`). All three were trained with the composed objective of sec
 | `engineai_sa01` | **NOT VALIDATED** | 0.445 / 1.70 | 0.105 / 0.642 | 0.649 |
 <!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->
 
-Atlas's bounds (0.22 / 0.45 and 0.05 / 0.20) sit about 40 % above its measurement on purpose, below the
+Atlas's bounds (0.22 / 0.45 and 0.05 / 0.20) are set about 40 % above its measurement, below the
 constant-Jacobian baseline and far below the same network fed its joints in the wrong order
 (1.37). G1 and SA01 do not come close to them: on average their rate map is 34 % and 44 % off the target, and at their
 worst configurations both networks are further from the target than no network at all (a relative error above 1).
@@ -547,11 +547,11 @@ the retrained ones are 0.159, 0.330 and 0.432. In a controlled comparison (the s
 and seed, 10 000 samples over 40 epochs, only the objective changed), the composed objective took the graded error from
 0.193 to 0.167 while the error of $\mathbf{J}_{\Delta\theta}$ alone rose from 0.223 to 0.241, as it should: that is no
 longer the quantity the runtime uses. Before that change, quadrupling the
-Atlas data and doubling the epochs had moved the error by about 2 %, the size of the spread across training seeds, so
+Atlas data and doubling the epochs had changed the error by about 2 %, the size of the spread across training seeds, so
 the error is not sample-limited or optimizer-limited. What remains is the curvature obstruction itself (no exact
 integrable whole-body orientation exists) plus the choice of hypothesis class and, most likely, the **sampling
 distribution**: training draws each joint i.i.d. and uniform over its range, where mean $\|\Delta\theta\|$ is about 23°
-on Atlas, while the Atlas nominal stance sits at a few degrees. Nearly every training sample is a posture the robot never
+on Atlas, while the Atlas nominal stance is a few degrees. Nearly every training sample is a posture the robot never
 adopts. Concentrating the distribution around the operating region, or mixing uniform samples with a nominal-centered
 ball, is the main remaining tuning lever; it trades tail accuracy for operating-point accuracy, so it is a deliberate
 design choice rather than a free win.
@@ -571,7 +571,7 @@ Include the zero-dependency C++ header and evaluate whole-body aCOM in microseco
 #include "legged_common_mpc/acom/AngularCenterOfMass.h"
 
 // Load the weights compiled into the binary for this robot, checking that the network was trained on exactly the
-// MPC model's joints. The Status names the key to change when it was not, or when the robot has no network.
+// MPC model's joints. The Status reports the key to change when it was not, or when the robot has no network.
 absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acomOr =
     AngularCenterOfMass::Create(modelSettings.robotName, modelSettings.mpcModelJointNames);
 if (!acomOr.ok()) return acomOr.status();
@@ -601,7 +601,7 @@ older `createForRobot(robotName)`, which skipped the joint check and threw inste
    $$\mathcal{L}_{\text{rot}} = \tfrac{1}{2}\,\mathbf{e}_{HT}^\top \mathbf{Q}_{\text{aCOM}}\, \mathbf{e}_{HT}, \quad \mathbf{e}_{HT} = \mathbf{e}_{HT}\big(\boldsymbol{\xi}_{\text{aCOM}}(\mathbf{q}), \boldsymbol{\xi}_{\text{aCOM}}(\mathbf{q}_{\text{ref}}(t))\big)$$
 
 2. **Emergent Arm Swing**:
-   When the aCOM cost penalizes whole-body orientation error, the optimizer naturally counter-swings the robot's arms during walking to maintain orientation alignment. This produces realistic, dynamically-motivated arm swing without requiring a hand-crafted swing trajectory generator.
+   When the aCOM cost penalizes whole-body orientation error, the optimizer counter-swings the robot's arms during walking to maintain orientation alignment without a hand-crafted swing trajectory generator.
 
 3. **Dynamic Decoupling**:
    Allows the robot to swing its arms or twist its torso vigorously while maintaining the true whole-body orientation aligned with the locomotion heading.

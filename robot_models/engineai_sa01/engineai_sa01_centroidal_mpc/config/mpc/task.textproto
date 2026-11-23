@@ -217,7 +217,7 @@ costs: "external_torque_cost"
 # The nominal foothold reference, used only under contact_schedule_source: gait_schedule. With zero_velocity in
 # hard_constraints the stance foot is pinned by the schedule and foot placement follows from it, which is why R1 and G1
 # leave this at 0 and SA01 does too. It only becomes active for the contact-implicit formulation, which removes
-# that pin: a positive nom_pos_lfoot_rt_rfoot_ewrt_heading_y then places each foot a whole nom_pos_lfoot_rt_rfoot_ewrt_heading_y to its own side of the stance foot.
+# that pin: a positive nom_pos_lfoot_rt_rfoot_ewrt_heading_y then places each foot a full nom_pos_lfoot_rt_rfoot_ewrt_heading_y to its own side of the stance foot.
 #
 # nom_pos_lfoot_rt_rfoot_ewrt_heading_y is the FULL distance between the feet. SA01's natural stance - both legs vertical - is 0.160 m, so 0.18
 # is the value to set here when that day comes, not Atlas's 0.45. How hard the foot is held to the target is
@@ -267,7 +267,7 @@ contact_implicit {
 #   base_pose  the roll, pitch and height of the base-pose reference that the state_weights of eulerzyx_base_rt_world (roll,
 #              pitch) and pos_base_rt_world_ewrt_world (z) track - and
 #              final_state_weights and the torso task-space cost with them - shaped per shooting node in
-#              SwitchedModelReferenceManager::shapePoseBaseRtWorld(). Without a heuristic that reference carries a HARD ZERO
+#              SwitchedModelReferenceManager::shapePoseBaseRtWorld(). Without a heuristic that reference has a HARD ZERO
 #              for roll and pitch - the target calculator zeroes the pitch and roll of finalPoseeulerzyxBaseRtWorld on every call - so
 #              anything listed here is the first opinion this MPC has about how the base is carried. It is a function
 #              of the operator's COMMANDED velocity. Inert while costs lists com_and_acom_tracking_cost, because
@@ -286,8 +286,8 @@ contact_implicit {
 # THE COEFFICIENTS BELOW ARE DERIVED FOR THIS ROBOT, AND ALL THREE LISTS ARE STILL EMPTY. Those are two separate
 # switches on purpose: `make derive-heuristic-parameters ROBOT=engineai_sa01` regenerates every number below from this
 # robot's URDF, gait and command limits, so the starting point is ready - but nothing is turned on until a name is
-# uncommented, and each of these still changes the closed loop. SA01 has never been run at all, so that matters more
-# here than anywhere else.
+# uncommented, and each of these still changes the closed loop. SA01 has never been run at all, so that is more
+# important here than anywhere else.
 #
 # ALL THREE LISTS ARE EMPTY, deliberately. Each changes the closed loop and none has been validated in simulation
 # under hardware-like conditions on this robot; Bledt's own coefficients were fitted to a 9 kg quadruped. Uncomment
@@ -295,7 +295,7 @@ contact_implicit {
 # block in MuJoCo, and only then move to the next, which is how the dissertation itself proceeds (section 4.3,
 # figure 4-13: one heuristic per panel, the viable operating region measured after each).
 #
-# The list is the switch and the block is the tuning. The blocks below carry DERIVED, non-zero coefficients, so on this
+# The list is the switch and the block is the tuning. The blocks below have DERIVED, non-zero coefficients, so on this
 # robot uncommenting a name IS the closed-loop change: the number is live the moment the name is listed. To check that
 # listing a name changes nothing by itself - a useful first experiment - zero its block before uncommenting it. The
 # analytic heuristics of Table C.1 (hip_centered_stepping, capture_point, impulse_scaling, centripetal_acceleration)
@@ -385,7 +385,7 @@ locomotion_heuristics {
   }
 
   # H_z(v) = a2*v^2 + a1*v + a0  (Table C.2) in the MAGNITUDE of the commanded horizontal velocity, applied as an
-  # OFFSET to the reference height and never as an absolute height - the same channel carries the terrain that
+  # OFFSET to the reference height and never as an absolute height - the same channel stores the terrain that
   # applyPosSurfaceRtWorldEwrtWorldZ() writes, and an absolute value would silently become a terrain override.
   # Crouching with speed buys the swing leg vertical room within the same joint range; it costs knee torque headroom.
   height_compensation {
@@ -628,7 +628,7 @@ model_settings {
   contact_parent_joint_names: "leg_r6_joint"
 
   # arm_joint_names is deliberately absent: SA01 has no arms, so there is no procedural arm swing to configure.
-  # ModelSettings treats the whole block as optional and leaves the swing disabled (hasArmSwingJoints false); naming
+  # ModelSettings treats the block as optional and leaves the swing disabled (hasArmSwingJoints false); naming
   # only some of the four, or naming a joint that is not in the MPC model, still fails loudly at load time.
 }
 
@@ -697,7 +697,7 @@ rollout {
 
 mpc {
   time_horizon: 1.0  # [s] about two strides of the default walk
-  # solution_time_window is absent: every policy carries the whole horizon.
+  # solution_time_window is absent: every policy covers the full horizon.
   cold_start: false
 
   debug_print: false
@@ -939,7 +939,7 @@ task_space_foot_cost {
     # to shape. It only becomes active in the contact-implicit formulation, where normal_velocity moves to
     # soft_constraints.
     pos_z: 0.0
-    # This is the only thing holding the swing foot level, and it matters more on SA01 than on any other robot here:
+    # This is the only thing holding the swing foot level, and it is more important on SA01 than on any other robot here:
     # its toe is 0.125 m ahead of the contact frame, so a degree of droop drops the toe 2.2 mm - more than Atlas's
     # 2.1 mm on a leg 0.15 m shorter. 1000 is G1's and R1's value.
     # rotvec_x / rotvec_y weigh the foot's tilt from the ground in rad^2 (tiltAngleToPlane()). They were 1000 on
@@ -1117,7 +1117,7 @@ collision_constraint {
     # The constraint keeps the two contact frames 2 * radius apart. SA01's ankles are 0.1503 m apart at the nominal
     # stance. The MuJoCo contact spheres nearest the centerline sit 0.035 m inboard of each ankle with a 0.010 m
     # radius, so the feet physically touch once the ankles close to 0.1503 - 0.0802 + 0.020 = 0.0901 m.
-    # 0.045 puts the bound at exactly 0.090 m, i.e. the constraint engages essentially where the feet really meet -
+    # 0.045 puts the bound at exactly 0.090 m, i.e. the constraint engages right where the feet really meet -
     # there is no margin beyond it, which is what SA01's 0.150 m hip spacing allows and no more. It cannot simply be
     # raised: the relaxed barrier is 0.05 m wide (delta below), so a radius above 0.050 would have the term pushing
     # the feet apart while the robot merely stands at its 0.1503 m nominal stance.

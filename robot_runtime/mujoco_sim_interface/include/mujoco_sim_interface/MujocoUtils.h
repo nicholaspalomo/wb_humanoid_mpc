@@ -50,7 +50,7 @@ namespace robot::mujoco_sim_interface {
 
 // The sizes and indices of the vectors the simulator reads and writes, and of
 // the layouts of MuJoCo's model and data arrays (mjmodel.h, mjdata.h), which
-// MuJoCo documents but names no constant for. Each is an `int`, the type of
+// MuJoCo documents but defines no constant for. Each is an `int`, the type of
 // MuJoCo's own sizes and indices. MuJoCo's world frame has z up. A vector of
 // space and its axes are those of ocs2_core/Dimensions.h: ocs2::kPositionDim (a
 // position, a velocity, a force or a moment, and one row of the MuJoCo arrays
@@ -287,7 +287,7 @@ bool isInBodySubtree(const mjModel* absl_nonnull model,
  *  1. the body driven by `contactParentJointNames[i]` when that entry is given
  * (the controller's contact frames are usually added to its own kinematic model
  * on such a joint and exist in neither the URDF nor the scene). A rolling
- * contact, a wheel's lowest point, names its wheel joint (continuous in the
+ * contact, a wheel's lowest point, specifies its wheel joint (continuous in the
  * URDF, an unlimited hinge in the scene), so its body is the wheel, whose
  * collision geom touches the ground wherever the wheel has turned to;
  *  2. a MuJoCo body named like the frame;
@@ -401,7 +401,7 @@ void divergentComponentOfMotion(
  * force between the site's body and its parent in the site frame, pointing from
  * the parent's side (sensor.md): it is rotated into the world frame and
  * negated. Requires the sensor data of the current state (after mj_step() or
- * mj_forward()); `sensorId` must name a force sensor on a site
+ * mj_forward()); `sensorId` must specify a force sensor on a site
  * (isFootForceSensor()).
  */
 std::array<mjtNum, ocs2::kPositionDim> computeMeasForceFootEwrtWorld(

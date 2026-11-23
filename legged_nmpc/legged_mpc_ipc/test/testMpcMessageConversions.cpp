@@ -628,7 +628,7 @@ TEST(PolicyConversionTest, RoundTripReproducesASingleNodePolicy) {
 }
 
 TEST(PolicyConversionTest, RebuildsTheController) {
-  // The decoded policy carries a controller of the encoded type and size.
+  // The decoded policy has a controller of the encoded type and size.
   std::mt19937 generator(/*sd=*/10);
   for (const ControllerType controllerType : kControllerTypes) {
     const Policy policy = randomPolicy(generator,
@@ -902,7 +902,7 @@ struct MalformedPolicy {
   std::string description;
   ControllerType controllerType;
   void (*absl_nonnull corrupt)(legged_mpc_msgs::MpcPolicy* absl_nonnull);
-  // A part of the error message, naming the offending field.
+  // A part of the error message, identifying the offending field.
   std::string expectedError;
 };
 
@@ -1002,7 +1002,7 @@ TEST(PolicyConversionTest,
        },
        "MpcPolicy.post_event_indices[0] is 9; a post-event index lies in [1, "
        "7]"},
-      // A post-event index names a node: the node count itself names none.
+      // A post-event index identifies a node: the node count itself does not.
       {"post-event index at the node count", kLinear,
        [](MpcPolicy* absl_nonnull message) {
          message->set_post_event_indices(0, 8);
@@ -1402,7 +1402,7 @@ TEST(CheckDimensionsTest, AcceptsThePolicyOfTheModelAndNamesTheFirstMismatch) {
 }
 
 TEST(CheckDimensionsTest, AModeOutsideTheModelIsRejected) {
-  // A biped's four contact modes: a policy from the network may name no
+  // A biped's four contact modes: a policy from the network may specify no
   // other, whatever it decodes to.
   const ModelDimensions biped{.stateDim = 5, .inputDim = 3, .numModes = 4};
   std::mt19937 generator(/*sd=*/23);

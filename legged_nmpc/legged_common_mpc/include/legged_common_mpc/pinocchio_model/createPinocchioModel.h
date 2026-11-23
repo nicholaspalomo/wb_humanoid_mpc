@@ -67,11 +67,11 @@ PinocchioInterface createDefaultPinocchioInterface(
 ///            (contactRectangleFromConfig()).
 /// \param[in] urdfFilePath: The URDF of the robot. It must be the one
 /// `modelSettings` was built from. \param[in] modelSettings: The model
-/// settings; mpcModelJointNames names the actuated joints. \return
+/// settings; mpcModelJointNames lists the actuated joints. \return
 /// InvalidArgument when the URDF does not parse, when a contact's geometry does
 /// not convert, or when the model's
-///         joints are not mpcModelJointNames in order - naming the first joint
-///         that differs.
+///         joints are not mpcModelJointNames in order, reporting the first
+///         joint that differs.
 ///
 absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(
     const mpc_config::TaskFile& taskFile,

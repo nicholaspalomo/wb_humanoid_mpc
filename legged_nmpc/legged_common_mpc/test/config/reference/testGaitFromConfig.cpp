@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The gait conversions: a gait pattern and a mode schedule are read by mode
 // name and checked as ModeSequenceTemplate and ModeSchedule check them, the
-// gait file's gait_list and gaits name each other exactly, and the reference
+// gait file's gait_list and gaits match each other exactly, and the reference
 // file's start of the gait schedule is read from its two blocks.
 
 #include <cstddef>

@@ -70,8 +70,8 @@ class ContactPlannerInterface {
   /**
    * Replaces the configuration. Called between plans, never during one. A
    * configuration the planner cannot run is refused with an InvalidArgument
-   * naming the key (ContactPlanningConfig::validateStatus()), and the running
-   * one kept.
+   * identifying the key (ContactPlanningConfig::validateStatus()), and the
+   * running one kept.
    */
   virtual absl::Status setConfig(const ContactPlanningConfig& config) = 0;
 

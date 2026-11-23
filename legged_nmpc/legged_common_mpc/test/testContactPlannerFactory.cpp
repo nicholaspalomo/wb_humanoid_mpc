@@ -89,8 +89,9 @@ TEST(ContactPlannerFactory, unknownPlannerListsTheOnesThatExist) {
   }
 }
 
-// An invalid configuration comes back as a Status that names the key to change,
-// for every planner, and nothing throws: makeContactPlanner returns a StatusOr,
+// An invalid configuration comes back as a Status that identifies the key to
+// change, for every planner, and nothing throws: makeContactPlanner returns a
+// StatusOr,
 // and its callers (ContactPlannerModule, also on the planning thread) handle
 // the Status, not an exception. The mixed-integer planner used to validate in
 // its constructor by throwing, and the H-LIP one did not validate at all, so

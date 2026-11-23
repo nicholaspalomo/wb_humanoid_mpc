@@ -47,7 +47,7 @@ inline constexpr scalar_t kDerivativeTol = 1.0e-5;
  * This is the check that catches the one class of mistake unit tests otherwise
  * miss entirely: a scale, a frame change or a sign applied to the value but not
  * to the Jacobian. Such a term reports the right number, passes every test that
- * reads getValue(), and hands the solver a wrong gradient.
+ * reads getValue(), and gives the solver a wrong gradient.
  *
  * Templated on the term rather than taking a StateInputConstraint&, so that it
  * serves both the constraints and any other object exposing getValue /

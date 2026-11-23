@@ -53,8 +53,8 @@ namespace ocs2::legged {
  * The facts about the REST of the controller's configuration that decide
  * whether a listed heuristic can work at all, or would be silently inert.
  * Create() refuses the combinations that cannot work and warns about the ones
- * that would do nothing, naming the key to change in each case, so that nobody
- * tunes a dead channel.
+ * that would do nothing, reporting the key to change in each case, so that
+ * nobody tunes a dead channel.
  */
 struct LocomotionHeuristicEnvironment {
   /// `contactScheduleSource: contact_planner`: the planner supplies the landing
@@ -82,18 +82,18 @@ struct LocomotionHeuristicEnvironment {
  * The assembled reference-shaping layer: the heuristics a task file listed,
  * held by kind, summed on demand.
  *
- * This is the object SwitchedModelReferenceManager holds and the three seams
+ * This is the object SwitchedModelReferenceManager owns and the three seams
  * call into. It is the only thing in the subsystem the rest of the controller
  * needs to know about.
  *
  * THREADING. The layer is built once on the construction thread and is
  * thereafter read from every SQP worker thread, concurrently and without a
  * lock. That is sound because the heuristics are immutable between
- * reconfigure() calls and hold no mutable state, and because reconfigure() -
- * the hot-reload path - is called from the solver thread's pre-solve hook,
- * which OCS2 runs before any worker exists for that solve. An empty layer is
- * not merely cheap but free: every accessor below short-circuits on an empty
- * list before touching anything.
+ * reconfigure() calls and have no mutable state, and because reconfigure()
+ * (the hot-reload path) is called from the solver thread's pre-solve hook,
+ * which OCS2 runs before any worker exists for that solve. An empty layer has
+ * zero overhead: every accessor below short-circuits on an empty list before
+ * touching anything.
  */
 class LocomotionHeuristicLayer {
  public:
@@ -147,14 +147,14 @@ class LocomotionHeuristicLayer {
    * than nudging it, i.e. when `hip_centered_stepping` is listed.
    *
    * The reference manager needs it because the anchor it would otherwise add
-   * the offsets to - a step width to the side of the STANCE foot - is then the
+   * the offsets to (a step width to the side of the STANCE foot) is then the
    * wrong starting point, and the two would be added together.
    */
   bool footholdMovesAnchor() const { return footholdMovesAnchor_; }
 
   /**
    * True when any listed wrench heuristic can produce a horizontal force, and
-   * therefore when the whole contact-force reference has to be written through
+   * therefore when the full contact-force reference has to be written through
    * the state-aware, forward-kinematics path.
    */
   bool wrenchHeuristicsNeedWorldFrame() const {

@@ -230,7 +230,7 @@ Sample makeSample(const pinocchio::Model& model, size_t seed) {
   return sample;
 }
 
-/** Pinocchio external forces - joint frame, about the joint origin - of
+/** Pinocchio external forces (joint frame, about the joint origin) of
  * world-frame wrenches at the sole frames' origins. */
 ForceVector computeWrenchLinksEwrtLink(
     const pinocchio::Model& model,
@@ -342,7 +342,7 @@ class JointTorqueInverseDynamicsTest : public ::testing::Test {
     ASSERT_NE(atlas_, nullptr)
         << "the DRC Atlas centroidal files are not in the runfiles";
     // Both models are on the quaternion root, Composite(Translation,
-    // Spherical): q holds one entry more than v.
+    // Spherical): q has one entry more than v.
     for (const Robot* absl_nonnull robot : {g1_.get(), atlas_.get()}) {
       ASSERT_EQ(robot->model().nq, robot->model().nv + 1)
           << robot->settings->robotName;
@@ -397,7 +397,7 @@ TEST_F(JointTorqueInverseDynamicsTest,
       fresh);
 
   // crba() writes each joint's rows over its own subtree only, and leaves every
-  // other entry of M - the lower triangle, and the two legs' coupling - at
+  // other entry of M (the lower triangle, and the two legs' coupling) at
   // whatever an earlier user of the data left there. None of it may reach the
   // result. Positive control: crba() on such a data does leave entries of the
   // joint rows untouched, so the case is exercised.
@@ -532,8 +532,8 @@ TEST_F(JointTorqueInverseDynamicsTest,
                          soleFrames, pinocchioInterface) -
                      baseHeldRnea(model, sample, soleFrames)),
               1.0e-9 * scale);
-    // Positive control: the frames matter - the wrenches on the exchanged soles
-    // are other torques.
+    // Positive control: the frames affect the result - the wrenches on the
+    // exchanged soles produce different torques.
     ContactArray<pinocchio::FrameIndex> exchanged = soleFrames;
     exchanged[0] = soleFrames[1];
     exchanged[1] = soleFrames[0];

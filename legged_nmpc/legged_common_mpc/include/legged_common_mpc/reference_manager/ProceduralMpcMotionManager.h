@@ -103,16 +103,16 @@ namespace ocs2::legged {
  * recorded walk. Until the window is measured the switches wait, except one
  * that reads no measurement (stance's, on the command alone); the targets read
  * the mean as it is, the seed being the exact base twist of the observation the
- * solve starts from, which the runner hands over with observe().
+ * solve starts from, which the runner passes with observe().
  *
  * The first cycle of a gait. A window that reaches back into the stride of the
  * gait before reads the heading's sway sigma (the heading about its mean slope)
  * as the turn (sigma(t) - sigma(t - W)) / W, which cancels only when t - W and
- * t are a whole cycle of one gait apart: up to sigma's peak-to-peak over W
+ * t are one full cycle of one gait apart: up to sigma's peak-to-peak over W
  * (0.12 and 0.14 rad/s on the G1's and R1's recorded walks, against the 0.15
  * rad/s that raises slow_walk), and likewise the sideways sway's displacement
- * over W. It is the sway's displacement, bounded, where a seed carries its
- * rate. The switches read it as it is: waiting for a whole stride of each new
+ * over W. It is the sway's displacement, bounded, whereas a seed includes its
+ * rate. The switches read it as it is: waiting for a full stride of each new
  * gait would hold every switch for one more cycle, after the 0.7 of a horizon
  * the schedule takes to start it (from stance to trot at least 8 s, whatever
  * the robot's own acceleration).
@@ -127,7 +127,7 @@ namespace ocs2::legged {
  * Added to the MPC as a SolverSynchronizedModule, whose preSolverRun() runs on
  * the solver thread, as observe() does. The velocity command is set from the
  * command thread under a lock, and the command limits are atomics, so the
- * setters are thread-safe. It is held by std::shared_ptr because OCS2's
+ * setters are thread-safe. It is owned by std::shared_ptr because OCS2's
  * SolverBase::addSynchronizedModule() takes one; the node, its command watchdog
  * and the command-limit reloader share that pointer rather than observe it,
  * since the solver decides how long the module lives.
@@ -231,8 +231,8 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   void postSolverRun(const PrimalSolution& /*primalSolution*/) override {};
 
   /**
-   * Hands over the observation `observation` the next solve starts from, on the
-   * solver thread right before it: its input carries the measured joint
+   * Passes the observation `observation` the next solve starts from, on the
+   * solver thread right before it: its input contains the measured joint
    * velocities (getJointVelocities() of its state and input; the centroidal MRT
    * writes them into the input), which the exact base twist of a centroidal
    * state needs (MpcRobotModelBase::getTwistBaseRtWorldEwrtWorld()). The
@@ -271,7 +271,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * construction: the gait is "stance" again (the reference manager's reset
    * restarts the gait schedule in stance) and the gait-change hold-off, the
    * command filter and the acceleration ramp start afresh. The operator's
-   * current command is kept - it is an input, not state - and so are the
+   * current command is kept (it is an input, not state), and so are the
    * limits. Then the reset hook runs (setResetHook), which is where the owner
    * of the target calculator behind the VelocityTargetToTargetTrajectories
    * function resets it. Solver thread, between solves.

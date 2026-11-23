@@ -66,7 +66,7 @@ TEST(SmoothMinimumHeight, isExactOnAFlatFoot) {
     const SmoothMinimumHeight result = smoothMinimumHeight(
         heights({height, height, height, height}), kSmoothing);
     EXPECT_NEAR(result.value, height, 1.0e-15) << "at " << height;
-    // And exact in the gradient too: every corner carries the same share, so
+    // And exact in the gradient too: every corner has the same share, so
     // the state Jacobian is their plain mean.
     for (Eigen::Index corner = 0; corner < result.weights.size(); ++corner) {
       EXPECT_NEAR(result.weights(corner), 0.25, 1.0e-15) << "corner " << corner;
@@ -95,7 +95,7 @@ TEST(SmoothMinimumHeight, neverReportsLessClearanceThanTheLowestCorner) {
 
 TEST(SmoothMinimumHeight, theBiasIsLogOfTheFractionOfCornersThatTouch) {
   // The bias is not one number, it is s * log(N / k) where k is how many
-  // corners sit at the minimum. Spelling out the whole family matters because
+  // corners sit at the minimum. Spelling out all cases is necessary because
   // the two cases that actually occur are NOT the worst case, and an earlier
   // version of this file quoted the two-corner number as if it were the bound -
   // which made the assertion below unsatisfiable.
@@ -111,8 +111,8 @@ TEST(SmoothMinimumHeight, theBiasIsLogOfTheFractionOfCornersThatTouch) {
   // body weight) those become 0.050 mm and 0.187 mm of equilibrium penetration
   // respectively - the edge's two corners both resist, so its bias is
   // attenuated by C / (C + 2P) rather than C / (C + P).
-  // equilibriumPenetrationAttenuatesTheBiasByEveryCornerThatIsDown holds that
-  // arithmetic.
+  // equilibriumPenetrationAttenuatesTheBiasByEveryCornerThatIsDown implements
+  // that arithmetic.
   const SmoothMinimumHeight flat =
       smoothMinimumHeight(heights({0.0, 0.0, 0.0, 0.0}), kSmoothing);
   EXPECT_NEAR(flat.value, 0.0, 1.0e-15);
@@ -131,7 +131,7 @@ TEST(SmoothMinimumHeight, theBiasIsLogOfTheFractionOfCornersThatTouch) {
   EXPECT_NEAR(corner.value, std::log(4.0) * kSmoothing, 1.0e-9);
   EXPECT_LT(corner.value, 1.5e-3)
       << "the worst-case error must stay well under two millimeters";
-  // The touching corner carries essentially the whole gradient: 0.05 m is fifty
+  // The touching corner contributes almost all of the gradient: 0.05 m is fifty
   // smoothing lengths away.
   EXPECT_NEAR(corner.weights(0), 1.0, 1.0e-9);
 

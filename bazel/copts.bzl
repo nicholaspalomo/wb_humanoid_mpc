@@ -9,7 +9,7 @@
     )
 """
 
-# Each flag names the guide section (G:) or tip (ToTW #) it enforces. GCC reports these in the .cpp files and in the
+# Each flag cites the guide section (G:) or tip (ToTW #) it enforces. GCC reports these in the .cpp files and in the
 # headers they include that are not system headers, and the third-party ones are system headers: external repositories
 # (Abseil, protobuf, googletest, the system_libs wrappers of Eigen and Pinocchio) arrive as -isystem through
 # .bazelrc's external_include_paths feature, and the vendored lib/ocs2 and CppAD directories through the
@@ -17,7 +17,7 @@
 # warned about. //bazel:first_party_copts_probe compiles every third-party header family with these flags and -Werror,
 # which proves in every build that none of them trips one. Casts, nullptr and override are left to the clang-tidy aspect
 # (tools/clang_tidy), which filters by header. A flag that a third-party header trips is dropped here with a comment
-# naming the header, never suppressed per file. No -std=c++20: .bazelrc sets the standard.
+# identifying the header, never suppressed per file. No -std=c++20: .bazelrc sets the standard.
 # LINT.IfChange(first_party_copts)
 FIRST_PARTY_COPTS = [
     "-Wall",

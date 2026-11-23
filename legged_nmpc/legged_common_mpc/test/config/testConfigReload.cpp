@@ -146,7 +146,7 @@ TEST(ConfigReload,
   EXPECT_THAT(
       leafAt(leaves, "joint_torque_weights.joints[*].value").formulations,
       testing::ElementsAre(kWholeBodyFormulation));
-  // A field of a block every formulation reads names its own.
+  // A field of a block every formulation reads specifies its own formulation.
   EXPECT_THAT(
       leafAt(leaves,
              "model_settings.foot_constraint.linear_acceleration_error_gain_z")

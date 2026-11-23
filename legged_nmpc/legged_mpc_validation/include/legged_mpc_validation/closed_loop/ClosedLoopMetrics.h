@@ -158,7 +158,7 @@ struct SolveSample {
   std::optional<SqpStepSample> sqpStep;
 };
 
-/** Counters of the whole run, from the controller's reset supervisor and the
+/** Counters for the full run, from the controller's reset supervisor and the
  * simulator. */
 struct ClosedLoopCounters {
   size_t resetsServed =
@@ -166,7 +166,7 @@ struct ClosedLoopCounters {
   size_t fullResetsServed =
       0;  ///< MpcResetSupervisor::numFullResetsServed() during the commands
   size_t simulatorResets =
-      0;  ///< MujocoSimInterface::resetEpoch() moves during the whole run
+      0;  ///< MujocoSimInterface::resetEpoch() increments during the full run
 };
 
 /** What a metrics file says about itself, beside the metrics. */
@@ -223,9 +223,9 @@ class ClosedLoopMetrics {
   /**
    * Creates the metrics of a robot whose contacts' slip is measured as
    * `slipMeasures` says, one ContactSlipMeasure per contact in contact order
-   * (at most kMaxNumContacts); every control cycle's sample carries that many
+   * (at most kMaxNumContacts); every control cycle's sample includes that many
    * contact positions and flags, and the samples of a set with a
-   * kMaterialSlip contact carry its material velocity as well. The
+   * kMaterialSlip contact include its material velocity as well. The
    * `numContacts` overload (ModelSettings::numContacts()) measures every
    * contact as kDrift, for a set of points fixed on their links.
    */

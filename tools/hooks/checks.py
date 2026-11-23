@@ -27,7 +27,7 @@
 
 """The registry of the repository's token-level lint checks, and the engine that runs them on one file.
 
-Each check lives in its own module of tools/hooks, which lists it in its `CHECKS`; REGISTRY is their concatenation. A
+Each check is in its own module of tools/hooks, which lists it in its `CHECKS`; REGISTRY is their concatenation. A
 check's name is its NOLINT category (`// NOLINT(<name>): <reason>`) and its name for `lint_code --only`. The engine
 (`run_file()`) runs the checks that read a file, applies the file's NOLINT markers, and reports the markers that are
 themselves wrong (tools/hooks/nolint.py).
@@ -312,7 +312,7 @@ def _clang_tidy_checks_cached(root: str) -> frozenset[str]:
 
 
 def is_known_category(category: str, root: str) -> bool:
-    """True when a NOLINT category names a registry check, a cpplint category or a clang-tidy check of the configs."""
+    """True when a NOLINT category matches a registry check, a cpplint category or a clang-tidy check of the configs."""
     if category in names() or category in CPPLINT_CATEGORIES:
         return True
     tidy = _clang_tidy_checks_cached(root)

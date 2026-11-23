@@ -220,7 +220,7 @@ void printPlan(const ContactPlan& plan) {
 
 // Create() is the only way to build a planner (the constructor is private): an
 // invalid configuration comes back as the InvalidArgument of
-// ContactPlanningConfig::validateStatus(), naming the key to change, and
+// ContactPlanningConfig::validateStatus(), identifying the key to change, and
 // nothing is thrown.
 TEST(LipContactPlannerTest,
      CreateReturnsAnInvalidConfigurationAsAStatusThatNamesTheKey) {
@@ -753,7 +753,7 @@ TEST(LipContactPlannerTest, PlanCarriesThePlanningFrameYaw) {
   // The reference manager clips corrected footholds in the plan's yaw frame, so
   // the plan has to remember the heading the geometry was planned in. Without
   // the heading model each node's frame is turned by the commanded yaw rate
-  // (ContactPlanningContext::computeAxes()), so the plan carries that rate too.
+  // (ContactPlanningContext::computeAxes()), so the plan stores that rate too.
   const ContactPlanningConfig config = makeConfig();
   ASSERT_FALSE(config.usesHeadingModel());
   LEGGED_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<LipContactPlanner> planner,
@@ -947,7 +947,7 @@ TEST(LipContactPlannerTest,
       << "the root propagation must keep the left-foot-first subtree";
 
   // Branching the right foot up at node 0 must lead to a subtree that still
-  // holds the right-foot-first plan.
+  // contains the right-foot-first plan.
   MiqpAssignment rightLifts = root;
   rightLifts[LipContactPlanner::contactBinaryIndex(0, 1)] = 0;
   ASSERT_TRUE(planner->propagate(input, rightLifts));
@@ -1051,7 +1051,7 @@ namespace {
  * Drives the planner the way ContactPlanningReferenceManager does (same commit
  * boundary, same committed-node sampling, same activation and merge policy) for
  * 3 s of walking at 0.4 m/s. A plan computed at tick i is activated
- * `latencyTicks` ticks later, like a plan the background planner hands over one
+ * `latencyTicks` ticks later, like a plan the background planner returns one
  * or more solves later: it is merged at max(now, plan.committedUntil), and
  * dropped if that boundary has already passed or if it contradicts a swing in
  * flight there. Returns the executed schedule with its full history.
@@ -1323,7 +1323,7 @@ TEST(LipContactPlannerHeading,
   EXPECT_EQ(heading.eulerzyxFootRtWorldYaw(kNumFeet - 1), heading.nx - 1);
   EXPECT_EQ(heading.errEulerzyxFootRtWorldYaw(kNumFeet - 1), heading.nu - 1);
 
-  // A LIP plan carries no heading; the heading model needs the yaw inertia from
+  // A LIP plan has no heading; the heading model needs the yaw inertia from
   // the model and the derived parameters.
   LEGGED_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<LipContactPlanner> lipPlanner,
@@ -1794,7 +1794,7 @@ TEST(ContactPlanTest, AllStanceMergeKeepsOneEvent) {
  * of the planner: the exact zero-order-hold solution of the linear inverted
  * pendulum, the capture-point propagation the terminal cost relies on, the
  * orbital energy invariant, the heading double integrator with its torque
- * budget, and the heading frame the footholds live in.
+ * budget, and the heading frame in which the footholds are expressed.
  */
 namespace {
 
@@ -1953,7 +1953,7 @@ TEST(LipContactPlannerModel,
       EXPECT_NEAR(s.A(L.headingModelYaw, LipContactPlanner::kCx), 0.0, 1.0e-12);
       EXPECT_NEAR(s.A(LipContactPlanner::kVx, L.headingModelYawRate), 0.0,
                   1.0e-12);
-      // Yaw torque box: the most one foot ever carries, the whole weight's
+      // Yaw torque box: the most one foot ever carries, the full weight's
       // torsion alone or half the double-support budget.
       const scalar_t share =
           std::max(c.yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ,
@@ -1975,10 +1975,10 @@ TEST(LipContactPlannerModel,
  * The yaw torque one foot may carry under every contact state, read off the
  * planner's own constraint rows: with the torques at zero and the contact
  * binaries set, the slack of the torque rows is the budget. T_t is the
- * torsional friction of the whole weight on one foot, T_c the friction couple
+ * torsional friction of the full weight on one foot, T_c the friction couple
  * of two feet: alone a foot has T_t, in double support each foot has (T_t +
  * T_c) / 2 so that the pair has T_t + T_c, and a swinging foot has nothing. The
- * pair's budget was 2 T_t + T_c before, i.e. both feet carrying the whole
+ * pair's budget was 2 T_t + T_c before, i.e. both feet carrying the full
  * weight at once.
  */
 TEST(LipContactPlannerModel,

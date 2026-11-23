@@ -123,7 +123,7 @@ matrix3_t EndEffectorKinematicsTwistConstraint::getTiltRateMap(
                    zAxisEeEwrtWorld * normalSurfaceEwrtWorld.transpose()) /
                       s +
                   (vCrossN * vCrossN.transpose()) / (s * s * s);
-  // The tilt error carries no information about the rotation about the
+  // The tilt error contains no information about the rotation about the
   // end-effector normal. Adding that rate in the plane-normal direction makes
   // the orientation rows full rank and stops a stance foot pivoting on the
   // spot; without it the last row of a 6D constraint is identically zero.

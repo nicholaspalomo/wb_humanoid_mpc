@@ -68,7 +68,7 @@ class WBMpcTargetTrajectoriesCalculator
    * model's joint order (defaultJointStateFromConfig()). Nothing of the file is
    * retained.
    *
-   * @return The calculator; InvalidArgument naming a command limit that is
+   * @return The calculator; InvalidArgument identifying a command limit that is
    * absent or out of range, or listing the joints of default_joint_state that
    * are missing, named twice, fixed or not joints of the model.
    */
@@ -79,8 +79,8 @@ class WBMpcTargetTrajectoriesCalculator
 
   /**
    * Create() of the reference file at `referenceFile`: loadReferenceFile()'s
-   * error for a file that cannot be read or does not parse (naming its line and
-   * column), and the typed form's errors, prefixed with the file.
+   * error for a file that cannot be read or does not parse (identifying its
+   * line and column), and the typed form's errors, prefixed with the file.
    */
   static absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>>
   Create(absl::string_view referenceFile,

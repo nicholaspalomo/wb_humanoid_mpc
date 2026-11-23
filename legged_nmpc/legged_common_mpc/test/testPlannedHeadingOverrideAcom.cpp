@@ -263,12 +263,11 @@ TEST_F(PlannedHeadingOverrideAcomTest,
 
 /**
  * The override sets each level knot inside the plan so that its ACoM heading is
- * the planned heading at the knot's time
- * - exactly, modulo 2 pi - and keeps its pitch and roll (to round-off: they are
- * written back through the knot's quaternion). Without an evaluator it is the
- * base yaw that becomes the planned heading. A knot past the plan's end keeps
- * the operator's yaw. The quaternion layout stores no branch of the yaw (the
- * knots' Euler yaws read back in
+ * the planned heading at the knot's time (exactly, modulo 2 pi) and keeps its
+ * pitch and roll (to round-off: they are written back through the knot's
+ * quaternion). Without an evaluator it is the base yaw that becomes the planned
+ * heading. A knot past the plan's end keeps the operator's yaw. The quaternion
+ * layout stores no branch of the yaw (the knots' Euler yaws read back in
  * (-pi, pi]), so the re-branching next to the knot's own yaw
  * (moduloAngleWithReference) leaves no trace in the state.
  */

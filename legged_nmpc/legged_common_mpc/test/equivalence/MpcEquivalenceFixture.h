@@ -104,8 +104,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/** The environment variable naming the configuration an equivalence test binary
- * runs on (BUILD.bazel). */
+/** The environment variable specifying the configuration an equivalence test
+ * binary runs on (BUILD.bazel). */
 inline constexpr char kMpcEquivalenceConfigurationVariable[] =
     "MPC_EQUIVALENCE_CONFIGURATION";
 

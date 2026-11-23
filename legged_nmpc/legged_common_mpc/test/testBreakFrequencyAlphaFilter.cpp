@@ -355,8 +355,8 @@ TEST_F(VelocityCommandFilterFieldFileTest,
                                   "velocity_command_filter_break_frequency"))
         << loaded.status();
   }
-  // A value that is not a number is the parser's to refuse, naming the file and
-  // the line.
+  // A value that is not a number is refused by the parser, reporting the file
+  // and the line.
   const std::string notANumber =
       referenceFileWith("velocity_command_filter_break_frequency: fast");
   const absl::StatusOr<ReferenceSettings> loaded =

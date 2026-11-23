@@ -74,8 +74,8 @@ constexpr std::array<IntegratorType, 5> kRolloutIntegrators = {
     IntegratorType::MODIFIED_MIDPOINT, IntegratorType::RK4};
 // LINT.ThenChange(//legged_nmpc/legged_mpc_config/rollout_settings_config.proto:integrator_names)
 
-/** The sensitivity integrator named `name`; InvalidArgument naming the field
- * and listing the integrators otherwise. */
+/** The sensitivity integrator named `name`; InvalidArgument specifying the
+ * field and listing the integrators otherwise. */
 absl::StatusOr<SensitivityIntegratorType> sensitivityIntegratorNamed(
     absl::string_view name) {
   for (const SensitivityIntegratorType type : kSensitivityIntegrators) {
@@ -93,8 +93,8 @@ absl::StatusOr<SensitivityIntegratorType> sensitivityIntegratorNamed(
           })));
 }
 
-/** The rollout integrator named `name`; InvalidArgument naming the field and
- * listing the integrators otherwise. */
+/** The rollout integrator named `name`; InvalidArgument specifying the field
+ * and listing the integrators otherwise. */
 absl::StatusOr<IntegratorType> rolloutIntegratorNamed(absl::string_view name) {
   for (const IntegratorType type : kRolloutIntegrators) {
     if (integrator_type::toString(type) == name) {
@@ -241,7 +241,7 @@ absl::StatusOr<mpc::Settings> toMpcSettings(
                                   config.mrt_desired_frequency));
   mpc::Settings settings;
   settings.timeHorizon_ = config.time_horizon;
-  // Absent: OCS2's negative sentinel, the whole horizon
+  // Absent: OCS2's negative sentinel, the full horizon
   // (mpc::Settings::solutionTimeWindow_).
   if (config.solution_time_window.has_value()) {
     RETURN_IF_ERROR(requirePositive("mpc.solution_time_window",

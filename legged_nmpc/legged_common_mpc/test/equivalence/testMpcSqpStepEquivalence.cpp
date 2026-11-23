@@ -75,8 +75,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * with the input that carries the weight on both feet), so the suite reads
  * nothing but the configuration's shipped files. The claims, each a test:
  *
- *   (S1) Where no shooting gap carries a rotation and, on the whole body, no
- * gap carries an angular velocity, the quaternion manifold's QP is the chart's:
+ *   (S1) Where no shooting gap has a rotation and, on the whole body, no
+ * gap has an angular velocity, the quaternion manifold's QP is the chart's:
  * E is the same, such a gap has the same value (on the whole body also in the
  * angular-velocity rows: T_B(Theta) dTheta_F is w_F when Theta_F = Theta_next)
  * and the same sensitivity (Jr^-1(0) = I = P_e(x_e,next) P_e(x_e,F)^-1, which
@@ -84,7 +84,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The warm start is then a resting robot carrying its weight with no moment on
  * the base (the resting warm-start input corrected by the least-norm change
  * that cancels the moment, MpcEquivalenceFixture::nonTurningInput()), level or
- * tilted, whose gaps the test shows to carry neither a rotation nor an angular
+ * tilted, whose gaps the test shows to have neither a rotation nor an angular
  * velocity. From the warm start itself the two QPs are one up to round-off
  * (kSameQpTolerance; design section 4.4): both integrate the same RK4 flow, and
  * without a rotation or an angular velocity in the gaps the chart maps the
@@ -96,14 +96,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * (Theta_init - Theta_ws), equal to first order: O(eps^2), tier 2 (halving eps
  * divides the difference by a ratio in [kTierTwoRatioLow, kTierTwoRatioHigh]).
  * (S1) and (S2) compare the QPs' solutions (the steps over the line search's
- * step size, qpSolutionOf()) and gains. (S2) Where the gaps do carry a rotation
+ * step size, qpSolutionOf()) and gains. (S2) Where the gaps do have a rotation
  * b (the resting warm start: the weight-carrying input has a moment about the
  *        center of mass, so the base turns within each interval), the two QPs
  * differ in the gaps' sensitivity, Jr^-1(b) against T_B(Theta_next)
  * T_B(Theta_F)^-1, both I + O(|b|) with different first-order terms (at a level
  * next node, I + 1/2 [b]x against I + [[0, 0, b_y], [0, 0, -b_x], [0, b_x,
  * 0]]), and in the gaps' value at O(|b|^2); on the whole body the gaps also
- * carry the angular velocity the moment builds up within the interval, which
+ * have the angular velocity the moment builds up within the interval, which
  * adds the coupling block of (S1w), linear in the moment too: the iterations
  * differ by a quantity that vanishes with the moment, at least linearly.
  * Scaling the warm start's moment (and with it b, linearly) by 1/2 divides
@@ -125,11 +125,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * interval (the block, by finite differences of T_B, and its linearity) and on
  * a whole iteration from a warm start whose every gap is the same
  * angular-velocity kick (the QP solutions' difference halves with the kick, and
- * vanishes with it). (S3) The two SQPs solve one discrete problem - the same
+ * vanishes with it). (S3) The two SQPs solve one discrete problem (the same
  * terms of the same states, the same RK4 node map and projection, a gap that
- * vanishes exactly where the quaternion manifold's does - in two charts of its
+ * vanishes exactly where the quaternion manifold's does) in two charts of its
  * defects, so they have the same fixed points, the trajectories without gaps,
- * where (S1) their QPs are one. At the resting warm start (whose gaps carry
+ * where (S1) their QPs are one. At the resting warm start (whose gaps have
  * rotations, (S2)) and at the quaternion SQP's iterate from it the difference
  * of the two charts' gap linearizations is at most proportional to the gaps,
  * and as the iterate's gaps are closed it falls with them, to none without a
@@ -337,7 +337,7 @@ vector_t withAttitudeOffset(const MpcEquivalenceFixture& mpc,
 }
 
 /** Where the base orientation's quaternion and, on the whole body, the body
- * angular velocity sit in the ambient state. */
+ * angular velocity are located in the ambient state. */
 struct OrientationRows {
   Eigen::Index quaternionStartIndex = 0;
   /** -1 on the centroidal state. */
@@ -761,7 +761,7 @@ TEST_P(
 
 /**
  * Along a trajectory on the SQP's grid: the largest rotation [rad] and angular
- * velocity [rad/s] of its shooting gaps, the interval that carries the largest
+ * velocity [rad/s] of its shooting gaps, the interval with the largest
  * of them, and the largest difference of the two charts' linearizations of a
  * gap, max |A_chart - A_quaternion| and the same of B, the QPs' dynamics data.
  * Passive data.

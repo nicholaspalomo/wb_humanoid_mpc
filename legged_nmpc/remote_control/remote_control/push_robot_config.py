@@ -30,10 +30,10 @@
     bazel run //legged_nmpc/remote_control:push_robot_config -- \\
         robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto
 
-It delivers an editor's save of a file the robot process reads - the task file, the reference file or the joint PD
-gains file, told apart by the file's `# proto-message:` header - to a running robot, which otherwise reads it at its
+It delivers an editor's save of a file the robot process reads (the task file, the reference file or the joint PD
+gains file, told apart by the file's `# proto-message:` header) to a running robot, which otherwise reads it at its
 next start, and it is the scripted check of the two-process simulation. It publishes as the config_push node of the
-network file, since a running GUI holds the operator node.
+network file, since a running GUI runs the operator node.
 
 The first messages of a freshly bound socket can be lost before the robot's subscriber has connected to it, so it sends
 one save, under one sequence, every RESEND_PERIOD_SECONDS until the robot answers that sequence or
@@ -128,10 +128,10 @@ def read_file(path: str) -> tuple[robot_config_save.FileKind, str]:
       path: The file.
 
     Returns:
-      Its kind, from its `# proto-message:` header, and its text, as the file holds it.
+      Its kind, from its `# proto-message:` header, and its text, as stored in the file.
 
     Raises:
-      PushError: The file cannot be read, names no schema the robot stores, or does not parse.
+      PushError: The file cannot be read, specifies no schema the robot stores, or does not parse.
     """
     try:
         text = nproto_textproto.read_textproto_file(path)

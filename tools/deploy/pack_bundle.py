@@ -31,7 +31,7 @@
 
 Every line of the manifest is `<path in the bundle>\\t<source file>\\t<mode>`: mode `1` makes the entry executable,
 `auto` executable when the source is, and `0` with an empty source is an empty file. Sources are read through their
-symlinks, so the tar holds no link. Entries are sorted, every directory has an entry of its own, everything is owned
+symlinks, so the tar contains no link. Entries are sorted, every directory has an entry of its own, everything is owned
 by root and dated 0, and files are 0644 or 0755: two builds of the same inputs give the same bytes.
 """
 
@@ -49,7 +49,7 @@ Entry: TypeAlias = tuple[str, str, str]
 
 
 def read_manifest(path: str) -> list[Entry]:
-    """The entries of the manifest at `path`; raises ValueError naming the line that is malformed or leaves the bundle."""
+    """The entries of the manifest at `path`; raises ValueError identifying the line that is malformed or leaves the bundle."""
     entries: list[Entry] = []
     with open(path, "r", encoding="utf-8") as stream:
         for number, line in enumerate(stream, start=1):

@@ -33,7 +33,7 @@
 
 App is the Tk window; OperatorGui runs it against the IPC bus (operator_bus.OperatorBus): every 25 Hz tick it
 publishes the walking command (always, so that the height slider reaches the gantry in simulation, unless
---walking_commands=off or the "Publish walking commands" checkbox hands the topic to a teleoperation publisher), applies
+--walking_commands=off or the "Publish walking commands" checkbox passes the topic to a teleoperation publisher), applies
 the FSM states the robot published, and reads the Xbox controller when one is connected. A tuning tab's Save writes the
 laptop's file and sends its text to the robot's store through one robot_config_save.RobotConfigSaver, which the tabs
 poll for the robot's answers. Everything runs on Tk's thread except the bus's own receive thread, which only fills the
@@ -747,8 +747,8 @@ class App(tk.Tk):
     def poll_reference_file(self) -> None:
         """Follows the reference file's nom_pos_base_rt_surface_ewrt_world_z when the file changed since the last call.
 
-        A change - the Command Limits tab's Save, an editor's, push_robot_config's file - moves the default pelvis height
-        to the file's (move_nom_pos_base_rt_surface_ewrt_world_z()), unless the command line set it; a file that names none or cannot
+        A change (the Command Limits tab's Save, an editor's, push_robot_config's file) moves the default pelvis height
+        to the file's (move_nom_pos_base_rt_surface_ewrt_world_z()), unless the command line set it; a file that specifies none or cannot
         be read keeps it. For the GUI's tick (OperatorGui) and the tab's Save.
         """
         mtime = _modification_time(self.reference_file)
@@ -956,7 +956,7 @@ class OperatorGui:
             if command is not None:
                 self._operator_bus.walking_velocity_command.publish(command)
         elif self._published_walking_command:
-            # Handed to a teleoperation publisher: the MPC keeps the last command it received, so the last one stops.
+            # Passed to a teleoperation publisher: the MPC keeps the last command it received, so the last one stops.
             self._app.center_walking_sticks()
             self._gamepad_drives_sticks = False
             self._operator_bus.walking_velocity_command.publish(

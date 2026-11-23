@@ -137,10 +137,10 @@ class DcmTerminalCost final : public StateCost {
     std::optional<scalar_t> omega() const;
 
     /**
-     * OK, or InvalidArgument naming the dcm_terminal_cost field to change: a
-     * nom_pos_com_rt_feetmean_ewrt_world_z that is given and is not a positive
-     * number, a negative weight or blend time. The gravity is the model's,
-     * which modelGravity() checks.
+     * OK, or InvalidArgument identifying the dcm_terminal_cost field to change:
+     * a nom_pos_com_rt_feetmean_ewrt_world_z that is given and is not a
+     * positive number, a negative weight or blend time. The gravity is the
+     * model's, which modelGravity() checks.
      */
     absl::Status validate() const;
   };
@@ -162,9 +162,9 @@ class DcmTerminalCost final : public StateCost {
    * Builds the cost with `config` resolved against
    * `modelNomPosComRtFeetmeanEwrtWorldZ` and the gravity of
    * `pinocchioInterface`'s model (resolveConfig, modelGravity()), or returns
-   * the InvalidArgument that names the field to change. A contact set other
+   * the InvalidArgument identifying the field to change. A contact set other
    * than the biped's two 6-DoF feet (ModelSettings::isBipedContactSet()) is an
-   * InvalidArgument naming dcm_terminal_cost and the contact count.
+   * InvalidArgument identifying dcm_terminal_cost and the contact count.
    *
    * @param modelNomPosComRtFeetmeanEwrtWorldZ [m] the model's pendulum length
    * at the nominal state
@@ -209,7 +209,7 @@ class DcmTerminalCost final : public StateCost {
    * recompilation is needed. An unset nomPosComRtFeetmeanEwrtWorldZ is resolved
    * to the model's height the cost was built with, and the gravity is always
    * the model's. A configuration that does not validate is refused with the
-   * InvalidArgument naming its field, and the running one is kept.
+   * InvalidArgument identifying its field, and the running one is kept.
    */
   absl::Status setConfig(const Config& config);
   /** The running configuration, nomPosComRtFeetmeanEwrtWorldZ resolved. */

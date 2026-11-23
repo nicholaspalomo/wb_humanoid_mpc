@@ -80,7 +80,7 @@ absl::StatusOr<JsonValue> runSolveBenchmark(
 
 /**
  * A library's name in the benchmark document: its folder without the
- * "cppad_code_gen/" every robot's libraries live in and without
+ * "cppad_code_gen/" every robot's libraries are in and without
  * CppAdInterface's "/cppad_generated", e.g.
  * "cppad_centroidal_mpc_atlas/FlowMap".
  */

@@ -93,7 +93,7 @@ struct GoldenFile {
 
 /**
  * The provenance of a recording that depends on `configurationFiles`: each
- * file's SHA-256, in the order given. NotFound naming the first file that
+ * file's SHA-256, in the order given. NotFound identifying the first file that
  * cannot be read.
  */
 absl::StatusOr<GoldenProvenance> makeGoldenProvenance(
@@ -102,14 +102,14 @@ absl::StatusOr<GoldenProvenance> makeGoldenProvenance(
     absl::Span<const std::string> configurationFiles);
 
 /**
- * The text of `golden`. InvalidArgument for a label that is empty, holds
- * whitespace or repeats, and for a provenance field or note that holds a line
- * break (a note key also must not hold whitespace or ':').
+ * The text of `golden`. InvalidArgument for a label that is empty, contains
+ * whitespace or repeats, and for a provenance field or note that contains a
+ * line break (a note key also must not contain whitespace or ':').
  */
 absl::StatusOr<std::string> formatGoldenFile(const GoldenFile& golden);
 
-/** Parses formatGoldenFile()'s text; InvalidArgument naming the line of the
- * first error. */
+/** Parses formatGoldenFile()'s text; InvalidArgument identifying the line of
+ * the first error. */
 absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text);
 
 /** formatGoldenFile() into `path`, creating its directory; the errors of

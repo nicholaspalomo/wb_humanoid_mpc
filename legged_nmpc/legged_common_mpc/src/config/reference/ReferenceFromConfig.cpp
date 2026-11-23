@@ -69,8 +69,8 @@ enum class Range {
   kFinite,
 };
 
-/** `value` of the reference file's `field`; InvalidArgument naming the field
- * unless it lies in `range`. */
+/** `value` of the reference file's `field`; InvalidArgument identifying the
+ * field unless it lies in `range`. */
 absl::StatusOr<scalar_t> inRange(absl::string_view field,
                                  double value,
                                  Range range) {

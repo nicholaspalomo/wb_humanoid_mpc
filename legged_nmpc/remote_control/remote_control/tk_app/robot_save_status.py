@@ -28,7 +28,7 @@
 """A tuning tab's robot copy after Save: sends the saved text and shows the robot's answer on the tab's status line.
 
 The MPC Parameters, Joint PD Gains and Command Limits tabs each own one RobotSaveStatus. Their Save writes the laptop's
-file first and, only when that succeeded, calls send() with the exact text written; send() hands it to the GUI's
+file first and, only when that succeeded, calls send() with the exact text written; send() passes it to the GUI's
 robot_config_save.RobotConfigSaver and shows "Saved on the laptop · saving on the robot…", and Tk's after() polls the
 saver every 200 ms while the robot's answer may still change the line (robot_config_save.describe() words it).
 """

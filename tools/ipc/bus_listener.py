@@ -53,10 +53,10 @@ class NetworkConfigError(ValueError):
 
 
 def parse_network_config(text: str, source: str) -> robot_ipc.NetworkConfig:
-    """The network of the text of a network file; `source` names it in the error messages.
+    """The network of the text of a network file; `source` identifies it in the error messages.
 
     Raises:
-        NetworkConfigError: the file is not a valid network file; the message names its line and column, or the entry.
+        NetworkConfigError: the file is not a valid network file; the message reports its line and column, or the entry.
     """
     try:
         return robot_ipc.parse_network_config(text, source)
@@ -98,7 +98,7 @@ def resolve_input_path(path: str) -> str:
 
     Returns:
         `path` itself when it is absolute, else the first candidate that exists, or the first candidate when none
-        exists, so that the error names the path the user meant.
+        exists, so that the error reports the path the user meant.
     """
     if os.path.isabs(path):
         return path

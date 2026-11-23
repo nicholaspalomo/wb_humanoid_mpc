@@ -112,7 +112,7 @@ namespace ocs2::legged {
  *
  * The two rows above are EXACT instead: row 0 is non-negative if and only if
  * |F_t| <= mu |Fz| (both square roots are monotone in their argument, and the
- * same regularization sits under both), and row 1 removes the mirror-image cone
+ * same regularization is used in both), and row 1 removes the mirror-image cone
  * below the origin, so together they are the Coulomb cone and nothing else, for
  * every force. Both rows are smooth, both are exactly zero at the zero force,
  * and the regularization still keeps the gradient finite there - it only shapes
@@ -399,7 +399,7 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and
   // the parallel solve reads it without synchronization. It has to survive the
-  // copy the SQP solver makes of the whole problem per worker thread.
+  // copy the SQP solver makes of the problem per worker thread.
   const bool scheduleGated_;
 };
 

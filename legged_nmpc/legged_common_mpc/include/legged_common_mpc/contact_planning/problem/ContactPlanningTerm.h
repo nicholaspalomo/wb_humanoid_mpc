@@ -69,8 +69,8 @@ class ContactPlanningTerm {
   virtual std::vector<std::string> requiredBlocks() const { return {}; }
   /**
    * Returns OK when the term can be built for a contact set of `numContacts`
-   * contacts (ContactPlanningConfig::shared.numContacts), and otherwise the
-   * InvalidArgument that names the term and the count. A term written for a
+   * contacts (ContactPlanningConfig::shared.numContacts), and otherwise
+   * InvalidArgument identifying the term and the count. A term written for a
    * left and a right foot refuses every count but two
    * (checkTwoContactCount()); one written over the number of feet accepts
    * any. ContactPlanningProblem::finalize() asks every term of the problem.
@@ -84,10 +84,10 @@ class ContactPlanningTerm {
   /**
    * Reads the term's parameter block. The configuration has passed
    * ContactPlanningConfig::validateStatus(), which is the one place the values
-   * are checked and the one that names the key an operator has to change, so a
-   * term does not re-validate them: every configure() used to repeat a check of
-   * validateStatus() with a message that named no key, and threw
-   * std::invalid_argument from what is a plain setter.
+   * are checked and the one that identifies the key an operator has to change,
+   * so a term does not re-validate them: every configure() used to repeat a
+   * check of validateStatus() with a message that did not identify the key, and
+   * threw std::invalid_argument from what is a plain setter.
    */
   virtual void configure(const ContactPlanningConfig& config) = 0;
 

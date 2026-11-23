@@ -70,7 +70,7 @@ struct DecodedRobotState {
    * and their rates (yaw, pitch, roll rate) of angvelBaseRtWorldEwrtBase
    * (eulerZyxRatesForDisplay(): all three NaN within
    * kDisplayEulerRateMinCosPitch of a pitch of +-90 degrees). The MPC never
-   * reads them; its state and q hold the quaternion.
+   * reads them; its state and q store the quaternion.
    */
   vector3_t eulerzyxBaseRtWorld = vector3_t::Zero();
   vector3_t rateEulerzyxBaseRtWorld = vector3_t::Zero();
@@ -130,7 +130,7 @@ vector3_t eulerZyxRatesForDisplay(const vector3_t& eulerzyxLocalRtWorld,
                                   const vector3_t& angvelLocalRtWorldEwrtLocal);
 
 /**
- * Reads robot/state samples for the visualization. A sample names its joints,
+ * Reads robot/state samples for the visualization. A sample lists its joints,
  * so the decoder maps them onto the MPC's joints and the robot's joint list by
  * name; the mapping is computed again only when the names change.
  *
@@ -142,7 +142,7 @@ vector3_t eulerZyxRatesForDisplay(const vector3_t& eulerzyxLocalRtWorld,
  *
  * The base and the MPC joints become the MPC's generalized coordinates and
  * velocities through the robot model's measurement helpers, the conversion the
- * MRT controllers use, so the decoder holds no knowledge of the state layout.
+ * MRT controllers use, so the decoder has no knowledge of the state layout.
  * The Euler angles and rates are display values beside them, computed on the
  * visualization thread of the MPC process, never on the robot. Not thread-safe:
  * decode() writes the decoder's buffers. Move-only.

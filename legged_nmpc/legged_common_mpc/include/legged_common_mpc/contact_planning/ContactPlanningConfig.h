@@ -52,13 +52,13 @@ namespace ocs2::legged {
  * the mixed-integer program): the robot's `contact_planning.textproto`
  * (contactPlanningConfigFromConfig()).
  *
- * The block mirrors the structure of the planner. `planner` holds what is a
- * property of the planner itself (grid, commit window, solver budget,
- * threading), `shared` the parameters read by more than one term, `formulation`
- * the term lists, and then one parameter block per term, named as the term
+ * The block mirrors the structure of the planner. `planner` stores properties
+ * of the planner itself (grid, commit window, solver budget, threading),
+ * `shared` the parameters read by more than one term, `formulation` the term
+ * lists, and then one parameter block per term, named as the term
  * (ContactPlanningFormulation.h). A term reads its own block in
  * ContactPlanningTerm::configure(), which is also the hot-reload path: the
- * parameter updater re-parses the file and hands the whole configuration to the
+ * parameter updater re-parses the file and passes the full configuration to the
  * planner and the reference manager, and every term picks up its block.
  *
  * Geometry is expressed in the yaw-aligned frame of the base at planning time
@@ -187,10 +187,10 @@ struct SharedParameters {
   // ContactPlanningModelParameters::applyTo before validation, at start-up and
   // on every hot reload. It is also the library default, so a robot file that
   // leaves shared.nom_pos_com_rt_feetmean_ewrt_world_z out (as both shipped
-  // files do) plans on its own model's pendulum - the one its DCM terminal cost
-  // derives - rather than on a fixed height that belongs to no robot (it was
+  // files do) plans on its own model's pendulum (the one its DCM terminal cost
+  // derives) rather than on a fixed height that belongs to no robot (it was
   // 0.85 m, the height the Atlas was once hand-set to). A configuration with no
-  // model to derive it from - a planner unit test - must set a positive height
+  // model to derive it from (a planner unit test) must set a positive height
   // itself: validateStatus() refuses an unset one.
   std::optional<scalar_t> nomPosComRtFeetmeanEwrtWorldZ;
   // [m] big-M of the ZMP / foothold disjunctions. Two bounds, not one: it must
@@ -284,7 +284,7 @@ struct HlipBlendParameters {
  * has no gain to tune (HlipModel). The only quantities below that are neither a
  * cadence nor a command range are the step bounds, which exist so that a
  * foothold the deadbeat law asks for outside the leg's reach is clipped instead
- * of handed to the whole-body MPC.
+ * of passed to the whole-body MPC.
  *
  * The cadence defaults are the one validated in simulation on the DRC Atlas,
  * not the paper's. The figures below are for a 0.85 m pendulum
@@ -578,7 +578,7 @@ struct EventShiftLocalSearchParameters {
  * to s * dt re-times every phase together. Every term is already an exact
  * function of the node duration (the LIP block is cosh/sinh of omega dt, the
  * heading block is linear in dt, step_length's nominal displacement is v dt
- * ratio, terminal_dcm's gain is exp(2 omega dt)), and ContactPlan carries its
+ * ratio, terminal_dcm's gain is exp(2 omega dt)), and ContactPlan stores its
  * own dt, so a stretched plan needs no new representation.
  *
  * The stretch is bounded below by 1: s < 1 shrinks the committed window below
@@ -814,8 +814,8 @@ struct ContactPlanningConfig {
 
   /**
    * OK, or InvalidArgument for the first inconsistent key (every block, and the
-   * formulation). Each message names the key to change with its path inside the
-   * `contact_planning` block (`foothold_regularization.weight`,
+   * formulation). Each message identifies the key to change with its path
+   * inside the `contact_planning` block (`foothold_regularization.weight`,
    * `planner.maxSolveTime`, `hlip.minPosLfootRtRfootEwrtHeadingY`, ...) and the
    * value it read. On success the warnings() are logged with LOG(WARNING).
    */
@@ -823,8 +823,8 @@ struct ContactPlanningConfig {
 
   /**
    * Combinations that are legal but documented to fall or to block, one message
-   * per finding naming the keys to move, empty when there is nothing to say.
-   * Per planner:
+   * per finding identifying the keys to adjust, empty when there is nothing to
+   * say. Per planner:
    *  - hlip: planned_com_override missing from `execution` (the robot sidesteps
    * and falls, H-LIP README 3c); a first step out of a standstill that does not
    * fit hlip.maxPosLfootRtRfootEwrtHeadingY (README 3b); a background thread (a
@@ -858,7 +858,7 @@ struct ContactPlanningConfig {
    * SwingTrajectoryPlanner scales every swing shorter than swingTimeScale down
    * in height and velocity by duration / swingTimeScale, so such a
    * configuration lands every step short and low without any other sign. The
-   * two keys live in different files and a GUI reload can move either one, so,
+   * two keys are in different files and a GUI reload can move either one, so,
    * in addition to the LINT pair between the files, the reference manager
    * checks this at run time, where it knows both: at construction, on every
    * reload of this configuration, and at the first solver run after the swing

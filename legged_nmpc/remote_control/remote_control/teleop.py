@@ -58,7 +58,7 @@ WALKING_COMMAND_RATE_HZ = 25.0
 # LINT.ThenChange(//legged_nmpc/docs/distributed_runtime/README.md:topic_table, //legged_nmpc/legged_mpc_config/interface_config.proto:walking_command_timeout)
 
 # How long a publisher whose controller went away keeps publishing the stop command [s], and that many ticks at the
-# topic's rate: long enough that a dropped message cannot leave the robot walking, short enough to hand the topic back.
+# topic's rate: long enough that a dropped message cannot leave the robot walking, short enough to give the topic back.
 STOP_COMMAND_DURATION = 1.0
 STOP_COMMAND_TICKS = max(
     1, round(STOP_COMMAND_DURATION * WALKING_COMMAND_RATE_HZ)

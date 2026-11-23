@@ -66,7 +66,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-// Found by argument-dependent lookup, so it lives in the namespace of
+// Found by argument-dependent lookup, so it is defined in the namespace of
 // ModelSettings rather than in the anonymous one.
 // NOLINTNEXTLINE(misc-use-anonymous-namespace): an unnamed namespace would hide it from that lookup; static keeps it local.
 static void PrintTo(const ModelSettings::ContactImplicitKey& key,
@@ -454,8 +454,8 @@ TEST(MpcFormulationLoader, theListsLoadAsWritten) {
 TEST(MpcFormulationLoader,
      theRetiredAcomSwitchIsRefusedNamingTheCostThatReplacedItWhateverItsValue) {
   // useComAndAcomTracking was a top-level boolean; CoM + ACoM tracking is now
-  // the cost com_and_acom_tracking_cost. A file that still carries the key must
-  // not load, even with `false`: ignoring it would let a stale file run a
+  // the cost com_and_acom_tracking_cost. A file that still contains the key
+  // must not load, even with `false`: ignoring it would let a stale file run a
   // different formulation from the one it asks for, silently.
   const std::string lists =
       "hard_constraints: [\"zero_wrench\", \"zero_velocity\", "

@@ -61,8 +61,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The lockstep closed loop builds the robot process's state estimator as
  * RobotProcess::Create() builds it: by the task file's state_estimator, from
  * the MPC's contact points on the URDF's links, the URDF, the robot
- * description and the kalman noise model. ground_truth hands the controller the
- * measured state itself, so a lockstep run with it is the run without an
+ * description and the kalman noise model. ground_truth passes the controller
+ * the measured state itself, so a lockstep run with it is the run without an
  * estimator stage bit for bit; kalman replaces only the base's position and
  * linear velocity.
  */

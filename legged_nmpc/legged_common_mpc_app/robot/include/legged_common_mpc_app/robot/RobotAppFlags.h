@@ -61,7 +61,7 @@ namespace ocs2::legged {
 
 /**
  * The robot binary's options from its flags, checked: the files exist, the core
- * lists parse, the realtime priority is 0-99, --config_seed names a seed
+ * lists parse, the realtime priority is 0-99, --config_seed specifies a seed
  * policy, the viewer flags and MUJOCO_EGL_DEVICE_ID make valid viewer settings
  * (viewerSettingsFromFlags(); the viewer is --viewer, else the mujoco_viewer of
  * --plot_config, else web). In `cores`, the MRT, simulation and viewer cores

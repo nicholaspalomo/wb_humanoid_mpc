@@ -112,7 +112,7 @@ CENTROIDAL_MULTI_CONTACT_FLAGS = (
 MPC_LAUNCH_FILES = ("robot.textproto", "mpc.textproto", "dummy_sim.textproto")
 # The variables every launch file of a robot configuration gives the same value. The task and reference files are also
 # the configuration's identity on the bus (ConfigFiles.h, configFileIdentity()): the robot and the MPC refuse an update
-# or a save that names another one, so their launch files must name the same files.
+# or a save that specifies another one, so their launch files must specify the same files.
 # The plot configuration is one for both sides: the bridge's plots and the robot's MuJoCo viewer (mujoco_viewer).
 SHARED_VARIABLES = (
     "task_file",
@@ -408,7 +408,7 @@ class LaunchFilesTest(unittest.TestCase):
                 self.assertEqual(len(names), 1, names)
 
     def test_the_robot_side_passes_its_configuration_store(self) -> None:
-        # The robot images name the store directory and the seed policy through the launch file's variables
+        # The robot images specify the store directory and the seed policy through the launch file's variables
         # (docker-compose.robot.yaml); the launch file itself reads its files in place.
         for _, package, _ in ROBOT_CONFIGURATIONS:
             launch = load(os.path.join(package, "launch", "robot.textproto"))

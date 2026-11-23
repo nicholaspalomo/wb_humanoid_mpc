@@ -61,10 +61,10 @@ inline constexpr size_t kCacheLineSize = 128;
  *
  * The producer publishes a slot with a release store of its write index, which
  * the consumer reads with an acquire load before reading the slot; the consumer
- * hands a slot back the same way through its read index. Each side keeps a
- * private copy of the other side's index and only reloads it when the copy says
- * the queue is full (or empty), so in steady state the two threads do not
- * bounce each other's cache lines. The two indices live on separate cache
+ * the consumer returns a slot the same way through its read index. Each side
+ * keeps a private copy of the other side's index and only reloads it when the
+ * copy says the queue is full (or empty), so in steady state the two threads do
+ * not bounce each other's cache lines. The two indices are on separate cache
  * lines.
  *
  * T must be copy-assignable. The queue is neither copyable nor movable.

@@ -101,7 +101,7 @@ class EndEffectorDynamicsFootCost final : public StateInputCostGaussNewtonAd {
   /**
    * Returns the CppAD model name the MPC compiles and caches the library of the
    * contact `footName`'s cost under. It is spelled apart from termName() so
-   * that renaming the term never renames - and so regenerates - the library,
+   * that renaming the term never renames (and so regenerates) the library,
    * and it ends in kLibraryVersionSuffix.
    */
   static std::string libraryModelName(absl::string_view footName);
@@ -139,8 +139,8 @@ class EndEffectorDynamicsFootCost final : public StateInputCostGaussNewtonAd {
    * with them would: they are parameters of the taped function. For the
    * parameter updater, between solves.
    *
-   * @return InvalidArgument naming the first weight that is negative or not
-   * finite; the cost then keeps its weights.
+   * @return InvalidArgument identifying the first weight that is negative or
+   * not finite; the cost then keeps its weights.
    */
   absl::Status setWeights(const EndEffectorDynamicsWeights& weights);
 

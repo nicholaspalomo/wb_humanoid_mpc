@@ -29,7 +29,7 @@
 
 The rows are the parameters of the file's schema (legged_mpc_config/joint_pd_gains_file.proto, through
 config_schema): the default gains, and each joint's, grouped by limb. Every change is published, debounced, as the
-whole file (legged_mpc_config.JointPdGainsUpdate on operator/pd_gains, paired with its configuration path) after a
+full file (legged_mpc_config.JointPdGainsUpdate on operator/pd_gains, paired with its configuration path) after a
 strict parse of the edited text; "Save" writes the changes into the file and keeps every other byte of it, then sends
 the saved text to the robot's store (robot_config_save.py), whose copy the robot's controllers read.
 """

@@ -50,7 +50,7 @@ namespace {
  *
  * Gated, the configured barrier: the term is off during swing anyway, and its
  * small negative gradient inside [0, delta] cannot be reached where it would
- * matter.
+ * have an effect.
  *
  * Un-gated, a one-sided squared hinge with its zero exactly on λ = 0. The
  * barrier's derivative at λ = 0 is
@@ -181,7 +181,7 @@ void BasisScalingNonNegativityConstraint::setBarrierPenalty(
   barrierConfig_ = barrierSettings;
   // Both penalties take (mu, delta). Un-gated the hinge's delta stays 0: it is
   // the offset of the hinge's zero, and we use a hinge for λ >= 0 so that its
-  // zero sits on λ = 0. Writing the barrier's smoothing width there would
+  // zero is at λ = 0. Writing the barrier's smoothing width there would
   // demand a positive λ from every generator and reinstate the bribe this term
   // exists to remove.
   const vector_t parameters =

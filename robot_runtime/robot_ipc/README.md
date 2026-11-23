@@ -3,12 +3,12 @@
 The Cyclone DDS bus of the distributed runtime, in C++ (`robot::ipc`, target `:robot_ipc`) and in Python
 (`import robot_ipc`, target `:robot_ipc_py`). The design, the processes and the topics of the MPC are in
 [`legged_nmpc/docs/distributed_runtime/README.md`](../../legged_nmpc/docs/distributed_runtime/README.md); this
-package is generic and knows none of its messages (the shipped network file only names the MPC's topics to give
+package is generic and knows none of its messages (the shipped network file only lists the MPC's topics to give
 each its quality of service).
 
 It uses [Eclipse Cyclone DDS](https://cyclonedds.io) directly: the C library `ddsc` of the BCR module `cyclonedds`
 (MODULE.bazel), linked statically, and in Python the `cyclonedds` wheel of the same release, which bundles its own
-`libddsc`. There is no ROS: no rmw, no ROS IDL packages, no colcon or ament.
+`libddsc`. It does not use ROS (no rmw, ROS IDL packages, colcon, or ament).
 
 ## The pattern
 
@@ -49,8 +49,8 @@ flowchart LR
   the peer speaks, so that two checkouts that drifted apart say so instead of misparsing each other. Version 1 was the
   four-frame ZeroMQ framing that came before. Bump the version with every change of the envelope, in both languages at
   once (`LINT.IfChange(wire_protocol)`).
-- Per subscription, `kLatest` (`"latest"`) hands over only the newest sample of the topic each time the
-  IO thread drains the topic's DDS reader, and drops the older ones unparsed; `kAll` (`"all"`) hands over every sample
+- Per subscription, `kLatest` (`"latest"`) delivers only the newest sample of the topic each time the
+  IO thread drains the topic's DDS reader, and drops the older ones unparsed; `kAll` (`"all"`) delivers every sample
   in order. The reader keeps `latestDeliveryHistoryDepth` (4) or `allDeliveryHistoryDepth` (256) samples while the IO
   thread is busy.
 - Across topics, a drain takes up to `maxMessagesPerDrain` samples across the topics and dispatches them in
@@ -61,9 +61,9 @@ flowchart LR
 
 ## Quality of service
 
-Each topic of the network file names a profile (`QosProfile.h`, `python/robot_ipc/qos_profile.py`); a topic the file
+Each topic in the network file specifies a profile (`QosProfile.h`, `python/robot_ipc/qos_profile.py`); a topic the file
 does not list has `default_qos_profile`, `reliable_events` unless the file says otherwise. Every profile is VOLATILE:
-a reader gets what is written after it matched the writer, never a history, so a process that restarts is not handed
+a reader gets what is written after it matched the writer, never a history, so a process that restarts does not receive
 old commands.
 
 | Profile | Reliability | Writer history | For |
@@ -190,9 +190,9 @@ transport { max_message_size_bytes: 1400 socket_receive_buffer_bytes: 8388608 }
 | `transport` | `max_message_size_bytes` (MaxMessageSize, default 14720 B; 1400 B on Wi-Fi keeps a datagram in one frame), `socket_receive_buffer_bytes`, `socket_send_buffer_bytes`, `writer_unacked_bytes_limit` (8 MiB), `max_processes_per_host` (20), `lease_duration_ms` (3000), `simulated_send_loss_per_mille` (Internal/Test/XmitLossiness: tests and rehearsals only) |
 
 Both loaders parse it strictly: a syntax error, an unknown field (the retired `port` and `bind_host` of the ZeroMQ
-nodes included) or a value of the wrong type names the file, the line and the column; an invalid entry (a duplicate
+nodes included) or a value of the wrong type reports the file, line, and column; an invalid entry (a duplicate
 name, a wildcard host such as `0.0.0.0`, a topic that is no DDS name, an unknown profile, a publisher that is
-no node, or a domain whose ports would pass 65535) names the entry.
+no node, or a domain whose ports would pass 65535) identifies the entry.
 
 **The Cyclone DDS configuration** is generated from the file (`DomainConfig.h`, `python/robot_ipc/domain_config.py`,
 the same text in both languages) and passed to `dds_create_domain()`: no XML file, and `CYCLONEDDS_URI` is never read
@@ -216,10 +216,10 @@ Per topic, readable from any thread (`TopicStatistics.h`, the Python `TopicStati
 
 | Counter | Meaning |
 |---|---|
-| `written` | samples handed to the DDS writer - not samples delivered |
+| `written` | samples passed to the DDS writer (not samples delivered) |
 | `sendDropped` | refused: the publish queue was full, or DDS refused the write (the unacknowledged-bytes limit) |
 | `received` | samples taken from the topic's DDS reader |
-| `delivered` | handed to the handler (including those whose handler then threw) |
+| `delivered` | delivered to the handler (including those whose handler then threw) |
 | `superseded` | `kLatest`: replaced by a newer sample of the same drain before it was parsed |
 | `rejected` | another wire protocol version, another type, or a payload that does not parse |
 | `handlerErrors` | handler calls that threw |
@@ -240,7 +240,7 @@ reconnects of ZeroMQ: a peer that stops is unmatched once its lease (`lease_dura
 run at once never see each other's samples:
 
 - `:network_config_test`, `:network_config_py_test`: parsing; a table of malformed textprotos, each rejected with its
-  line and column; a table of invalid entries, each rejected naming it; `format` and `parse` round-tripping; the
+  line and column; a table of invalid entries, each rejected with the offending entry in the error; `format` and `parse` round-tripping; the
   shipped files; the generated Cyclone DDS configuration and the port mapping. The two languages check the same tables
   (`LINT.IfChange`);
 - `:bus_test`, `:bus_py_test`: separate topics, `kLatest` against `kAll` on a burst, the order across topics within one
@@ -251,7 +251,7 @@ run at once never see each other's samples:
 - `:cross_language_test`: Python publishes, the C++ `:bus_echo` binary answers; both generate the same domain
   configuration; 0.75 MB policies cross the processes whole over a link that drops 2 % of its 1400 B packets;
 - `:textproto_test`: the strict parser on its own: unknown fields, fields given twice, deprecated fields and syntax
-  errors each name their line and column.
+  errors each report their line and column.
 
 The protos (`proto/network_config.proto`, package `robot_ipc_proto`; the test messages `test/test_sample.proto`,
 `test/test_event.proto` and `test/test_settings.proto`, package `robot_ipc_test`) follow the repository's proto rules:

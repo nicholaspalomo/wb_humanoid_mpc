@@ -713,7 +713,7 @@ class DeliveryTest(BusTestCase):
                     "robot_ipc_test.TestEvent",
                     test_event_pb2.TestEvent(name="x").SerializeToString(),
                 ),
-                # A length-delimited field (text) that claims five bytes and carries two.
+                # A length-delimited field (text) that claims five bytes and has two.
                 (version, sample_type, b"\x12\x05ab"),
                 (version - 1, sample_type, make_sample(1).SerializeToString()),
                 (version + 1, sample_type, make_sample(2).SerializeToString()),

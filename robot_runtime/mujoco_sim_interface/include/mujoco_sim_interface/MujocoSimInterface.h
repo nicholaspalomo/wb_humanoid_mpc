@@ -74,8 +74,8 @@ namespace robot::mujoco_sim_interface {
  * How the virtual gantry holds the floating base while it is locked.
  *
  * These are two different physical models rather than one feature switched on
- * and off, so the robot task file names the one it wants (`gantry_hold`) and
- * gantryHoldFromName resolves it.
+ * and off, so the robot task file specifies the one it wants (`gantry_hold`)
+ * and gantryHoldFromName resolves it.
  *
  * kWeldConstraint is what a real gantry does: a MuJoCo weld equality that the
  * constraint solver satisfies INSIDE mj_step, so the base is genuinely
@@ -106,7 +106,7 @@ inline constexpr char kKinematicTeleportGantryHoldName[] = "kinematic_teleport";
 /// The names `gantry_hold` accepts, in the order of GantryHold.
 std::vector<std::string> gantryHoldNames();
 
-/// Resolves a task-file `gantry_hold` name, naming the valid ones when it does
+/// Resolves a task-file `gantry_hold` name, listing the valid ones when it does
 /// not match.
 absl::StatusOr<GantryHold> gantryHoldFromName(absl::string_view name);
 // clang-format off
@@ -172,12 +172,12 @@ struct MujocoSimConfig {
 
   // Contact points of the controller, in its order (URDF frame or link names).
   // They drive the ground-truth contact detection behind the viewer's contact
-  // timeline, the contact flags of the RobotState handed to the controller and
-  // the CheaterSimContactEstimator. Every published state carries one contact
+  // timeline, the contact flags of the RobotState passed to the controller and
+  // the CheaterSimContactEstimator. Every published state has one contact
   // flag per entry (two when the list is empty), so a controller's contact
   // estimate has one flag per contact of its set.
   std::vector<std::string> contactFrameNames;
-  // Joint carrying each contact frame (same order, may be shorter or hold empty
+  // Joint for each contact frame (same order, may be shorter or contain empty
   // strings). A contact frame that the controller adds to its own kinematic
   // model does not exist in the URDF or the MuJoCo scene; the MuJoCo body
   // driven by that joint is the contact body then.
@@ -237,12 +237,12 @@ struct MujocoSimConfig {
 class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
  public:
   /**
-   * Loads the scene `config` names - compiled with the projectile
-   * `config.projectile` names, if any - and builds a simulator of `urdfPath`'s
-   * robot on it, in its initial state and with the physics thread not started
-   * (startSim()). Fails with InvalidArgumentError when the scene does not load,
-   * parse or compile, `config` names an unknown projectile or gantry hold, its
-   * viewer settings are invalid (validateViewerSettings()) or a number of it is
+   * Loads the scene specified by `config` (compiled with `config.projectile`,
+   * if any) and builds a simulator of `urdfPath`'s robot on it, in its initial
+   * state and with the physics thread not started (startSim()). Fails with
+   * InvalidArgumentError when the scene does not load, parse or compile,
+   * `config` specifies an unknown projectile or gantry hold, its viewer
+   * settings are invalid (validateViewerSettings()) or a number of it is out of
    * out of range, or the scene is one the simulator cannot drive
    * (buildJointMap()); with InternalError when MuJoCo cannot create the
    * simulation data or the compiled-in projectile cannot be found; and with
@@ -368,8 +368,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
     return gantryPosBaseRtWorldEwrtWorldZ_.load();
   }
   /**
-   * The base hold the gantry uses: the one `MujocoSimConfig::gantryHold` names,
-   * or kKinematicTeleport when that is kWeldConstraint and the scene cannot
+   * The base hold the gantry uses: the one `MujocoSimConfig::gantryHold`
+   * specifies, or kKinematicTeleport when that is kWeldConstraint and the scene
    * hold it (checkSceneSupportsGantryHold(); Create() then logs an ERROR saying
    * why). Fixed at construction.
    */
@@ -569,8 +569,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
     std::vector<MappedJoint> joints;
     std::vector<MappedActuator> actuators;
   };
-  /** Where the compiled-in projectile lives in the model; all -1 when
-   * `sim_projectile` named none. */
+  /** Index of the compiled-in projectile in the model; all -1 when
+   * `sim_projectile` specified none. */
   struct ProjectileAddresses {
     int bodyId = -1;
     int jointId = -1;
@@ -608,13 +608,13 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * Maps the joints and actuators of `model` onto `description`, by name, at
    * MuJoCo's own addresses (nothing assumes the scene's order). The scene must
    * have the robot's free joint at qpos 0 and dof 0; every scene joint that the
-   * description names must be a hinge or a slide; and every actuator on such a
+   * description lists must be a hinge or a slide; and every actuator on such a
    * joint must be a plain torque motor
    * (`<motor>`: joint transmission of gear 1, fixed gain 1, no bias and no
    * activation dynamics), at most one per joint, because the simulator writes a
-   * joint's torque into its ctrl. InvalidArgumentError naming the joint or
+   * joint's torque into its ctrl. InvalidArgumentError identifying the joint or
    * actuator otherwise. Scene joints and actuators the description does not
-   * name, and the projectile's free joint
+   * list, and the projectile's free joint
    * (`projectileBodyId`, -1 for none), are left alone (logged).
    */
   static absl::StatusOr<JointMap> buildJointMap(
@@ -628,7 +628,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
       const mjModel* absl_nonnull model);
 
   /** Checks the numbers of `config` the simulator relies on:
-   * InvalidArgumentError naming the first out of range. */
+   * InvalidArgumentError identifying the first out of range. */
   static absl::Status checkConfigNumbers(const MujocoSimConfig& config);
 
   /** Builds the simulator of the robot `robotDescription` describes on a loaded
@@ -653,7 +653,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   /**
    * Holds the floating base at the gantry height for one step, by whichever
-   * implementation gantryHold_ names. Called once per step immediately before
+   * implementation gantryHold_ specifies. Called once per step immediately
    * mj_step; a no-op when the gantry is disabled.
    */
   void applyGantryHold();
@@ -678,7 +678,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   void setProjectileArmed(bool armed);
   /// Returns the ball to kParkPosBallRtWorldEwrtWorld, disarmed and at rest.
   void parkProjectile();
-  /// Body id of the robot's floating base, i.e. the first body carrying a free
+  /// Body id of the robot's floating base, i.e. the first body with a free
   /// joint; -1 if the model has none.
   int robotRootBodyId() const;
   /// [rad] Heading of that base, from its free joint's quaternion at
@@ -792,7 +792,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   bool stepWentUnstable();
   std::atomic<bool> zeroTorqueMode_{
       true};  // Start in zero-torque mode by default
-  /// Simulation thread only: whether dof_damping holds the ragdoll damping of
+  /// Simulation thread only: whether dof_damping stores the ragdoll damping of
   /// zero-torque mode (applyJointTorqueSwitch()).
   bool ragdollDampingApplied_ = true;
   /// The scene's own dof_damping (nv), captured before anything wrote it: what
@@ -894,7 +894,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Set by lockGantry() on any thread, carried out by applyDodgeball() on the
   /// simulation thread.
   std::atomic<bool> cancelDodgeballRequested_{false};
-  /// The name the injected body carries in the compiled model.
+  /// The name of the injected body in the compiled model.
   static constexpr char kProjectileBodyName[] = "sim_projectile";
   size_t contactTimelineSampleInterval_ = 1;
   size_t contactTimelineSampleCounter_ = 0;

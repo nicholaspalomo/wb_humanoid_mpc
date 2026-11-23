@@ -326,7 +326,7 @@ def lint_lock_path(root: str) -> str:
 
 @contextlib.contextmanager
 def lint_lock(root: str) -> Iterator[None]:
-    """Holds the lint lock: one cpplint, pylint and mypy run at a time on the machine, as tools/bazel does for builds."""
+    """Acquires the lint lock: one cpplint, pylint and mypy run at a time on the machine, as tools/bazel does for builds."""
     with open(lint_lock_path(root), "a", encoding="utf-8") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -559,11 +559,11 @@ def filter_cpplint_output(
     cpplint reports `NOLINT(argument-comment)` as an unknown category, and the `NOLINTEND(exceptions)` or
     `NOLINTEND(misc-use-internal-linkage)` of a block it never opened (it opens blocks of its own categories only) as
     "Not in a NOLINT block"; neither is a finding. Markers for other unknown names still fail, and so does the end of a
-    block that names a cpplint category.
+    block that specifies a cpplint category.
 
     Args:
       output: What cpplint printed.
-      source_line: The text of line `line` (from 1) of the file at `path`, as cpplint names it, to tell the end of such
+      source_line: The text of line `line` (from 1) of the file at `path`, as cpplint reports it, to tell the end of such
         a block; None keeps every "Not in a NOLINT block".
 
     Returns:
@@ -995,7 +995,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     # --fix-only --git-staged fixes the working-tree copies of the staged files, which the pre-commit hook then
-    # re-stages. --fix --git-staged would lint the index, which does not hold the fixes yet.
+    # re-stages. --fix --git-staged would lint the index, which does not have the fixes yet.
     if args.fix and args.git_staged:
         parser.error(
             "--fix rewrites the working tree and --git-staged lints the index;"

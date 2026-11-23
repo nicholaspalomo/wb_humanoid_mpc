@@ -61,7 +61,7 @@ vector2_t HipCenteredSteppingHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
   // rotated into the world by the base yaw predicted at the touch-down and
   // dropped onto the ground. R(Theta) is the full body rotation in the
   // dissertation and R_z(yaw) here - a choice of this heuristic, not a
-  // simplification of the control model, which carries the full base rotation:
+  // simplification of the control model, which uses the full base rotation:
   // only the heading at the touch-down is predicted, and the roll and pitch of
   // a walking base move a ground-projected hip offset by a second-order amount.
   // The hip of the landing contact's leg. A leg the model parameters have no

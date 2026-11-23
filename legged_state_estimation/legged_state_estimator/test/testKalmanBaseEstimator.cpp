@@ -274,7 +274,7 @@ enum class LeftFoot {
 
 /**
  * Runs a new estimator over the exact walk from `startTime` for `steps`
- * steps, with the whole walk raised by `posSurfaceRtWorldEwrtWorldZ` [m] (a
+ * steps, with the walk raised by `posSurfaceRtWorldEwrtWorldZ` [m] (a
  * box top) and every contact given that surface height, the left foot as
  * `leftFoot` says. reset() is at the raised truth plus `initErrPos...` and
  * `initErrLinvel...`.
@@ -365,7 +365,7 @@ TEST(KalmanBaseEstimatorTest, ContactsOnABoxTopBringTheBaseToItsHeight) {
 }
 
 TEST(KalmanBaseEstimatorTest, AContactWithoutAHeightKeepsItsOtherRows) {
-  // Over the whole walk, the right foot's height alone brings a base started
+  // Over the walk, the right foot's height alone brings a base started
   // 5 cm high down to the truth.
   const RunEnd heightThroughTheRightFoot = runOnGround(
       /*posSurfaceRtWorldEwrtWorldZ=*/0.0, LeftFoot::kWithoutHeight,

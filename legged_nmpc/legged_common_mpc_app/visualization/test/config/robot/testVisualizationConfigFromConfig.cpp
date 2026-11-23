@@ -30,7 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // The visualization publisher's settings from a typed task file: a file that
 // says nothing gives the default rate, reported as the default, and the contact
 // frames; a rate is read and not reported as the default; a rate that is not a
-// positive finite number, a frame name the Rerun bridge cannot carry and a
+// positive finite number, a frame name the Rerun bridge cannot accept and a
 // frame named twice are refused by their field.
 
 #include <limits>

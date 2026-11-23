@@ -97,7 +97,7 @@ namespace ocs2::legged {
  * on the sole. That is an approximation, and unlike the frame question it is a
  * real one: when the foot rocks about an edge, the sole center moves even
  * though the contact line does not, and the term charges for slip that is not
- * happening. Because the contact frame sits in the plane of the footprint
+ * happening. Because the contact frame lies in the plane of the footprint
  * corners, the lever arm from the edge to it lies along the sole, so the
  * coupling vanishes at a flat foot and grows with the tilt: v_x = omega * a *
  * sin(theta), with a the fore-aft distance from the edge to the contact frame
@@ -112,8 +112,8 @@ namespace ocs2::legged {
  * rather than folded into a tuning pass.
  *
  * testRelaxedContactConstraints pins the mechanism rather than one number: it
- * drives a pure rock about the toe edge - joint rates solved so that the toe
- * corner's own velocity is zero, with the base held still - and checks that
+ * drives a pure rock about the toe edge (joint rates solved so that the toe
+ * corner's own velocity is zero, with the base held still) and checks that
  * this term's tangential row is omega * a * sin(theta) at a flat foot and at
  * two tilts, with `a` read from the configured footprint. A contact frame that
  * left the plane of the sole would show up as a non-zero coupling at the flat
@@ -121,8 +121,8 @@ namespace ocs2::legged {
  *
  * Like the complementarity term this is bilinear in the force and the
  * kinematics, so the linear approximation is assembled in closed form from the
- * kinematics' own linearization - the CppAD model of the contact frame that
- * EndEffectorKinematics wraps, the same one `zero_velocity` reads - and the
+ * kinematics' own linearization (the CppAD model of the contact frame that
+ * EndEffectorKinematics wraps, the same one `zero_velocity` reads) and the
  * constant normal-force row.
  *
  * The residual is normalized, (f_n / f_ref) (v / v_ref), for the reason given
@@ -148,8 +148,8 @@ namespace ocs2::legged {
 class ForceWeightedSlipConstraint final : public StateInputConstraint {
  public:
   /**
-   * Builds the term, or returns InvalidArgument when the kinematics carry other
-   * than exactly one end-effector or a reference is not positive (NaN
+   * Builds the term, or returns InvalidArgument when the kinematics contain
+   * other than exactly one end-effector or a reference is not positive (NaN
    * included). validateContactImplicitConfig() is the check of the same
    * task-file values for the caller to run first; the force reference is the
    * robot's weight, robotMass * g, taken from the URDF.
@@ -157,7 +157,7 @@ class ForceWeightedSlipConstraint final : public StateInputConstraint {
    * @param [in] endEffectorKinematics : kinematics of this foot's contact
    * frame. It is cloned, not retained.
    * @param [in] mpcRobotModel : the robot model, for the input block that
-   * carries this contact's force.
+   * contains this contact's force.
    * @param [in] contactPointIndex : the contact this term belongs to.
    * @param [in] scaleForceContactEwrtParamZ : [N] the normal force the residual
    * is measured in, normally the robot's weight.

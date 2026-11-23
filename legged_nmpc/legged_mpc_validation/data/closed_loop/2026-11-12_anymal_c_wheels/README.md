@@ -12,7 +12,7 @@ make closed-loop-metrics ROBOT=anymal_c_wheels LABEL=2026-11-12_anymal_c_wheels 
 ```
 
 `RECORD_STATES=1` also wrote `data/benchmark/states/anymal_c_wheels_walk_0p5_states.txt`, which the solve benchmark
-replays. This README holds the label's metrics; the package READMEs and the validation README link here.
+replays. This README lists the label's metrics; the package READMEs and the validation README link here.
 
 | Metric | standing | walk_0p5 | turn_in_place_720 |
 | --- | --- | --- | --- |
@@ -35,8 +35,8 @@ replays. This README holds the label's metrics; the package READMEs and the vali
 | non-finite values | 0 | 0 | 0 |
 
 In `walk_0p5` the gait table switches from `stance` to `drive`, and the robot rolls on its four wheels without a step:
-each wheel has one stance phase, which never ends (a wheel that lifted would add one). The base holds 0.496 m/s over
-the last 10 s of the 15 s command (0.489 m/s over the whole command, the start included) and stops 7.44 m from where
+each wheel has one stance phase, which never ends (a wheel that lifted would add one). The base averages 0.496 m/s over
+the last 10 s of the 15 s command (0.489 m/s over all 15 s, including acceleration) and stops 7.44 m from where
 the command started, 0.07 mm to the side and 8e-6 rad off its heading. The 6.2 mm of slip is the distance the wheel
 material at the contact point slid over the drive (`ContactSlipMeasure::kMaterialSlip`).
 
@@ -47,7 +47,7 @@ into the command) through 11.78 of the commanded 12.57 rad before the turn back,
 heading and 12 mm from where it started, and stays within 0.14 m of it. The yaw-rate RMS error, 0.098 rad/s, is about
 ANYmal B's in the same scenario (0.094 rad/s, `2026-11-10_anymal_b`) and Tron1's (0.096 rad/s, `2026-11-12_tron1`).
 
-Standing, the base sits 1.6 mm below the nominal 0.63588 m with a static tilt of 0.0037 rad, and the wheels hold it
+Standing, the base is 1.6 mm below the nominal 0.63588 m with a static tilt of 0.0037 rad, and the wheels keep it
 within 0.5 mm of slip.
 
 The solve benchmark replaying this label's states (`make benchmark-mpc-solve ROBOT=anymal_c_wheels LABEL=<label>`)

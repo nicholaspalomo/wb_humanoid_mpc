@@ -81,7 +81,7 @@ constexpr absl::string_view kDomainTagPunctuation = "_-.";
 // A DDS topic name is letters, digits and these, not starting with a digit
 // (Cyclone DDS's own rule).
 constexpr absl::string_view kTopicNamePunctuation = "_/";
-// The hosts that name every interface rather than a machine.
+// The hosts that specify every interface rather than a machine.
 constexpr absl::string_view kWildcardHostAny = "0.0.0.0";
 constexpr absl::string_view kWildcardHostStar = "*";
 constexpr absl::string_view kLocalhostName = "localhost";
@@ -92,7 +92,7 @@ constexpr absl::string_view kLoopbackPrefix = "127.";
 constexpr unsigned char kFirstHostCharacter = '!';
 constexpr unsigned char kLastHostCharacter = '~';
 constexpr absl::string_view kHostRefusedPunctuation = "/:";
-// The UDP payload sizes Cyclone DDS can send: from one that holds a DDSI header
+// The UDP payload sizes Cyclone DDS can send: from one that fits a DDSI header
 // and a fragment, to the largest IPv4 UDP payload.
 constexpr int64_t kMinMessageSizeBytes = 1024;
 constexpr int64_t kMaxMessageSizeBytes = 65500;

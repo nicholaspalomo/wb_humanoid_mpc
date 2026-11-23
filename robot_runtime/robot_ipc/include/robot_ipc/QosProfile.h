@@ -49,15 +49,15 @@ namespace robot::ipc {
 enum class QosProfile {
   /**
    * "latest": BEST_EFFORT, KEEP_LAST 1. Streams whose newest sample is all that
-   * matters and that come again within a few milliseconds: observations, robot
-   * state, velocity commands, telemetry. A lost sample is replaced by the next
-   * one instead of being sent again, so a lossy link adds no latency.
+   * is needed and that come again within a few milliseconds: observations,
+   * robot state, velocity commands, telemetry. A lost sample is replaced by the
+   * next one instead of being sent again, so a lossy link adds no latency.
    */
   kLatest,
   /**
    * "reliable_latest": RELIABLE, KEEP_LAST 1. Large or infrequent latest
    * values: MPC policies (0.5-0.75 MB, hundreds of UDP fragments, so that one
-   * lost fragment would lose the whole policy under BEST_EFFORT), the MPC
+   * lost fragment would lose the policy under BEST_EFFORT), the MPC
    * status, the FSM state and the operator's parameter documents. Lost
    * fragments are sent again, but a newer sample replaces one that is still
    * being repaired, so a slow link never builds a backlog.

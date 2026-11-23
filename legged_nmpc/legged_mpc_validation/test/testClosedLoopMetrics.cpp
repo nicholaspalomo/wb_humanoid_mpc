@@ -71,7 +71,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * refused above g_max. Then the comparison rules (MetricBands.h): the band
  * directions, improvements reported and passed, and the offline comparison of
  * two labels archived from synthetic runs, which reaches the verdict of the
- * runs as held in memory, run by run, names the runs without a baseline and
+ * runs as stored in memory, run by run, lists the runs without a baseline and
  * refuses what it cannot compare.
  */
 

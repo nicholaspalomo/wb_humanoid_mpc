@@ -47,9 +47,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged::test_support {
 
 /**
- * An MpcLink whose policies the test hands it (deliver()), with no solver
+ * An MpcLink whose policies the test provides via deliver(), with no solver
  * behind it: for tests of what an MRT joint controller does with a policy in
- * WB_MPC - one it evaluates, one it refuses - without a solver thread or a bus.
+ * WB_MPC (one it evaluates, one it refuses) without a solver thread or a bus.
  * Not thread-safe: the test delivers between control cycles, on the thread that
  * runs them.
  */

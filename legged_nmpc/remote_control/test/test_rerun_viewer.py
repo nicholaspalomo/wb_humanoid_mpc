@@ -44,8 +44,8 @@ import unittest
 
 from remote_control import rerun_viewer
 
-# The Rerun bridge's own default gRPC port, which a serve_web bridge of a launch file holds; this test does not depend on
-# the bridge's library, which carries the rerun-sdk wheel.
+# The Rerun bridge's own default gRPC port, which a serve_web bridge of a launch file uses; this test does not depend on
+# the bridge's library, which includes the rerun-sdk wheel.
 # LINT.IfChange(bridge_default_grpc_port)
 _BRIDGE_DEFAULT_GRPC_PORT = 9876
 # LINT.ThenChange(//legged_nmpc/legged_rerun_viewer/python/legged_rerun_viewer/rerun_sinks.py:sink_defaults)
@@ -162,7 +162,7 @@ class TestRerunViewerLauncher(unittest.TestCase):
         )
 
     def test_the_bridge_spawns_its_viewer_on_the_guis_own_port(self):
-        # A launch file's serve_web bridge holds the bridge's default gRPC port; rerun-sdk's spawn takes whatever
+        # A launch file's serve_web bridge uses the bridge's default gRPC port; rerun-sdk's spawn takes whatever
         # listens on its port for a viewer, so on that port the button would open none and stream into the web viewer.
         self.assertNotEqual(
             rerun_viewer.GUI_RERUN_GRPC_PORT, _BRIDGE_DEFAULT_GRPC_PORT

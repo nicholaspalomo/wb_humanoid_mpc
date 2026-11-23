@@ -52,7 +52,7 @@ class AugmentedReferenceManager final : public ReferenceManagerInterface {
  public:
   /**
    * Wraps `physical`, whose state has `physicalStateDim` entries. A
-   * std::shared_ptr because the solver holds its reference manager by one
+   * std::shared_ptr because the solver stores its reference manager by one
    * (SolverBase::setReferenceManager()), and the physical terms keep
    * references to `physical`.
    */

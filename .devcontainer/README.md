@@ -46,7 +46,7 @@ Bazel trims the disk cache to 50 GB, least recently used first, while its server
 caches of their own (`.github/workflows/build_test.yml`).
 
 Bazel keys an action by its command line and inputs, not by the image's compiler binary, so a cache filled by an
-older image could hand out outputs of its compiler and headers. The container's start command therefore runs
+older image could return outputs from its compiler and headers. The container's start command therefore runs
 `.devcontainer/reset_stale_bazel_cache.sh` before any build: it fingerprints the installed Debian packages (the
 compiler, the system libraries, robotpkg's Pinocchio) and deletes the disk cache when they differ from the ones it was
 filled under. Nothing needs deleting by hand.
@@ -103,7 +103,7 @@ The ports of the container's processes:
 | `8888` | Jupyter (`make train-acom-jupyter`) |
 
 <!-- LINT.IfChange(bus_ports) -->
-The UDP range `7410`-`7449` holds the DDS ports of the 20 processes one machine may run on domain 0 of `config/ipc/network.textproto` (Cyclone DDS gives each process the lowest free index; the bus sends no multicast). With host networking, a process on the host or on another machine joins the bus of the processes in the container at the addresses of the network file. With the bridge network of `docker-compose.bridge.yaml` the range is published, but DDS tells its peers the container's own address, which a process outside the container cannot reach: on Docker Desktop run every process of the bus inside the container.
+The UDP range `7410`-`7449` covers the DDS ports of the 20 processes one machine may run on domain 0 of `config/ipc/network.textproto` (Cyclone DDS gives each process the lowest free index; the bus sends no multicast). With host networking, a process on the host or on another machine joins the bus of the processes in the container at the addresses of the network file. With the bridge network of `docker-compose.bridge.yaml` the range is published, but DDS tells its peers the container's own address, which a process outside the container cannot reach: on Docker Desktop run every process of the bus inside the container.
 <!-- LINT.ThenChange(//docker-compose.bridge.yaml:bus_ports, //config/ipc/network.textproto:dds_ports) -->
 
 ## Rerun
@@ -117,13 +117,13 @@ The Rerun bridge (`legged_nmpc/legged_rerun_viewer`) maps the bus's messages ont
 <!-- LINT.IfChange(web_viewer_port) -->
 The robot process draws the MuJoCo simulation in a browser tab by default, instead of a window on `:99`: a `-sim`
 target opens it at `http://localhost:6090` (the target prints the URL). The plot configuration chooses the viewer by
-name (`mujoco_viewer` in `legged_nmpc/legged_rerun_viewer/config/plot_config.textproto`, or the file `PLOT_CONFIG=`
-names), and `VIEWER=` overrides it:
+name (`mujoco_viewer` in `legged_nmpc/legged_rerun_viewer/config/plot_config.textproto`, or the file specified by
+`PLOT_CONFIG=`), and `VIEWER=` overrides it:
 
 ```bash
 make launch-drc-atlas-sim                  # then open http://localhost:6090 (the plot configuration's "web")
 make launch-drc-atlas-sim VIEWER=web,none  # the same, but without a viewer where the web viewer cannot start
-make launch-drc-atlas-sim-vnc             # the window on :99 (VIEWS=vnc names glfw)
+make launch-drc-atlas-sim-vnc             # the window on :99 (VIEWS=vnc selects glfw)
 make launch-drc-atlas-sim VIEWER=none      # no viewer
 ```
 
@@ -132,7 +132,7 @@ realtime loop, and at a lower priority. The page fetches one JPEG frame at a tim
 frames instead of queuing them, and nothing is rendered while no page is open. The robot-sim container has no GPU and
 renders with Mesa's llvmpipe: expect about 16 fps for the DRC Atlas at 1280x720 (the page's HUD shows the measured
 rate, and its settings change the size, the frame rate and the JPEG quality). `--viewer=web` refuses to start when EGL
-or the port is missing, and the message names the fix; `web,none` falls back to no viewer instead.
+or the port is missing, and the error message explains the fix; `web,none` falls back to no viewer instead.
 
 The page moves the viewer's camera and toggles its markers, and nothing else: none of its input reaches the physics,
 the controller, the gantry and its weld, or the bus (the operator GUI drives those). It has no authentication and no
@@ -235,7 +235,7 @@ host), use `VIEWS=display`. `make help` lists every launch target and its variab
 and the MPC node, the GUI and the Rerun bridge run in this container, all on the host's network over the DDS bus
 (`tools/deploy/README.md`, "Simulation"). Starting that container needs the host's Docker, so run the `-sim` targets
 **on the host** (Linux): they then run the Bazel builds and the laptop side in this container through `docker exec`
-(`DEV_CONTAINER=` names it; default `devcontainer-app-1`). The robot container's MuJoCo viewer is by default the web
+(`DEV_CONTAINER=` selects it; default `devcontainer-app-1`). The robot container's MuJoCo viewer is by default the web
 viewer (the plot configuration's `mujoco_viewer`): it needs no display and serves `http://localhost:6090`. With
 `VIEWER=glfw` it draws on `:99` of this container's VNC desktop instead, through the X server's abstract socket, which
 containers on the host's network share. The dummy-sim and sandbox targets run
@@ -267,7 +267,7 @@ export MESA_GL_VERSION_OVERRIDE=3.3
 #    (legged_nmpc/docs/distributed_runtime/README.md, "Launching")
 ```
 
-> **Note:** The launch targets start the VNC desktop and point `DISPLAY` at it themselves (`VIEWS=browser|vnc`). The manual exports above are only needed for programs you start yourself.
+> **Note:** The launch targets start the VNC desktop and set `DISPLAY` to it themselves (`VIEWS=browser|vnc`). The manual exports above are only needed for programs you start yourself.
 
 ## Resolution
 
@@ -329,11 +329,11 @@ shared: every open page shows the same view.
 | Black/blank screen in browser | The WM may not have started. Run `make stop-vnc && make start-vnc` |
 | MuJoCo viewer: `GLX` / `Unable to create GL context` | Ensure `LIBGL_ALWAYS_INDIRECT=0` is set (the `-vnc` targets do this). See Manual Workflow above |
 | The MuJoCo viewer renders but is slow | Expected with software rendering - use lower resolution: `make start-vnc RESOLUTION=1280x720` |
-| `http://localhost:6090` does not answer | `VIEWER=` or the plot configuration's `mujoco_viewer` names another viewer (`glfw`, `none`), or the robot process refused to start: its log (`[robot]`) names the reason, such as no EGL or the port taken by another robot process (`make kill-sims`). In a bridge-networked container the process needs `--web_viewer_address=0.0.0.0` ([MuJoCo Web Viewer](#mujoco-web-viewer)) |
+| `http://localhost:6090` does not answer | `VIEWER=` or the plot configuration's `mujoco_viewer` selects another viewer (`glfw`, `none`), or the robot process refused to start: its log (`[robot]`) reports the reason, such as no EGL or the port taken by another robot process (`make kill-sims`). In a bridge-networked container the process needs `--web_viewer_address=0.0.0.0` ([MuJoCo Web Viewer](#mujoco-web-viewer)) |
 | `403` from the MuJoCo web viewer, or a blank editor pane | The browser reached it under a name that is not `localhost`, `127.0.0.1` or `::1`, through a link on another page (noVNC, Rerun), or in an editor preview that frames it: type `http://localhost:6090` in a browser tab (through a forwarded port; the Ports view's "Open in Browser"), or add the name to `--web_viewer_allowed_hosts` |
 | The MuJoCo web viewer is slow | Expected with llvmpipe (about 16 fps): lower the size or the frame rate in the page's settings, or give it a GPU (NVIDIA's EGL) |
 | Rerun web viewer at `:9090` shows no data | The bridge must run with `--rerun_sink serve_web` and be reachable on `9876` too: the page fetches the recording from there |
-| "Failed to connect" but the page loads | You are on a port whose container has no VNC server. Containers on the host's network share one 6080, so only one of them can serve it: `ss -ltnp \| grep 6080` on the host shows which process holds it, and `docker ps` the containers |
+| "Failed to connect" but the page loads | You are on a port whose container has no VNC server. Containers on the host's network share one 6080, so only one of them can serve it: `ss -ltnp \| grep 6080` on the host shows which process owns it, and `docker ps` the containers |
 | Growing zombie process count | Each `start-vnc` restarts Xvfb/x11vnc/websockify and orphans the old ones. `init: true` in `docker-compose.yaml` makes tini PID 1 so they are reaped, but only for containers created after that setting was added: if `cat /proc/1/comm` prints `sleep`, the container predates it and must be recreated (`docker compose up -d --force-recreate`). Run `make check-zombies` to see the holder. Zombies cannot be killed, so rebuild the container to clear an existing backlog |
 
 ## Notes

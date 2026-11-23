@@ -54,8 +54,8 @@ namespace ocs2::legged {
  * (CentroidalMpcInterface::getBasisInputsCostTransformConfig()) and the
  * regularization's weight and shape reloaded
  * (contacts.basis_scaling_regularization, contacts.basis_regularization); a
- * reload that would make the lambda block indefinite or names an unknown shape
- * is refused by field and the running R kept. The generator set is not
+ * reload that would make the lambda block indefinite or specifies an unknown
+ * shape is refused by field and the running R kept. The generator set is not
  * reloaded: it fixes M and the input dimension. And it applies
  * contacts.basis_non_negativity_barrier to every foot's lambda >= 0 barrier.
  *

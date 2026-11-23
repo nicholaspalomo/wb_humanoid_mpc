@@ -74,9 +74,9 @@ class ExternalTorqueQuadraticCostAD : public ocs2::StateInputCostGaussNewtonAd {
    * The cost of the contact wrench of `endEffectorIndex` on the joints of
    * `config`. Tapes (or loads) its CppAD library.
    *
-   * @return NotFound naming the joint when an entry of config.activeJointNames
-   * is not an active joint of the MPC model; InvalidArgument when
-   * config.weights does not carry one weight per joint.
+   * @return NotFound identifying the joint when an entry of
+   * config.activeJointNames is not an active joint of the MPC model;
+   * InvalidArgument when config.weights does not have one weight per joint.
    */
   static absl::StatusOr<std::unique_ptr<ExternalTorqueQuadraticCostAD>> Create(
       size_t endEffectorIndex,

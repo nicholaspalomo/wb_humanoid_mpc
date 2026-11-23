@@ -79,7 +79,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * FakeRobotBackend, which plugs in as a hardware backend would. The FSM
  * commands switch the backend's torques and the gantry commands are ignored; a
  * tilt past the limit switches the torques off; the supervisor registry refuses
- * the simulator's supervisor for such a backend; and the whole process runs its
+ * the simulator's supervisor for such a backend; and the process runs its
  * cycles over the bus on it, with either state estimator.
  */
 

@@ -147,7 +147,7 @@ absl::StatusOr<LoadedRobot> loadRobot(const mpc_config::TaskFile& task) {
       loadCustomPinocchioInterface(task, urdfFile, *loaded.settings));
   loaded.pinocchioInterface =
       std::make_unique<PinocchioInterface>(std::move(pinocchioInterface));
-  // The whole-body layout: its knots carry the base velocity the command is
+  // The whole-body layout: its knots store the base velocity the command is
   // read from (getRefPlanarMotion()).
   loaded.model = std::make_unique<test::QuaternionLayoutRobotModel>(
       *loaded.settings, StateInputLayout::Mpc::kWholeBody);

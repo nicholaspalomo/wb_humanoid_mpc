@@ -143,7 +143,7 @@ inline constexpr size_t kBaseRotationDim = 3;
 /**
  * The base's entries of the Pinocchio configuration q (nq =
  * kBaseConfigurationDim + the MPC joints) and of its velocity v, the tangent of
- * q (nv = kBaseVelocityDim + the MPC joints): q holds the position and the
+ * q (nv = kBaseVelocityDim + the MPC joints): q stores the position and the
  * quaternion (x, y, z, w), v the world linear velocity and the body angular
  * velocity (legged_nmpc/docs/quaternion_base_orientation/README.md,
  * section 2.2). A buffer of q is sized with the first, one of v (velocities,

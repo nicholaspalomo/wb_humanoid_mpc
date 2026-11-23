@@ -310,14 +310,14 @@ scalar_t policyDifference(const PrimalSolution& a, const PrimalSolution& b) {
 }
 
 TEST(MpcResetSolverStack, AFullResetSolvesAndWalksExactlyAsAFreshStack) {
-  // The same observation at the same time, handed to a stack that has never
+  // The same observation at the same time, passed to a stack that has never
   // solved and to one that trotted 11 s and was then reset: whatever the reset
-  // leaves behind anywhere in the stack - the references, the modules, the
-  // solver, the problem it solves - shows as a difference in the first policy,
+  // leaves behind anywhere in the stack (the references, the modules, the
+  // solver, the problem it solves) shows as a difference in the first policy,
   // or in the walk that follows it. One solver thread, so that two stacks given
   // the same problem compute the same numbers in the same order; a second fresh
   // stack is the control that shows they do. A third stack that trotted and had
-  // its solver reset alone - what a reset was before - is the positive control:
+  // its solver reset alone (what a reset was before) is the positive control:
   // the comparison has to see what that reset leaves behind.
   constexpr scalar_t kResetTime = 2.0;
   SolverStack fresh(1);
@@ -360,10 +360,10 @@ TEST(MpcResetSolverStack, AFullResetSolvesAndWalksExactlyAsAFreshStack) {
 
   // Stand 1 s, then walk 3 s from a standstill, each stack closed on its own
   // prediction, one solve at a time. After every solve the used stack must
-  // agree with the fresh one - in the mode schedule and the target its
-  // references hand the solver, in the policy the solver returns and in the
-  // state that policy leads to - to the precision to which the control agrees
-  // with it. The first quantity that does not names where the reset left
+  // agree with the fresh one (in the mode schedule and the target its
+  // references pass to the solver, in the policy the solver returns, and in the
+  // state that policy leads to) to the precision to which the control agrees
+  // with it. The first quantity that differs identifies where the reset left
   // something behind.
   constexpr scalar_t kTolerance = 1.0e-9;
   scalar_t controlDrift = 0.0;

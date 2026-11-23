@@ -88,7 +88,7 @@ struct ConfigLeaf {
   std::string path;
   ConfigReload reload = ConfigReload::kUnspecified;
   // Whether the tuning GUI renders it: a number, a bool, an enum, a name list
-  // (a repeated string) or a string naming a registry entry, without an
+  // (a repeated string) or a string specifying a registry entry, without an
   // exclude_reason.
   bool tunable = false;
   // Who reads it (the `consumer` of its tuning options, inherited like

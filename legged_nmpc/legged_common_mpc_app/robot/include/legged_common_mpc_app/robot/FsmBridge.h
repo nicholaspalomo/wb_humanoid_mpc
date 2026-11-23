@@ -41,7 +41,7 @@ namespace ocs2::legged {
 /**
  * The supervisory FSM of the robot process, on its realtime thread: it takes
  * the operator's commands from the OperatorCommandMailbox, switches the robot's
- * torques (and, in simulation, its gantry), and hands the FSM state to the
+ * torques (and, in simulation, its gantry), and passes the FSM state to the
  * FsmStateMailbox, which the communication thread publishes on robot/fsm_state.
  * Selected with the fall recovery by the backend's supervisor
  * (RobotSupervisorRegistry): SimFsmBridge drives the simulator's torque switch,

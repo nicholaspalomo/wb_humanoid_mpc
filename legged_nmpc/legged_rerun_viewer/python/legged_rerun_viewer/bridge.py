@@ -420,7 +420,7 @@ class RerunBridge:
         ) = None
         # The marker entities the last scene drew, with their kind.
         self._drawn_markers: dict[str, MarkerKind] = {}
-        # Per telemetry entity: the series names its SeriesLines carry.
+        # Per telemetry entity: the series names contained in its SeriesLines.
         self._series_names: dict[str, tuple[str, ...]] = {}
         self._status_series_logged: set[str] = set()
         self._latest_robot_time: float | None = None

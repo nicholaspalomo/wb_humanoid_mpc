@@ -55,11 +55,11 @@ namespace ocs2::legged {
  * contact flags and the measured foot forces into a preallocated slot of a
  * robot::realtime::SpscQueue (an msgs::RobotStateSample, the nproto struct of
  * robot/state), and the communication thread drains the queue, converts each
- * sample with nproto's ToProto() and hands it to the telemetry sinks (the bus
+ * sample with nproto's ToProto() and passes it to the telemetry sinks (the bus
  * publishes robot/state).
  *
- * Every slot is built at construction with the sample's shape - one entry per
- * joint, the joint names filled in, one entry per contact - so sample() writes
+ * Every slot is built at construction with the sample's shape (one entry per
+ * joint, the joint names filled in, one entry per contact), so sample() writes
  * numbers into storage that already exists: it allocates nothing, takes no lock
  * and never waits. The joint names are written once, at construction; the
  * realtime thread never touches them. A sample taken while the queue is full is

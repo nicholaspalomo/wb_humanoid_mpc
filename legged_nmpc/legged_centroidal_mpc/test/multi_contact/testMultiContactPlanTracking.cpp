@@ -83,8 +83,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The centroidal MPC tracking an offline multi-contact plan in the dummy
  * simulator's loop, faster than real time (design sections 8.2 and 9,
  * "Dummy sim", legged_nmpc/docs/multi_contact_planning/README.md): the DRC
- * Atlas's multi-contact task file - all seventeen contact candidates, the
- * wrists unlocked - on the planned-motion reference manager, with the
+ * Atlas's multi-contact task file (all seventeen contact candidates, with the
+ * wrists unlocked) on the planned-motion reference manager, with the
  * generalized swing planner's contact_swing terms, the terrain non-penetration
  * barrier and the patch-frame cones, its plant the projected rollout of the
  * policy.
@@ -98,7 +98,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The plans: milestone 1's hand-written sway on the box_climb scene, a
  * hand-written feet-only step onto a 0.10 m stair (support/StairStepPlan.h),
  * the stairs scenario's shipped plan (plans/stairs.binpb, the planner's),
- * once and played "forward_and_reverse" - up and backward down, three times -
+ * once and played "forward_and_reverse" (up and backward down, three times)
  * as the stairs dummy sim plays it, and the box_climb scenario's shipped plan
  * (plans/box_climb.binpb, planner B's), hands, knees and feet onto the box.
  * Generates the multi-contact model's CppAD libraries on a cold cache, once

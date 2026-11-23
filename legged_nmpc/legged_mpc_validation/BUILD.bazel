@@ -716,7 +716,7 @@ cc_test(
     ],
 )
 
-# Every configuration's MuJoCo scene supports the gantry hold its task file names, and the mujoco backend of the robot
+# Every configuration's MuJoCo scene supports the gantry hold specified in its task file, and the mujoco backend of the robot
 # process runs it on that hold rather than falling back to kinematic_teleport; each welded scene without its weld fails.
 cc_test(
     name = "test_robot_scene_gantry_hold",

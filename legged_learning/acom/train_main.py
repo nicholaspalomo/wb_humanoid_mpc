@@ -128,10 +128,10 @@ def load_mpc_model_settings(robot: str) -> tuple[str, list[str]]:
         out of the joint vector it feeds the network.
 
     Raises:
-        KeyError: If `robot` is unknown or the task file names no robot.
+        KeyError: If `robot` is unknown or the task file specifies no robot.
         OSError: If the task file cannot be read.
         nproto_textproto.TextprotoError: If it does not parse strictly into its schema
-            (legged_mpc_config.TaskFile); the message names the line and column.
+            (legged_mpc_config.TaskFile); the message reports the line and column.
     """
     task_path = dataset_generator.resolve_xml_path(
         _ROBOT_CONFIGS[robot]["task"]
@@ -271,12 +271,12 @@ def export_network(
 
     The header is named and laid out as AngularCenterOfMass.cpp includes it,
     records the joint names the network was trained on (checked against the MPC
-    model at start-up), and records `recipe` - how it was trained - in its
+    model at start-up), and records `recipe` (how it was trained) in its
     banner.
 
     Args:
         params: The trained network's parameters.
-        generator: The generator the network was trained on; it names the joints.
+        generator: The generator the network was trained on; it provides the joint names.
         robot: A key of _ROBOT_CONFIGS.
         output_dir: Directory the two files are written to.
         recipe: How the network was trained, recorded in the header's banner.

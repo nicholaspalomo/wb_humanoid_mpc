@@ -134,8 +134,8 @@ std::string referenceFileText(const mpc_config::ReferenceFile& reference);
 std::string contactPlanningFileText(
     const mpc_config::ContactPlanningFile& contactPlanning);
 
-/** Writes `text` to `path`, replacing the file; Internal naming the path when
- * it cannot be written. */
+/** Writes `text` to `path`, replacing the file; Internal reporting the path
+ * when it cannot be written. */
 absl::Status writeTextFile(absl::string_view path, absl::string_view text);
 
 /**

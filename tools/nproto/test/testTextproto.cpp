@@ -28,10 +28,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // nproto's textproto helpers: a configuration file that matches its schema
-// parses, and one that does not is an error naming the file, the line and the
-// column; retired fields and a file of another message are answered from the
-// schema. tools/nproto/test/test_nproto_textproto.py feeds the Python parser
-// the same inputs and expects the same answers.
+// parses, and one that does not is an error reporting the file, the line and
+// the column; retired fields and a file of another message are answered from
+// the schema. tools/nproto/test/test_nproto_textproto.py feeds the Python
+// parser the same inputs and expects the same answers.
 
 // The generated conversion headers marked IWYU pragma: keep declare the
 // ToProto() / FromProto() that the test templates call by argument-dependent
@@ -262,7 +262,7 @@ TEST(HeaderTest, AFileOfAnotherMessageIsRefused) {
 }
 
 TEST(HeaderTest, AFileThatNamesNoMessageIsRefused) {
-  // A file must name its schema; text from memory need not.
+  // A file must specify its schema; text from memory need not.
   const std::string path =
       temporaryFile("no_header.textproto", "# A comment.\nint32_value: 1\n");
   const std::string expected =

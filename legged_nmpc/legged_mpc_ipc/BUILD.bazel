@@ -201,7 +201,7 @@ cc_test(
 )
 
 # Encoding into a message that already has the capacity makes no heap allocation. A target of its own, because the
-# allocation counter replaces malloc for the whole binary.
+# allocation counter replaces malloc for the binary.
 cc_test(
     name = "test_mpc_message_conversions_allocations",
     size = "small",
@@ -223,7 +223,7 @@ cc_test(
 )
 
 # What the tests of the network MPC link share: the scripted MPCs (flat, and on a toy state manifold), loopback buses, a
-# gate that holds a policy in flight.
+# gate that delays a policy in flight.
 cc_library(
     name = "mpc_link_test_support",
     testonly = True,

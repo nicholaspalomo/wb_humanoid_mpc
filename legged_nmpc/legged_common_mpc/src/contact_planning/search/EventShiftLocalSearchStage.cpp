@@ -118,8 +118,8 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
           }
           if (!(*run.propagate)(candidate)) continue;
           // The propagation checks the gait limits on the planner.dt grid, but
-          // after a cadence_stretch listed earlier the problem being searched -
-          // and the plan to be emitted - is on the stretched grid, where a
+          // after a cadence_stretch listed earlier the problem being searched
+          // (and the plan to be emitted) is on the stretched grid, where a
           // phase lasts chosenDt per node. A candidate that moves a touch-down
           // one node later is then legal in nodes and too long in seconds (a
           // five-node swing at dt 0.1 against a 0.5 s maximum passes

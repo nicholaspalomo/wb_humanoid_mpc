@@ -60,11 +60,11 @@ namespace ocs2::legged {
  *
  * with d the terrain's signed distance (TerrainModel, its smooth minimum over
  * the primitives), p_c the center of the sphere of the contact's collision
- * geometry - the contact frame's origin moved by
- * `posSphereRtContactEwrtContact`, a vector in the contact frame (minus the
- * geom radius along the pad normal) - r its radius and the margin [m]. The
+ * geometry (the contact frame's origin moved by
+ * `posSphereRtContactEwrtContact`, a vector in the contact frame minus the
+ * geom radius along the pad normal), r its radius and the margin [m]. The
  * radius, the margin and the offset are parameters of the tape; the terrain is
- * recorded on it as constants, so the library's name carries the scene's hash.
+ * recorded on it as constants, so the library's name includes the scene's hash.
  * Wrapped in a relaxed barrier it is a soft constraint, inactive while the mode
  * schedule has the contact in contact, where its pad rests on the terrain.
  *
@@ -89,7 +89,7 @@ class TerrainNonPenetrationConstraint final : public StateConstraintCppAd {
    * The constraint of contact `contactIndex` (its frame
    * ModelSettings::contactNames[contactIndex]) and `sphere`, `margin` [m] off
    * `terrain`, taped as the CppAD library `libraryName` in the model settings'
-   * folder: a name that must carry the terrain's identity (its hash).
+   * folder: a name that must include the terrain's identity (its hash).
    * `referenceManager`, `mpcRobotModel` and `terrain` are retained.
    */
   TerrainNonPenetrationConstraint(

@@ -81,8 +81,8 @@ namespace ocs2::legged {
  * + mu' tau_x| - |X Fy + mu' tau_y|,   mu' = mu cos(pi/4); for other N there is
  * no closed form, and buildLocalWrenchConeRows() enumerates the facets at
  * construction. They bound the yaw moment the corner friction can actually
- * supply, so a tangential force applied at an off-center CoP - which has a yaw
- * moment about the center but no free torsion - is not rejected. The torsional
+ * supply, so a tangential force applied at an off-center CoP (which has a yaw
+ * moment about the center but no free torsion) is not rejected. The torsional
  * limit follows from the friction at the corners: torsionalFrictionCoefficient
  * no longer enters the rows (the online contact planner still reads it, capped
  * by computeLimitsPerNewtonTorqueContactEwrtContactZ()).
@@ -99,8 +99,8 @@ namespace ocs2::legged {
  * The rows are linear in the LOCAL wrench, but the input stores the wrench in
  * the WORLD frame, so every row reads `l_R_w(q) * W_world`: the term depends on
  * the foot's orientation, and its state Jacobian is not zero. It used to be
- * reported as zero. That was never exact - the orientation a foot lands in is a
- * state the swing chooses - but it hurt little while the cone was gated
+ * reported as zero. That was never exact (the orientation a foot lands in is a
+ * state the swing chooses), but it hurt little while the cone was gated
  * alongside a `zero_velocity` that froze a loaded foot's orientation for the
  * rest of its stance. The contact-implicit formulation un-gates the cone and
  * deliberately leaves the rocking rates of a loaded foot free, and then a
@@ -193,8 +193,8 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
    * @param scheduleGated  When true (the historical behavior) the term switches
    * itself off while the mode schedule calls this foot a swing foot, because
    * the hard `zero_wrench` constraint has already pinned its wrench to zero.
-   * When false - the contact-implicit formulation, which removes `zero_wrench`
-   * - the cone is enforced at every node, and the two affine offsets that
+   * When false (the contact-implicit formulation, which removes `zero_wrench`),
+   * the cone is enforced at every node, and the two affine offsets that
    * assume a loaded foot (`minForceContactEwrtContactZ`,
    * `gripForceContactEwrtContactZ`) are dropped, because a foot in flight
    * carries no wrench and must not be asked for a minimum normal force. What is
@@ -260,7 +260,7 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
   static Config withoutLoadedFootOffsets(Config config);
 
   /** The task-file block a Config is converted from
-   * (contactWrenchConeConfigFromConfig()); the refusals name its fields. */
+   * (contactWrenchConeConfigFromConfig()); error messages report its fields. */
   static constexpr absl::string_view kConfigField =
       "contacts.contact_wrench_cone_soft_constraint";
 
@@ -270,8 +270,8 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
    * frictionCoefficient finite and positive, torsionalFrictionCoefficient,
    * minForceContactEwrtContactZ and gripForceContactEwrtContactZ finite and
    * non-negative, and posPatchpointRtContactEwrtContact finite. Otherwise
-   * InvalidArgument naming the field of kConfigField to change and the value it
-   * holds. contactWrenchConeConfigFromConfig(), Create() and
+   * InvalidArgument identifying the field of kConfigField to change and its
+   * value. contactWrenchConeConfigFromConfig(), Create() and
    * ContactWrenchConeBasisMatrix::Create() all check through this one function;
    * buildLocalWrenchConeRows() and the constructor CHECK it, for the callers
    * that bypass all three.
@@ -279,7 +279,7 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
   static absl::Status validateConfig(const Config& config);
 
   /** The task-file block a footprint is converted from; validateFootprint()
-   * names its fields. */
+   * reports its fields. */
   static constexpr absl::string_view kFootprintField =
       "contacts.contact_rectangle";
 
@@ -342,9 +342,9 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
 
   const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   const PinocchioInterface* absl_nonnull pinocchioInterfacePtr_;
-  // Borrowed, like the two pointers above. It used to hold a clone() in this
+  // Borrowed, like the two pointers above. It used to store a clone() in this
   // raw pointer, which nothing deleted, so every construction and every
-  // per-thread copy of the problem leaked a whole robot model.
+  // per-thread copy of the problem leaked a robot model.
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
   const ContactRectangle contactRectangle_;
   const size_t contactPointIndex_;
@@ -354,7 +354,7 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and
   // the parallel solve reads it without synchronization. It has to survive the
-  // copy the SQP solver makes of the whole problem per worker thread.
+  // copy the SQP solver makes of the problem per worker thread.
   const bool scheduleGated_;
 
   /// The rows of buildLocalWrenchConeRows() multiplying the local contact
@@ -376,7 +376,7 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
  *
  *   A_f * F_local + A_tau * tau_local + b >= 0   (element-wise)
  *
- * `b` holds the non-homogeneous offsets (the gripper force and
+ * `b` stores the non-homogeneous offsets (the gripper force and
  * -minForceContactEwrtContactZ). Dropping it leaves the homogeneous cone, which
  * is the set a conic combination of wrench generators has to stay inside. The
  * rows come in the order of the ContactWrenchConeConstraint class comment:
@@ -469,8 +469,8 @@ matrix_t cornerContactWrenchGenerators(
 /**
  * The first numBasisVectors + 1 rows of buildLocalWrenchConeRows(), which
  * bound the force alone: the facets of the friction pyramid and the normal
- * force bound, with A_tau zero. They are the whole cone of a 3-DoF contact
- * (PointFrictionConeConstraint), which carries no moment. `config` must pass
+ * force bound, with A_tau zero. They are the full cone of a 3-DoF contact
+ * (PointFrictionConeConstraint), which has no moment. `config` must pass
  * ContactWrenchConeConstraint::validateConfig(); one that does not CHECK-fails
  * with its message.
  */
@@ -485,11 +485,11 @@ ContactWrenchConeRows buildFrictionPyramidRows(
  *
  * `config` must pass ContactWrenchConeConstraint::validateConfig() and the
  * footprint validateFootprint(), which every factory of the two checks and
- * reports as a Status naming the task-file key; a config that bypassed them
- * CHECK-fails here with the same message. Cost: the torsion rows are enumerated
- * from the C(4N, 5) five-generator subsets of cornerContactWrenchGenerators(),
- * a few milliseconds at N = 4 and well under a second at N = 8; call it once
- * per foot.
+ * reports as a Status identifying the task-file key; a config that bypassed
+ * them CHECK-fails here with the same message. Cost: the torsion rows are
+ * enumerated from the C(4N, 5) five-generator subsets of
+ * cornerContactWrenchGenerators(), a few milliseconds at N = 4 and well under a
+ * second at N = 8; call it once per foot.
  */
 ContactWrenchConeRows buildLocalWrenchConeRows(
     const ContactWrenchConeConstraint::Config& config,

@@ -65,7 +65,7 @@ namespace ocs2::legged {
  * coming in which one of them will carry everything.
  *
  * Purely vertical, which is what keeps the cheap yaw-invariant input path valid
- * for the whole layer whenever this is the only wrench heuristic listed - see
+ * across the layer whenever this is the only wrench heuristic listed - see
  * WrenchHeuristic::producesForceFootEwrtWorldXy().
  *
  * Like every LocomotionHeuristic, its const methods are safe to call

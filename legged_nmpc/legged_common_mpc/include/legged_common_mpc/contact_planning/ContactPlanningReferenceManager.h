@@ -71,7 +71,7 @@ namespace ocs2::legged {
  * Reference manager that takes its mode schedule from an online contact plan
  * instead of the periodic gait schedule.
  *
- * A plan is handed over from the planner thread with setContactPlan(). Before
+ * A plan is passed from the planner thread with setContactPlan(). Before
  * every solver run the newest plan is merged with the schedule that was applied
  * so far: modes within the commit window keep the applied schedule (so that
  * phases the MPC is already executing are not rewritten under its feet), later
@@ -104,7 +104,7 @@ class ContactPlanningReferenceManager final
   /**
    * Builds the manager and the execution rules of `config`, or returns the
    * InvalidArgument of ContactPlanningConfig::validateStatus() (or of a rule
-   * the lists cannot build), which names the key to change.
+   * the lists cannot build), which identifies the key to change.
    */
   static absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>>
   Create(std::shared_ptr<GaitSchedule> gaitSchedulePtr,
@@ -145,17 +145,17 @@ class ContactPlanningReferenceManager final
    * NMPC prediction, the schedule shifts, the target contact poses and the
    * operator's target. It also starts a new plan epoch, so that a plan the
    * planner thread computed from a snapshot taken before the reset is dropped
-   * when it is handed over after it (setContactPlan(plan, planEpoch)). The drop
+   * when it is submitted after it (setContactPlan(plan, planEpoch)). The drop
    * counters are diagnostics and keep counting.
    */
   void reset() override;
 
-  /** Hands a new plan over (thread-safe). It becomes active at the next solver
+  /** Submits a new plan (thread-safe). It becomes active at the next solver
    * run. */
   void setContactPlan(const ContactPlan& plan);
 
   /**
-   * Hands over a plan made from a snapshot taken in plan epoch `planEpoch`
+   * Submits a plan made from a snapshot taken in plan epoch `planEpoch`
    * (planEpoch() when makePlannerInput() ran). A plan from an earlier epoch was
    * planned from the state before a reset and is dropped. Thread-safe.
    *
@@ -232,7 +232,7 @@ class ContactPlanningReferenceManager final
       const vector_t& initState,
       const vector2_t& cmdLinvelBaseRtWorldEwrtWorldXy);
   /**
-   * Heading model: the whole-body heading handed to the planner is the angular
+   * Heading model: the whole-body heading passed to the planner is the angular
    * center of mass yaw when an evaluator is given here, the base yaw otherwise.
    * Solver thread only, or before the solver runs.
    *
@@ -268,7 +268,7 @@ class ContactPlanningReferenceManager final
   std::optional<scalar_t> computeYawAcomRtWorld(const vector_t& state) const;
   /**
    * The operator's commanded yaw rate as of the last modifyReferences(), read
-   * off the momentum channel of the target trajectory: the target carries the
+   * off the momentum channel of the target trajectory: the target stores the
    * command as the angular momentum of a rigid turn about the vertical, h_z =
    * I_zz omega / m (CentroidalMpcTargetTrajectoriesCalculator), which the
    * heading override never touches.
@@ -277,7 +277,7 @@ class ContactPlanningReferenceManager final
    * of the measured and the commanded yaw rate, so differentiating it (as an
    * earlier version did) commanded half the rate at the start of a turn and fed
    * the measured rate back in; and once the override has rewritten it, it
-   * carries the previous plan's rate, so any shortfall of the plan against the
+   * reflects the previous plan's rate, so any shortfall of the plan against the
    * command was re-issued as the next command and the turn decayed. Solver
    * thread only.
    */
@@ -325,14 +325,14 @@ class ContactPlanningReferenceManager final
    * The plan's own DCM, so that the terminal capturability cost aims where the
    * footholds are going: the plan's center of mass and velocity combined with
    * the omega of the pendulum the plan was made on (ContactPlan::omega; the
-   * running configuration's for a plan that does not carry one). Empty while no
-   * plan may drive the references (planReferencesUsable()) and for a `time`
+   * running configuration's for a plan that does not specify one). Empty while
+   * no plan may drive the references (planReferencesUsable()) and for a `time`
    * outside the active plan's horizon, where the plan's lookups would clamp to
    * its last node; the cost then keeps its own reference. Solver thread only.
    */
   std::optional<PlannedDcm> getPlannedDcm(scalar_t time) const override;
 
-  /** True while a plan handed over by setContactPlan() has not been activated
+  /** True while a plan submitted by setContactPlan() has not been activated
    * by the solver thread yet (thread-safe). */
   bool hasPendingPlan() const;
 
@@ -376,7 +376,7 @@ class ContactPlanningReferenceManager final
   scalar_t commitBoundary(scalar_t time) const;
 
   /**
-   * Hands the NMPC's latest predicted trajectory over (thread-safe). The rules
+   * Updates the NMPC's latest predicted trajectory (thread-safe). The rules
    * that compare the measured center of mass with the prediction (cadence
    * modulation, DCM step adjustment) read it, interpolated in the robot model's
    * layout (MpcRobotModelBase::interpolateStateTrajectory) at the start of the
@@ -436,7 +436,7 @@ class ContactPlanningReferenceManager final
     vector2_t proxyLinvelComRtWorldEwrtWorldXy = vector2_t::Zero();  // [m/s]
   };
 
-  /** Private: Create() builds the execution rules, which point into the
+  /** Private: Create() builds the execution rules, which reference the
    * constructed object, and validates. */
   ContactPlanningReferenceManager(
       std::shared_ptr<GaitSchedule> gaitSchedulePtr,
@@ -628,8 +628,7 @@ class ContactPlanningReferenceManager final
       makeBipedFeetArray(vector2_t(vector2_t::Zero()));
   HorizontalComState comState_;  // at the current solver run
   absl::Mutex predictionMutex_;
-  // NMPC prediction handed over after the previous solve (written by the
-  // module).
+  // NMPC prediction passed after the previous solve (written by the module).
   scalar_array_t predictedTimes_ ABSL_GUARDED_BY(predictionMutex_);
   vector_array_t predictedStates_ ABSL_GUARDED_BY(predictionMutex_);
   bool hasPredictedComState_ = false;

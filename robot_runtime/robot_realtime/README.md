@@ -75,8 +75,8 @@ The dev container grants neither, so simulation runs without them. `configureCur
 sets only the name and the affinity, and never needs a privilege.
 
 `configureCurrentThread()` tries every step, whatever the steps before it did: a thread the kernel pinned to only some
-of its cores, or whose process may not lock its memory, still runs `SCHED_FIFO` when it may. Its error carries the
-code of the first step that failed and names every step that failed. `lockProcessMemory()` is process-wide, and
+of its cores, or whose process may not lock its memory, still runs `SCHED_FIFO` when it may. Its error uses the
+status code of the first step that failed and lists every step that failed. `lockProcessMemory()` is process-wide, and
 `MCL_FUTURE` makes every later allocation of the process fail once its locked memory would pass a finite
 `RLIMIT_MEMLOCK`. A thread of a process that allocates freely (the MPC solver) therefore sets
 `memoryLock = MemoryLock::kNone`, which gives it the scheduling without locking or prefaulting anything.
@@ -90,13 +90,13 @@ code of the first step that failed and names every step that failed. `lockProces
 | `:test_spsc_queue` | FIFO order, drops counted when full, slots start as the prototype, and two-thread stress runs: no loss and no reordering when the producer retries, `received + dropped == pushed` when it does not, no torn payloads |
 | `:test_periodic_timer` | the deadline arithmetic of both overrun policies, exactly. Against the clock: no wake-up before its deadline, deadlines on the grid, no drift when half of each period is compute, and how each policy behaves after a real overrun |
 | `:test_loop_timing_stats` | window boundaries, windows that tile time and count each cycle once, overruns, jitter extremes, and snapshots that reach another thread intact through a `TripleBuffer` |
-| `:test_realtime_thread` | name, affinity, priority checks, `SCHED_FIFO` that either takes effect or reports `PermissionDenied`, and the unprivileged path forced in a child process that drops `CAP_SYS_NICE` and `CAP_IPC_LOCK` and lowers its limits. That `configureCurrentThread()` carries on past a failed step and names every failure, and that `MemoryLock::kNone` touches no memory. Also that a prefaulted stack takes no page faults |
-| `:test_realtime_allocations` | no heap allocation in `tryPush`/`tryPop`, `waitForNextPeriod`, `addCycle` or a whole realtime cycle |
+| `:test_realtime_thread` | name, affinity, priority checks, `SCHED_FIFO` that either takes effect or reports `PermissionDenied`, and the unprivileged path forced in a child process that drops `CAP_SYS_NICE` and `CAP_IPC_LOCK` and lowers its limits. That `configureCurrentThread()` continues past a failed step and lists every failure, and that `MemoryLock::kNone` touches no memory. Also that a prefaulted stack takes no page faults |
+| `:test_realtime_allocations` | no heap allocation in `tryPush`/`tryPop`, `waitForNextPeriod`, `addCycle` or a complete realtime cycle |
 
 `:allocation_counter` (testonly) interposes glibc's `malloc`, `calloc`, `realloc`, `aligned_alloc`, `memalign` and
 `posix_memalign` to count every heap allocation of a test binary. It began as a copy of the state estimator's counter
 (`legged_state_estimation/legged_state_estimator/test/AllocationCounter.h`) and also counts aligned allocations.
-A binary can link only one of the two. `heapAllocationCount()` counts the whole process;
+A binary can link only one of the two. `heapAllocationCount()` counts all threads in the process;
 `heapAllocationCountOnThisThread()` counts the calling thread's allocations alone, for a call on a realtime thread while
 other threads of the process (a bus's IO thread, a solver) allocate beside it, as
 `//legged_nmpc/legged_mpc_ipc:test_remote_mpc_link_allocations` does.

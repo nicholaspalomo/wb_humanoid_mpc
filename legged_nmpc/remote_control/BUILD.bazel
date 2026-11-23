@@ -15,7 +15,7 @@ load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 package(default_visibility = ["//visibility:public"])
 
-# The hermetic interpreter must not import what a shell's PYTHONPATH points at: setup_env.sh puts robotpkg's Python 3.12
+# The hermetic interpreter must not import what a shell's PYTHONPATH references: setup_env.sh puts robotpkg's Python 3.12
 # bindings and directories of the checkout on it, and another copy of a package there would shadow this package and
 # the generated messages (test_package_import_path.py checks it). `bazel run` and `bazel test` apply it; a launch file
 # that runs the binary directly clears PYTHONPATH itself.
@@ -246,7 +246,7 @@ py_test(
     deps = _TEST_DEPS + [":tuning_test_file_py_proto"],
 )
 
-# The registries' names (config_registries.textproto): every registry the schemas name, the names the shipped files
+# The registries' names (config_registries.textproto): every registry the schemas list, the names the shipped files
 # use, and the drop-downs of the registry strings.
 py_test(
     name = "test_config_registries",

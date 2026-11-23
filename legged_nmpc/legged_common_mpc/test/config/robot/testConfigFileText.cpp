@@ -29,8 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The configuration files as text (ConfigFiles.h): parseTaskFile(),
 // parseReferenceFile() and parseJointPdGainsFile() read a text as strictly as
-// the loaders read the file, and configFileIdentity() names a configuration
-// file by its path from robot_models/ on, wherever the tree lies.
+// the loaders read the file, and configFileIdentity() identifies a
+// configuration file by its path from robot_models/ on, wherever the tree lies.
 
 #include <fstream>
 #include <string>
@@ -104,7 +104,7 @@ TEST(ConfigFileText, AnErrorNamesTheSourceTheLineAndTheColumn) {
 }
 
 TEST(ConfigFileText, AFileOfAnotherMessageIsRefusedByItsHeader) {
-  // A reference file sent as a task file: its leading comment names its
+  // A reference file sent as a task file: its leading comment specifies its
   // message, and the parser refuses it as the loader does.
   const std::string reference =
       "# proto-message: "
@@ -134,8 +134,8 @@ TEST(ConfigFileText, APdGainsTextParses) {
 }
 
 TEST(ConfigFileText, ATextOrFileThatNamesNoSchemaIsRefused) {
-  // A file is written and read again by path; one that names no message could
-  // be read as any message it matches.
+  // A file is written and read again by path; one that specifies no message
+  // could be read as any message it matches.
   constexpr char kBody[] = "model_settings { robot_name: \"g1\" }\n";
   const absl::StatusOr<mpc_config::TaskFile> text =
       parseTaskFile(kBody, /*source=*/"saved task file");
@@ -150,8 +150,8 @@ TEST(ConfigFileText, ATextOrFileThatNamesNoSchemaIsRefused) {
   EXPECT_THAT(
       file.status().message(),
       HasSubstr(absl::StrCat(path, ":1:1: ", path, " names no schema")));
-  // A comment block without the message line names no schema either; with it,
-  // the same body parses.
+  // A comment block without the message line specifies no schema either; with
+  // it, the same body parses.
   EXPECT_FALSE(
       parseTaskFile(
           absl::StrCat("# proto-file: "

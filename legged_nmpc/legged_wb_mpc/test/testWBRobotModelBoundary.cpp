@@ -584,7 +584,7 @@ TEST(WBRobotModelBoundary,
                     .maxCoeff(),
                 1.0e-15)
           << "the sign is kept";
-      // Pinocchio's configuration carries the same normalized quaternion.
+      // Pinocchio's configuration contains the same normalized quaternion.
       EXPECT_EQ(vector4_t(model.getGeneralizedCoordinates(state).segment<4>(3)),
                 quatBaseRtWorldXyzw);
       // The heading and the Euler angles are of the rotation, whichever sign
@@ -713,7 +713,7 @@ TEST(WBRobotModelBoundary, TheBaseTwistIsTheWorldRateOfTheStoredVelocities) {
                   angvelBaseRtWorldEwrtBase);
 
     // [dp_W, R(xi) w_B]: the stored linear velocity and the body rate turned
-    // into the world. The state holds the joint velocities, so the ones passed
+    // into the world. The state stores the joint velocities, so the ones passed
     // are not read.
     const vector_t jointVelocities = vector_t::Constant(
         static_cast<Eigen::Index>(model.getJointDim()), uniform(generator));

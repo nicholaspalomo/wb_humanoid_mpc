@@ -57,22 +57,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged {
 
 /**
- * Runs `call` and returns what it throws as an absl::Status carrying the
+ * Runs `call` and returns what it throws as an absl::Status with the
  * exception's message: the one place the parameter updater catches. A hot
- * reload reaches code that reports its failures only by throwing -
- * Collection::get, for a term of another type; a penalty's setParameters, for a
- * parameter vector of the wrong size - and nothing a saved file contains may
+ * reload reaches code that reports its failures only by throwing
+ * (Collection::get, for a term of another type; a penalty's setParameters, for
+ * a parameter vector of the wrong size), and nothing a saved file contains may
  * throw out of the solver's pre-solve hook.
  */
 absl::Status exceptionsToStatus(absl::FunctionRef<void()> call);
 
 /** Logs that the update of the term `name` failed with `status`, a WARNING
- * naming the term. */
+ * identifying the term. */
 void reportFailedTermUpdate(absl::string_view name, const absl::Status& status);
 
 /**
  * Logs that `what` of the reload of `source` was refused by its conversion,
- * `status`, and that the running values are kept: a WARNING naming the field.
+ * `status`, and that the running values are kept: a WARNING identifying the
+ * field.
  */
 void reportNotApplied(absl::string_view source,
                       absl::string_view what,
@@ -80,8 +81,8 @@ void reportNotApplied(absl::string_view source,
 
 /**
  * Applies `update` to the term `name` of `collection`, as a Derived. NotFound
- * when the collection carries no such term, which is the normal case for a term
- * whose cost or constraint the running problem does not list; the error of
+ * when the collection contains no such term, which is the normal case for a
+ * term whose cost or constraint the running problem does not list; the error of
  * exceptionsToStatus() when the term is of another type (Collection::get throws
  * std::bad_cast) or the update throws.
  */
@@ -101,8 +102,8 @@ absl::Status updateTerm(Collection<Term>& collection,
 }
 
 /**
- * updateTerm(), with a failed update logged as a WARNING naming the term
- * (reportFailedTermUpdate()). A term the problem does not carry is not a
+ * updateTerm(), with a failed update logged as a WARNING identifying the term
+ * (reportFailedTermUpdate()). A term the problem does not contain is not a
  * failure and is not logged: every reload would otherwise log one per foot per
  * worker for each unlisted term.
  */
@@ -116,7 +117,7 @@ void updateTermIfPresent(Collection<Term>& collection,
   }
 }
 
-/** Whether `collection` carries the term `name`. */
+/** Whether `collection` contains the term `name`. */
 template <typename Term>
 bool carriesTerm(const Collection<Term>& collection, absl::string_view name) {
   // getTermIndex() rather than getTermNameMap(), which returns a copy.
@@ -152,8 +153,8 @@ std::optional<T> convertedOrReported(absl::StatusOr<T> converted,
  * `contactNames` in every problem of `problems` (its QuadraticPenalty, through
  * QuadraticPenalty::setParameters()). A term the problem does not list has no
  * penalty to scale, which is not a failure. Precondition: `weight` is finite
- * and positive, as footConstraintFromConfig() holds both soft weights of the
- * foot constraints to at start-up and on a reload alike.
+ * and positive, as footConstraintFromConfig() enforces for both soft weights of
+ * the foot constraints at start-up and on a reload alike.
  */
 void setSoftTermWeight(std::vector<OptimalControlProblem>& problems,
                        absl::Span<const std::string> contactNames,

@@ -62,17 +62,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /**
  * The parity of the runtime contact set (milestone 2 of
- * legged_nmpc/docs/multi_contact_planning/README.md): the whole optimal
- * control problem the centroidal MPC assembles for every shipped robot - every
+ * legged_nmpc/docs/multi_contact_planning/README.md): the complete optimal
+ * control problem the centroidal MPC assembles for every shipped robot (every
  * term's name, and the value and the first and second derivatives of the cost,
- * the soft constraints, the dynamics and the equality constraints at the probe
- * points of ProblemFingerprint - is bit for bit the problem it assembled
+ * the soft constraints, the dynamics, and the equality constraints at the probe
+ * points of ProblemFingerprint) is bit for bit the problem it assembled
  * before the contact count became a runtime value.
  *
  * The record of each variant is in test/golden/centroidal_contact_set_parity/,
  * one line per fingerprint entry: its label, its size and the FNV-1a hash of
  * the bit patterns of its entries, so that a single flipped bit anywhere fails
- * the test and names the entry. It was recorded from the problem as it was
+ * the test and identifies the entry. It was recorded from the problem as it was
  * assembled before the change, by this test, whose computed record goes to
  * $TEST_UNDECLARED_OUTPUTS_DIR/<variant>.txt on every run.
  *

@@ -78,7 +78,7 @@ class TextprotoErrorCollector final
   void record(int line,
               google::protobuf::io::ColumnNumber column,
               absl::string_view message) {
-    // A problem of the whole message (such as a missing proto2 required field)
+    // A problem of the full message (such as a missing proto2 required field)
     // has no position.
     if (line < 0) {
       errors_.push_back(absl::StrCat(source_, ": ", message));

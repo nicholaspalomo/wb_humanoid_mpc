@@ -71,10 +71,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * ProceduralMpcMotionManager::Create() and its command-limit reloads, on the
  * DRC Atlas references: a gait file without a gait the velocity command selects
- * and a reference file whose values do not parse are refused by Status, naming
- * the file, and a reloaded limit that is not a number is refused and keeps the
- * running one. The constructor used to throw both, and the reloads threw what
- * the parameter updater then caught.
+ * and a reference file whose values do not parse are rejected by Status
+ * identifying the file, and a reloaded limit that is not a number is refused
+ * and keeps the running one. The constructor used to throw both, and the
+ * reloads threw what the parameter updater then caught.
  *
  * And its gait switches on the centroidal state (design defect D2): they
  * compare the command with the robot's mean motion over a stride, the rate of
@@ -82,7 +82,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * momentum nor a roll moves, and the mean velocity of its base in the heading
  * frame, which the gait's sway does not move; and they read it only once its
  * window is measured throughout, not from a restarted history, which starts
- * from the exact base twist of the observation handed over before the solve.
+ * from the exact base twist of the observation passed before the solve.
  * They used to read entry 3 of getMnormCmomComRtWorldEwrtWorld() (formerly
  * getBaseComVelocity()), which on the centroidal
  * state is the normalized angular momentum about the world x axis, then the
@@ -196,7 +196,7 @@ vector_t measuredInput(const AtlasReferenceStack& stack,
 /**
  * One solve of `manager` at `time`, as the MPC node runs it: the operator
  * turning at `cmdRateYawBaseRtWorld`, and the robot measured at `state` with
- * the joint velocities of `input`, handed over before the solve (observe()).
+ * the joint velocities of `input`, passed before the solve (observe()).
  */
 void solveAt(ProceduralMpcMotionManager& manager,
              AtlasReferenceStack& stack,
@@ -369,7 +369,7 @@ StraightWalk continuedAt(const StraightWalk& walk,
 /**
  * Solves every 10 ms over (from, to] with the operator commanding `command`
  * ([v_x, v_y, pelvis height, yaw rate]) and the robot on `walk`, each
- * observation handed over before its solve; returns the gait of every solve.
+ * observation passed before its solve; returns the gait of every solve.
  */
 std::vector<std::string> walkFor(ProceduralMpcMotionManager& manager,
                                  AtlasReferenceStack& stack,
@@ -795,9 +795,9 @@ TEST(ProceduralMpcMotionManagerGaits,
   EXPECT_NEAR(
       manager->getMeasuredPlanarMotion().linvelBaseRtWorldEwrtHeadingXy(0), 0.2,
       1.0e-6);
-  // It stops where it is. A window that still holds part of a stride reads part
-  // of its sway, up to 2 (0.18 / w) / W = 0.057 m/s; 0.3 s after the stop the
-  // mean is still above 0.2 (1.7 - 0.3) / 1.7 - 0.057 > 0.1.
+  // It stops where it is. A window that still contains part of a stride reads
+  // part of its sway, up to 2 (0.18 / w) / W = 0.057 m/s; 0.3 s after the stop
+  // the mean is still above 0.2 (1.7 - 0.3) / 1.7 - 0.057 > 0.1.
   const std::vector<std::string> stopping =
       walkFor(*manager, stack, /*from=*/8.0, /*to=*/10.0, vector4_t::Zero(),
               continuedAt(walking, /*time=*/8.0,

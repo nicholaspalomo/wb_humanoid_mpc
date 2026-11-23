@@ -132,7 +132,7 @@ vector2_t getDesPosFootRtWorldEwrtWorldXy(const ContactPlan& plan,
  * shipped file selects today, and replaces the shipped file's one execution
  * rule, planned_com_override, with planned_heading_override (the plan's heading
  * replaces the commanded yaw of the MPC target). Every other execution rule
- * stays as the shipped file has it - commented out - and the tests that
+ * stays as the shipped file has it (commented out), and the tests that
  * exercise one enable it explicitly through setExecutionRule. The heading model
  * is on because the shipped file lists heading_double_integrator under
  * `dynamics`; the fixture asserts that instead of assuming it. The shipped
@@ -693,7 +693,7 @@ TEST_F(ContactPlanningIntegrationTest,
   EXPECT_TRUE(
       referenceManager->getErrPosFeetRtWorldEwrtWorldXy()[foot].isZero());
 
-  // A diverged solve hands over a non-finite trajectory: it must be ignored
+  // A diverged solve returns a non-finite trajectory: it must be ignored
   // rather than poison the foot reference.
   vector_t poisoned = state;
   poisoned(0) = std::numeric_limits<scalar_t>::quiet_NaN();
@@ -710,8 +710,8 @@ TEST_F(ContactPlanningIntegrationTest,
   }
   EXPECT_TRUE(afterPoisoning->desPosFootRtWorldEwrtWorld.allFinite());
 
-  // The module hands the primal solution over after every solve, but only while
-  // a correction that needs it is enabled.
+  // The module passes the primal solution after every solve, but only while a
+  // correction that needs it is enabled.
   PrimalSolution primal;
   primal.timeTrajectory_ = {0.0, midSwing + 10.0};
   primal.stateTrajectory_ = {state, state};
@@ -971,7 +971,7 @@ TEST_F(ContactPlanningIntegrationTest,
 }
 
 /**
- * A plan whose whole horizon has passed must stop driving the references, not
+ * A plan whose full horizon has passed must stop driving the references, not
  * clamp to its last node forever.
  *
  * The mode-schedule merge already refused a stale plan (`planUsable` requires
@@ -979,8 +979,8 @@ TEST_F(ContactPlanningIntegrationTest,
  * hasActivePlan() alone, which has no time in it: `activePlan_` is assigned in
  * one place and never cleared, and every ContactPlan lookup CLAMPS instead of
  * reporting that the query ran off the end. So a controller whose planner had
- * stopped producing plans - a dead thread, a solver that began failing - went
- * on being steered by the last one indefinitely, which is exactly when that is
+ * stopped producing plans (e.g., a dead thread or a failing solver) went on
+ * being steered by the last one indefinitely, which is exactly when that is
  * least safe.
  */
 /**
@@ -988,14 +988,14 @@ TEST_F(ContactPlanningIntegrationTest,
  * truncate it to the plan's horizon.
  *
  * The resample exists so that a rule rewriting a state at a plan node has a
- * knot there. It replaced the whole target with a grid spanning
+ * knot there. It replaced the full target with a grid spanning
  * [plan.startTime, plan.endTime()], and nothing intersected that with the
  * solver horizon. OCS2 zero-order-extrapolates past the last knot, so as soon
- * as the plan was older than (plan horizon - MPC horizon) the entire reference
- * tail froze at the plan-end sample. The replacement is permanent -
- * ReferenceManager::preSolverRun keeps the mutated trajectory as the live one -
- * so the operator's command past that point was discarded, not merely ignored
- * for one cycle.
+ * as the plan was older than (plan horizon - MPC horizon) the reference tail
+ * froze at the plan-end sample. The replacement is permanent
+ * (ReferenceManager::preSolverRun keeps the mutated trajectory as the live
+ * one), so the operator's command past that point was discarded, not merely
+ * ignored for one cycle.
  */
 TEST_F(ContactPlanningIntegrationTest,
        TheResampledTargetStillCoversTheSolverHorizon) {
@@ -1105,8 +1105,8 @@ TEST_F(ContactPlanningIntegrationTest, AnExpiredPlanStopsDrivingTheReferences) {
   referenceManager->preSolverRun(expiredTime, expiredTime + horizon, state,
                                  kBipedModeStance);
 
-  // The plan object is still there - nothing clears it - but it may no longer
-  // speak for the robot.
+  // The plan object is still present (nothing clears it), but it must no longer
+  // drive the references.
   EXPECT_TRUE(referenceManager->hasActivePlan())
       << "the plan is retained; only its authority expires";
   EXPECT_FALSE(referenceManager->planReferencesUsableAt(expiredTime));
@@ -1122,7 +1122,7 @@ TEST_F(ContactPlanningIntegrationTest, AnExpiredPlanStopsDrivingTheReferences) {
 /**
  * The xy swing reference of a later swing of the same foot inside the horizon
  * starts from where that foot will stand after its earlier step, not from the
- * position latched while it stands now. With a plan long enough to hold two
+ * position latched while it stands now. With a plan long enough to contain two
  * swings of one foot the two differ by a step length.
  */
 TEST_F(ContactPlanningIntegrationTest,
@@ -1138,7 +1138,7 @@ TEST_F(ContactPlanningIntegrationTest,
   ContactPlanningConfig config = module->getConfig();
   config.planner.numNodes = 24;  // 2.4 s plan
   config.shared.gaitLimits.maxContactDuration =
-      0.6;  // keep stepping, so that the plan holds two swings of one foot
+      0.6;  // keep stepping, so that the plan contains two swings of one foot
   EXPECT_EQ(module->setConfig(config), absl::OkStatus());
 
   const vector_t state = interface_->getInitialState();
@@ -1223,11 +1223,11 @@ TEST_F(ContactPlanningIntegrationTest,
   // The expectation is the LANDING OF THE FIRST SWING, derived from the
   // touch-down time alone. It used to be
   // `getDesPosFootRtWorldEwrtWorldXy(second->liftOff - 0.5
-  // * plan.dt + 1e-9)` - the very expression getSwingFootReference() used - so
+  // * plan.dt + 1e-9)` (the same expression getSwingFootReference() used), so
   // the test restated the implementation instead of checking it and could not
   // have failed for an off-by-one in that rounding. It did not: `lround(k - 0.5
   // + eps) == k` reads the lift-off node, which under the `hlip` planner
-  // already holds the landing position.
+  // already stores the landing position.
   const std::optional<SwingFootReference> secondReference =
       referenceManager->getSwingFootReference(foot, second->liftOff + 1.0e-4);
   if (!secondReference.has_value()) {
@@ -1248,8 +1248,8 @@ TEST_F(ContactPlanningIntegrationTest,
           .norm(),
       0.05)
       << "the two starts must differ by a step for this test to mean anything";
-  // And the reference must actually travel over the swing rather than sit at
-  // its target.
+  // And the reference must actually travel over the swing rather than stay
+  // fixed at its target.
   EXPECT_GT(secondReference->desLinvelFootRtWorldEwrtWorld.head<2>().norm(),
             1.0e-3)
       << "a swing whose start equals its landing target commands zero xy "
@@ -1431,7 +1431,7 @@ std::string hipYawTestUrdf(absl::Span<const HipYawLeg> legs) {
  * which is +q about an upward axis and -q about a downward one: the joint
  * limits are mirrored for a downward axis, whether the axis itself is declared
  * as 0 0 -1 (which pinocchio's URDF parser turns into an unaligned revolute
- * joint) or a +z axis sits under an upside-down placement. A revolute joint
+ * joint) or a +z axis is under an upside-down placement. A revolute joint
  * whose axis is not vertical in the world is not a hip yaw, whatever its local
  * axis is. The derivation was only ever exercised on the DRC Atlas, whose hip
  * yaw axes are all +z (RZ joints), and it copied the limits unmirrored: a leg
@@ -1611,7 +1611,7 @@ TEST_F(ContactPlanningIntegrationTest,
 
 /**
  * The plan's heading is written into the base yaw of the target trajectory (the
- * planned_heading_override execution rule). The yaw rate command handed to the
+ * planned_heading_override execution rule). The yaw rate command passed to the
  * planner used to be differentiated from that same base yaw, which fed the
  * previous plan's heading rate back in as the command: whenever a plan fell
  * short of the command, e.g. through the hip yaw range of the stance foot, the
@@ -1659,7 +1659,7 @@ TEST_F(ContactPlanningIntegrationTest,
   }();
   const scalar_t mass = pinocchio::computeTotalMass(
       interface_->getPinocchioInterface().getModel());
-  // A target that carries the commanded yaw rate as the momentum of a rigid
+  // A target that encodes the commanded yaw rate as the momentum of a rigid
   // turn and integrates it in the base yaw over the horizon, as the motion
   // manager produces from a turn command.
   const absl::AnyInvocable<TargetTrajectories(scalar_t, scalar_t) const>
@@ -1829,7 +1829,7 @@ TEST_F(ContactPlanningIntegrationTest,
   ContactPlanningConfig config = module->getConfig();
   config.planner.numNodes = 24;  // 2.4 s plan
   config.shared.gaitLimits.maxContactDuration =
-      0.6;  // keep stepping, so that the plan holds two swings of one foot
+      0.6;  // keep stepping, so that the plan contains two swings of one foot
   config.formulation.setExecutionRule(term::kPhaseResetting, /*on=*/false);
   config.formulation.setExecutionRule(term::kEnergyCadenceModulation,
                                       /*on=*/false);
@@ -2099,7 +2099,7 @@ TEST_F(ContactPlanningIntegrationTest,
     // Inside the band nothing is re-timed. The prediction is compared at the
     // SAME time as the measurement, as the rule compares them: the plan's ZMP
     // and CoM move between the two instants, so a prediction taken at the
-    // previous check's time would carry a difference of its own into the
+    // previous check's time would introduce a difference of its own into the
     // energy, which the band has nothing to do with.
     time += 0.02;
     vector_t slightlyFaster = state;
@@ -2174,12 +2174,12 @@ TEST_F(ContactPlanningIntegrationTest,
 }
 
 /**
- * A plan the worker hands over between the reference manager's and this
- * module's pre-solve hooks of the same cycle is not in the schedule the
- * module's snapshot would be taken from. Posting that snapshot had the idle
- * worker plan from a schedule without the pending plan; the result was dropped
- * as inconsistent one cycle later, or merged around swings it did not know
- * about. The snapshot waits for the cycle that activates the plan.
+ * A plan the worker returns between the reference manager's and this module's
+ * pre-solve hooks of the same cycle is not in the schedule the module's
+ * snapshot would be taken from. Posting that snapshot had the idle worker plan
+ * from a schedule without the pending plan; the result was dropped as
+ * inconsistent one cycle later, or merged around swings it did not know about.
+ * The snapshot waits for the cycle that activates the plan.
  */
 TEST_F(ContactPlanningIntegrationTest,
        SnapshotIsNotPostedWhileAPlanAwaitsActivation) {

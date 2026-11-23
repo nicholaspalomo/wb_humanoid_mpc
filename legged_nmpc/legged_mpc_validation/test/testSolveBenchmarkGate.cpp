@@ -46,12 +46,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * The real-time gate of section 4.6 (compareSolveBenchmarks), on synthetic
- * documents of runSolveBenchmark()'s shape: a document passes against itself
- * (one that names no toolchain compares its tape counts only), each criterion
- * fails on its own when breached, only the libraries both documents count are
- * compared one by one, and a solve time of another machine or toolchain is
- * refused while the tape counts are still compared. Also: the solve benchmark's
- * default recorded states exist for every robot.
+ * documents matching runSolveBenchmark()'s format: a document passes against
+ * itself (one that specifies no toolchain compares its tape counts only), each
+ * criterion fails on its own when breached, only the libraries both documents
+ * count are compared one by one, and a solve time of another machine or
+ * toolchain is refused while the tape counts are still compared. Also: the
+ * solve benchmark's default recorded states exist for every robot.
  */
 
 namespace ocs2::legged::validation {
@@ -166,7 +166,7 @@ JsonValue withToolchain(const JsonValue& document,
   return copy;
 }
 
-/** `document` whose provenance names no toolchain. */
+/** `document` whose provenance specifies no toolchain. */
 JsonValue withoutToolchain(const JsonValue& document) {
   const JsonValue* absl_nullable recorded = document.find("provenance");
   CHECK(recorded != nullptr) << "a benchmark document has a provenance";
@@ -188,7 +188,7 @@ TEST(SolveBenchmarkGate, ADocumentPassesAgainstItself) {
   EXPECT_TRUE(violations.empty())
       << (violations.empty() ? "" : violations.front());
 
-  // A document that names no toolchain: its solve times are refused even
+  // A document that specifies no toolchain: its solve times are refused even
   // against itself, its tape counts pass.
   const JsonValue unnamed = withoutToolchain(document);
   const std::vector<std::string> refused =
@@ -315,7 +315,7 @@ TEST(
     EXPECT_NE(violations[1].find(kSmallLibrary), std::string::npos)
         << violations[1];
   }
-  // Another machine, or a baseline that names no toolchain, is refused the same
+  // Another machine, or a baseline that specifies no toolchain, is refused the
   // way.
   JsonValue otherMachine = slower;
   JsonValue provenance = *otherMachine.find("provenance");

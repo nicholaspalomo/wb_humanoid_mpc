@@ -115,7 +115,7 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
   setWeights(settings.weights.toVector());
-  // The library name carries the residual's version, so that a library taped
+  // The library name includes the residual's version, so that a library taped
   // from an earlier residual is never loaded from the cache in its place (the
   // robots ship recompileLibrariesCppAd: false): kLibraryVersionSuffix.
   // A rolling contact's residual is another function:

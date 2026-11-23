@@ -58,8 +58,8 @@ namespace ocs2::legged {
  * (AngularCenterOfMass::computeQuatAcomRtWorldXyzw()), the base orientation
  * composed with the learned joint-induced rotation, and its error is the
  * heading-tilt residual e_HT(xi_a(x), xi_a(x_ref)) of
- * orientation/BaseOrientation.h, rows (yaw, pitch, roll) - the rows
- * acom_weights names (design section 2.8.3 of
+ * orientation/BaseOrientation.h, rows (yaw, pitch, roll) (the rows specified by
+ * acom_weights; design section 2.8.3 of
  * legged_nmpc/docs/quaternion_base_orientation/README.md):
  *
  *   L = 1/2 e_com^T Q_com e_com + 1/2 e_acom^T Q_acom e_acom,  e_com = c(q) -
@@ -77,16 +77,16 @@ namespace ocs2::legged {
  *
  * It is selected by listing `com_and_acom_tracking_cost` in the task file's
  * `costs` (MpcCostType), and it REPLACES the base pose rather than adding to
- * it: the base-pose blocks of every quadratic state weight the problem carries
- * - Q in state_quadratic_cost or state_input_quadratic_cost, and Q_final in
- * terminal_cost - are zeroed (zeroBasePoseWeights), so that the same error is
+ * it: the base-pose blocks of every quadratic state weight in the problem (Q in
+ * state_quadratic_cost or state_input_quadratic_cost, and Q_final in
+ * terminal_cost) are zeroed (zeroBasePoseWeights), so that the same error is
  * not regulated twice in two coordinate systems.
  *
  * The replacement holds at the terminal node too. Zeroing Q_final's block
  * without a substitute would leave the end of the horizon with no CoM, height
  * or orientation regulation at all, and terminalCostScaling makes the terminal
  * node the heaviest of the horizon; so with terminal_cost the problem also
- * carries a second instance in its final cost, weighted by terminalCostScaling
+ * includes a second instance in its final cost, weighted by terminalCostScaling
  * * Q_com and terminalCostScaling * Q_acom - exactly how Q_final relates to Q
  * for the rest of the state. Under the DCM terminal cost there is no Q_final
  * and no terminal instance.
@@ -158,7 +158,7 @@ class ComAndAcomTrackingCost : public StateCost {
       const PreComputation& preComp) const override;
 
   /**
-   * Returns InvalidArgument, naming the offending weight block of the task
+   * Returns InvalidArgument, identifying the offending weight block of the task
    * file, unless both matrices are 3x3.
    */
   static absl::Status validateWeights(const matrix_t& Q_com,

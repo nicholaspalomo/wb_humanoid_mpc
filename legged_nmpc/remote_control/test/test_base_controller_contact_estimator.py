@@ -27,7 +27,7 @@
 
 """Tests of the schema's drop-downs on the Base Controller tab of the joystick GUI, the contact estimator's among them.
 
-The tab offers every task-file choice whose schema names a base_controller_label (task_file.proto marks
+The tab offers every task-file choice whose schema specifies a base_controller_label (task_file.proto marks
 contact_estimator so). Its drop-down offers the names of the contact_estimator registry (config_registries.textproto),
 mirrors the value of the MPC Parameters tab, the schema's default included, and selects through it, so a choice
 publishes the name on operator/mpc_parameters like a slider. Needs a display.

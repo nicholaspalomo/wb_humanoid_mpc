@@ -27,9 +27,9 @@
 
 """CI's format check must run the formatters the dev container and its pre-commit hook run.
 
-The job used to take `ubuntu-latest`'s clang-format and the newest black on PyPI. Either moving on - ubuntu-latest
-changes Ubuntu release on 2026-10-19, black changes its stable style every year - makes CI reject code that the hook
-formatted a minute earlier. So the job names its versions, and its clang-format is the dev image's.
+The job used to take `ubuntu-latest`'s clang-format and the newest black on PyPI. Either moving on (ubuntu-latest
+changes Ubuntu release on 2026-10-19, black changes its stable style every year) makes CI reject code that the hook
+formatted a minute earlier. So the job pins its versions, and its clang-format is the dev image's.
 """
 
 import os

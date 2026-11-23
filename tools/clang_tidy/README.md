@@ -23,14 +23,14 @@ clang-tidy 21 comes from apt.llvm.org (`docker/install_llvm_tools.sh tidy`); the
 with that script. `run_clang_tidy.sh` pins the major version, so a different clang-tidy is an error that says to rebuild
 the dev container.
 
-The rules are in `AGENTS.md` ("Style guides" and the sections after it), and each check in the configuration names the
+The rules are in `AGENTS.md` ("Style guides" and the sections after it), and each check in the configuration cites the
 Google C++ Style Guide section (`G:`) or the Abseil tip (`ToTW #`) it enforces. The token-level checks that need no
 compiler are in `tools/hooks` (`tools/hooks/README.md`).
 
 **Cost.** A cold run over `//...` is about 875 actions: on a 32 GB workstation (7 jobs) about 33 minutes, and about
 twice that on CI's 4 jobs. The results are cached like any action, so a re-run lints only the files whose inputs
 changed, and an unchanged tree takes seconds. The configuration file is an input of every action of the aspect: any
-edit to `.clang-tidy`, a comment included, re-lints the whole tree.
+edit to `.clang-tidy`, a comment included, re-lints all targets.
 
 ## How it works
 
@@ -39,7 +39,7 @@ build configuration, so the analysis cache and the generated headers are shared 
 builds its `clang_tidy` output group (`--config=clang-tidy`), and `make lint-tidy-fix` also its fix-its
 (`--config=clang-tidy-fix`).
 
-The aspect does not propagate: `//...` already names every first-party target, and no external repository is
+The aspect does not propagate: `//...` already matches every first-party target, and no external repository is
 visited. For each `cc_library`, `cc_binary` and `cc_test` outside `lib/`, `tools/ifttt-lint/` and `testdata/` it runs
 one action per source file.
 
@@ -58,7 +58,7 @@ The compile flags are the build's, with these changes:
   include directories are kept.
 - Every GCC warning flag (`-W*`, `-pedantic*`) and the GCC-only flags are dropped. The diagnostics come from the
   configuration; a `clang-diagnostic-<name>` check gets its `-W<name>` from `CLANG_DIAGNOSTIC_FLAGS`.
-- `--gcc-install-dir` points clang at the build's libstdc++, instead of the toolchain's built-in include directories,
+- `--gcc-install-dir` directs clang to the build's libstdc++, instead of the toolchain's built-in include directories,
   which would put GCC's own `stddef.h` in front of clang's.
 - First-party include directories are always `-I`, because clang-tidy drops a system header's diagnostics.
 

@@ -45,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * WebViewerServer::Create() when a request thread cannot start (EAGAIN from
  * pthread_create, as under a pids cgroup or RLIMIT_NPROC near its limit): it
  * must fail with Internal rather than return a server that never accepts. A
- * binary of its own, since it interposes pthread_create for the whole process
+ * binary of its own, since it interposes pthread_create process-wide
  * (PthreadCreateInterposer.cpp).
  */
 

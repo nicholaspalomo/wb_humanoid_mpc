@@ -90,8 +90,8 @@ constexpr char kReferenceIdentity[] =
     "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto";
 constexpr char kRobotName[] = "g1";
 
-// The header of a task file, which names its schema; a saved text must carry
-// it, as a file must.
+// The header of a task file, which specifies its schema; a saved text must
+// include it, as a file must.
 constexpr char kTaskHeader[] = "# proto-message: legged_mpc_config.TaskFile\n";
 constexpr char kStoredTask[] =
     "# proto-message: legged_mpc_config.TaskFile\nmodel_settings { "

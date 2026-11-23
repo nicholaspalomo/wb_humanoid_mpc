@@ -48,7 +48,7 @@ namespace robot::web_viewer {
  * CPU_SETSIZE) or a `priority` that is none of ViewerThreadPriority's.
  * Otherwise it applies what it can: when one of the two system calls fails (a
  * core outside the process's allowed set, for one), the other is still applied,
- * and the Status carries the error of pthread_setaffinity_np or
+ * and the Status contains the error of pthread_setaffinity_np or
  * pthread_setschedparam. The viewer logs it as a warning and runs on.
  */
 absl::Status placeCurrentThread(absl::Span<const int> cores,

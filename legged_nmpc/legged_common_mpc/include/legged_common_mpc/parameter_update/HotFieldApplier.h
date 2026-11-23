@@ -49,7 +49,7 @@ namespace ocs2::legged {
  *
  * An applier finds the terms it writes by name in the running problem
  * (CostTermNames.h, ContactTermNames.h) and skips the ones the problem does not
- * carry, which is the normal case; a block whose conversion refuses it is
+ * include, which is the normal case; a block whose conversion refuses it is
  * reported by its field and the running values are kept. Appliers write
  * disjoint parts of the problem, so that their order cannot change the result:
  * where two share a term, each writes only its own part, through that part's
@@ -60,7 +60,7 @@ namespace ocs2::legged {
  *
  * Every applier class defines `static absl::Span<const absl::string_view>
  * staticFields()` over a constexpr array in its .cpp, inside a LINT.IfChange
- * block whose ThenChange names the protos of the fields it lists, and
+ * block whose ThenChange references the protos of the fields it lists, and
  * implements fields() as `final`, returning it: a formulation's list of hot
  * fields is then known without an MPC (the reload-class coverage test,
  * legged_nmpc/legged_mpc_validation/test/testHotFieldCoverage.cpp).

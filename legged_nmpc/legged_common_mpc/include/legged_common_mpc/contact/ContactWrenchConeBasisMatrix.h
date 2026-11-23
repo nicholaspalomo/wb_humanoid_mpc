@@ -81,8 +81,9 @@ inline constexpr absl::string_view kExactWrenchConeGeneratorSet =
 inline constexpr absl::string_view kDefaultBasisGeneratorSet =
     kConservativeInnerApproximationGeneratorSet;
 
-/** The task-file field naming the generator set
- * (contactWrenchConeBasesFromConfig); the registry's error messages name it. */
+/** The task-file field specifying the generator set
+ * (contactWrenchConeBasesFromConfig); the registry's error messages reference
+ * it. */
 inline constexpr absl::string_view kBasisGeneratorSetKey =
     "contacts.basis_generator_set";
 
@@ -141,7 +142,7 @@ absl::StatusOr<BasisGeneratorSetBuilder> getBasisGeneratorSetBuilder(
  *     columns are its V-representation and buildLocalWrenchConeRows its
  * H-representation.
  *
- * Every column of either set carries a unit local normal force, so sum(lambda)
+ * Every column of either set has a unit local normal force, so sum(lambda)
  * is the foot's normal force.
  *
  * Not representable by any set: `minForceContactEwrtContactZ` and
@@ -158,7 +159,7 @@ class ContactWrenchConeBasisMatrix {
 
   /**
    * Builds the basis of the named generator set. Configuration errors are an
-   * InvalidArgumentError naming the task-file field to change
+   * InvalidArgumentError identifying the task-file field to change
    * (contacts.contact_wrench_cone_soft_constraint.*,
    * contacts.contact_rectangle.*, kBasisGeneratorSetKey); a generator outside
    * the cone is an InternalError.
@@ -235,9 +236,9 @@ vector_t solveNonNegativeBasisScalings(
  * builds and platforms: FNV-1a over the dimensions and the entries printed to
  * 12 significant digits, with entries below 1e-12 in magnitude taken as zero
  * and -0 as 0. Round-off in the last bits of an entry therefore leaves it
- * unchanged unless the entry happens to sit on a rounding boundary of the 12th
+ * unchanged unless the entry happens to fall on a rounding boundary of the 12th
  * digit, in which case the only consequence is one extra CppAD compilation.
- * `localBasisMatrices` holds one basis per contact in contact order; the
+ * `localBasisMatrices` stores one basis per contact in contact order; the
  * contacts are hashed in that order, so a biped's two bases hash as they did
  * before the contact set became generic (testContactWrenchConeBasisMatrix pins
  * the value).

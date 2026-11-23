@@ -39,7 +39,7 @@
 
 The tokenizer gives every character of the text a token: identifiers, numbers (exponents, an `f` suffix, hex and octal),
 strings (both quote kinds, escapes, adjacent strings), the symbols `{ } < > [ ] : , ; - + . /`, `#` comments and
-whitespace. The tree's fields hold the offsets of their tokens, so the text of an unedited document is the file, and an
+whitespace. The tree's fields store the offsets of their tokens, so the text of an unedited document is the file, and an
 edit splices only the characters it changes:
 
 - a value is replaced token for token, and a value the file already spells (5 for 5.0, 5e-5 for 0.00005) is kept;
@@ -49,7 +49,7 @@ edit splices only the characters it changes:
 
 Comments, blank lines and LINT directives outside an edit therefore survive byte for byte.
 
-A path names a value from the top of the file: field names joined by dots, each one optionally selecting an element of
+A path identifies a value from the top of the file: field names joined by dots, each one optionally selecting an element of
 a repeated field by its position, `telemetry_sinks[0]`, or by the value of one of its fields, the key,
 `joint_positions[joint=l_leg_aky]`. A key value that is not a plain word is quoted: `[name="a b"]`. The empty path is
 the file.
@@ -135,7 +135,7 @@ _DEFAULT_INDENT_UNIT = "  "
 
 
 class DocumentError(ValueError):
-    """A text the document cannot hold, or an edit it cannot make; the message names the source."""
+    """A text the document cannot represent, or an edit it cannot make; the message includes the source."""
 
 
 class TextprotoSyntaxError(DocumentError):
@@ -189,17 +189,17 @@ class ScalarNode:
         """The bytes of a string value, its parts concatenated and unescaped.
 
         Raises:
-          DocumentError: It is not a string, or holds an unknown escape.
+          DocumentError: It is not a string, or contains an unknown escape.
         """
         if self.kind != STRING:
             raise DocumentError(f"{self.text} is not a string")
         return b"".join(_unescape(part.text[1:-1]) for part in self.parts)
 
     def string_value(self) -> str:
-        """The string a string value holds (its bytes as UTF-8; an invalid sequence reads as U+FFFD).
+        """The string contained in a string value (its bytes as UTF-8; an invalid sequence reads as U+FFFD).
 
         Raises:
-          DocumentError: It is not a string, or holds an unknown escape.
+          DocumentError: It is not a string, or contains an unknown escape.
         """
         return self.bytes_value().decode("utf-8", errors="replace")
 
@@ -400,7 +400,7 @@ def tokenize(text: str, source: str = "<text>") -> list[Token]:
 
     Args:
       text: The textproto.
-      source: Names the text in errors.
+      source: Identifies the text in errors.
 
     Returns:
       The tokens, in order.
@@ -669,7 +669,7 @@ class _Parser:
         return _syntax_error(self._text, self._source, offset, problem)
 
     def document(self) -> BlockNode:
-        """The tree of the whole text."""
+        """The syntax tree of the full text."""
         return BlockNode(None, None, self._fields(closing=None))
 
     def _fields(self, closing: str | None) -> tuple[FieldNode, ...]:
@@ -953,14 +953,14 @@ def _has_key(block: BlockNode, key: tuple[str, str]) -> bool:
 
 
 class TextprotoDocument:
-    """A textproto as a tree of its tokens: what it holds, where, and edits that change only what they edit.
+    """A textproto as a tree of its tokens: its contents, token positions, and edits that change only what they edit.
 
     Every edit splices the text and parses it again, so the tree always describes the text, and a failed edit leaves
     both as they were.
 
     Attributes:
-        source: What the document's errors name it.
-        root: The tree of the whole text; an edit replaces it.
+        source: Identifier included in document error messages.
+        root: The syntax tree of the full text; an edit replaces it.
     """
 
     def __init__(self, text: str, source: str = "<text>") -> None:
@@ -968,7 +968,7 @@ class TextprotoDocument:
 
         Args:
           text: The textproto.
-          source: Names the text in errors, usually its path.
+          source: Identifies the text in errors, usually its path.
 
         Raises:
           TextprotoSyntaxError: `text` is not textproto syntax.
@@ -1361,7 +1361,7 @@ class TextprotoDocument:
         """set_scalar() for many values at once, with one parse of the edited text however many there are.
 
         Args:
-          values: (path, value) pairs; every path must name a scalar in the file. A path given twice takes its last value.
+          values: (path, value) pairs; every path must identify a scalar in the file. A path given twice takes its last value.
 
         Returns:
           How many values the text changed.
@@ -1407,7 +1407,7 @@ class TextprotoDocument:
           Whether the text changed.
 
         Raises:
-          PathError: `path` names a block, crosses a value, or selects an element that cannot be created.
+          PathError: `path` refers to a block, crosses a value, or selects an element that cannot be created.
         """
         segments = parse_path(path)
         if not segments:
@@ -1419,7 +1419,7 @@ class TextprotoDocument:
         return True
 
     def insert_field(self, parent_path: str, name: str, value: Value) -> None:
-        """Adds the field `name` with `value` to the block `parent_path` names, creating the blocks it is missing.
+        """Adds the field `name` with `value` to the block identified by `parent_path`, creating any missing blocks.
 
         The field goes after the block's last field of the same name; else at the block's end, before its closing
         delimiter at the indentation of its fields, or at the end of the file for a top-level field.
@@ -1430,7 +1430,7 @@ class TextprotoDocument:
           value: A scalar, or a NewBlock.
 
         Raises:
-          PathError: `parent_path` names a value or selects an element that cannot be created.
+          PathError: `parent_path` refers to a value or selects an element that cannot be created.
         """
         segments = parse_path(parent_path)
         block, found, element = self._walk(segments, parent_path)
@@ -1585,12 +1585,12 @@ class TextprotoDocument:
             self._replace(close, close, f" {rendered}")
 
     def remove(self, path: str) -> int:
-        """Removes the value `path` names; without a selector on its last segment, every value of that field.
+        """Removes the value identified by `path`; without a selector on its last segment, every value of that field.
 
         A field that has its line to itself goes with the line, its trailing comment included; a field that shares its
         line goes with the whitespace after it (or before it, at the end of the line). A list element goes with its comma
         (the one before it, for the last element) and, when it has its line to itself, with that line; the comment lines
-        between the elements - LINT directives among them - stay.
+        between the elements (including LINT directives) stay.
 
         Args:
           path: The value or field.
@@ -1599,7 +1599,7 @@ class TextprotoDocument:
           How many values were removed: 0 when the file has none.
 
         Raises:
-          PathError: `path` is malformed, crosses a value, or names several elements.
+          PathError: `path` is malformed, crosses a value, or matches several elements.
         """
         segments = parse_path(path)
         if not segments:
@@ -1675,7 +1675,7 @@ class TextprotoDocument:
           index: The element.
 
         Returns:
-          The spans: the element and its comma - the one after it, or for the last element the one before it - and the
+          The spans: the element and its comma (the one after it, or for the last element the one before it) and the
           element's line when it has the line to itself; never a comment line between two elements.
         """
         element = node.elements[index]
@@ -1726,7 +1726,7 @@ def parse(text: str, source: str = "<text>") -> TextprotoDocument:
 
 
 def load(path: str) -> TextprotoDocument:
-    """The document of the file at `path`, read as UTF-8 with its line endings kept; its errors name the path."""
+    """The document of the file at `path`, read as UTF-8 with its line endings kept; its errors include the path."""
     try:
         with open(path, encoding="utf-8", newline="") as file:
             text = file.read()

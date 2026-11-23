@@ -72,7 +72,7 @@ robot::realtime::RealtimeThreadConfig defaultSolverThreadConfig(
  * the command of walkingVelocityCommandFromProto() goes to `motionManager`'s
  * setAndScaleVelocityCommand(). A message that conversion refuses (a value that
  * is not finite) changes nothing and is returned as its error. The lockstep
- * closed loop (legged_nmpc/legged_mpc_validation) hands the GUI's messages
+ * closed loop (legged_nmpc/legged_mpc_validation) passes the GUI's messages
  * to its motion manager through this too.
  */
 absl::Status applyWalkingVelocityCommand(
@@ -97,14 +97,14 @@ absl::Status applyWalkingVelocityCommand(
  *   - operator/mpc_parameters (latest delivery: an edit the solver has not
  * applied yet is replaced by a newer one), the tuning GUI's whole task file and
  * contact planner's file (legged_mpc_config.MpcParameterUpdate) -> converted
- * on the IO thread and handed to Components::parameterUpdateSink; the
+ * on the IO thread and passed to Components::parameterUpdateSink; the
  * MpcParameterUpdaterModule it feeds applies the update in the preSolverRun()
  * of the next solve. A message of another schema version, of another robot or
  * of another configuration (checkMpcParameterUpdate(), Config::robotName,
  * Config::taskFileIdentity) and one that does not convert are logged and
- * counted, and nothing of them is handed over.
+ * counted, and nothing of them is passed on.
  *
- * Before every solve the MpcServer hands the observation to the motion manager
+ * Before every solve the MpcServer passes the observation to the motion manager
  * (ProceduralMpcMotionManager::observe(), MpcServer::Hooks::preSolveObserver),
  * whose measured motion needs the observation's joint velocities. With every
  * policy it publishes, it sends MpcPolicy.annotations (ViewerAnnotations.h):
@@ -113,14 +113,14 @@ absl::Status applyWalkingVelocityCommand(
  * observer (Components::attachVisualization).
  *
  * THREADS. Create() and start() run on the caller's thread; the handlers above
- * run on the bus's IO thread, the reset target, the observation hand-over, the
+ * run on the bus's IO thread, the reset target, passing the observation, the
  * annotations and the post-solve observer on the solver thread. The MPC, its
  * reference manager and its synchronized modules are driven from the solver
  * thread only, from start() to stop().
  *
- * LIFETIME. Everything Components names must outlive the runtime. The runtime
- * owns the bus; stop() (and the destructor) stops the solver thread first, then
- * the bus.
+ * LIFETIME. Everything Components references must outlive the runtime. The
+ * runtime owns the bus; stop() (and the destructor) stops the solver thread
+ * first, then the bus.
  */
 class MpcNodeRuntime {
  public:
@@ -210,11 +210,11 @@ class MpcNodeRuntime {
   /** What the node has done so far; every counter only grows. */
   struct Statistics {
     uint64_t velocityCommandsReceived = 0;
-    /** Not finite, so not handed to the motion manager. */
+    /** Not finite, so not passed to the motion manager. */
     uint64_t velocityCommandsRejected = 0;
     uint64_t parameterUpdatesReceived = 0;
     /**
-     * Received but not handed to the sink: of another schema version, robot or
+     * Received but not passed to the sink: of another schema version, robot or
      * configuration (checkMpcParameterUpdate()), or refused by
      * MpcParameterUpdate's FromProto().
      */

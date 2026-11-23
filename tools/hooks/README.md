@@ -1,8 +1,8 @@
 # The linters and the formatter (`tools/hooks`)
 
-`AGENTS.md` holds the rules: "Style guides" and the sections after it list where this repository departs from the
-Google C++ and Python style guides and the Abseil Tips of the Week, and which tool checks what. This directory holds
-the machinery that checks them without a compiler: the formatter, the linter, the pre-commit hook and the token-level
+`AGENTS.md` defines the rules: "Style guides" and the sections after it list where this repository departs from the
+Google C++ and Python style guides and the Abseil Tips of the Week, and which tool checks what. This directory contains
+the tools that check them without a compiler: the formatter, the linter, the pre-commit hook and the token-level
 checks. clang-tidy, which needs a compiler front end, runs as a Bazel aspect instead (`tools/clang_tidy/README.md`).
 
 Run everything from the repository root, as modules: `python3 -m tools.hooks.<module>`, never
@@ -33,8 +33,8 @@ Run everything from the repository root, as modules: `python3 -m tools.hooks.<mo
 10. mypy on the sources and 11. on the tests (`mypy.ini`; tests with `--allow-untyped-defs --allow-incomplete-defs`).
 
 cpplint, pylint and mypy are the heavy steps. They run under the lint lock, an `flock` on `.lint_machine.lock` in the
-checkout (`WB_LINT_MACHINE_LOCK` names another file, for the tests), so that only one of them runs on the machine at a
-time next to a build that `tools/bazel` already sized to the whole machine. A second run prints that it is waiting and
+checkout (`WB_LINT_MACHINE_LOCK` specifies another file, for the tests), so that only one of them runs on the machine at a
+time next to a build that `tools/bazel` already sized for the machine. A second run prints that it is waiting and
 blocks. The token checks take no lock: iterate with them (`--only`, `--paths`) and run the heavy steps once at the end.
 
 pylint and mypy run with `PYTHONPATH` / `MYPYPATH` set to the Bazel import roots (`lint_files.python_import_roots()`)
@@ -43,7 +43,7 @@ in place of the container's own `PYTHONPATH`, so that they resolve imports the w
 ## The tools and their versions
 
 cpplint, pylint (with astroid), isort and mypy are pinned in `lint_requirements.txt`, and `lint_requirements_lock.txt`
-holds the hashed lock (`bazel run //tools/hooks:lint_requirements.update` regenerates it; run it on its own). The dev
+contains the hashed lock (`bazel run //tools/hooks:lint_requirements.update` regenerates it; run it on its own). The dev
 image installs the lock into the venv `/opt/wb-lint`, CI's format job installs it with `pip --require-hashes`, and the
 `@lint_deps` hub gives the real-tool tests the same versions under `bazel test`. `lint_code` compares each tool's
 version with the lock: on a mismatch or a missing tool it fails when `CI=true`, and otherwise warns, skips the step and
@@ -69,11 +69,11 @@ the vendored directories (`lib/`, `tools/ifttt-lint/`), the checked-in generated
 only the spelling checks read, test paths, and the Python import roots. `cpp_source.py` is the shared C++ tokenizer and
 comment / string masker; use it rather than regular expressions over raw source.
 
-The repository paths a check scopes by (the top-level directories, the NMPC packages it names, the design documents)
+The repository paths a check scopes by (the top-level directories, the NMPC packages it references, the design documents)
 are constants of `repo_layout.py`, and the checks and `lint_files.py` build their directory and file lists from them, so
 moving a directory is one change there. `test_repo_layout.py` fails when a path of `repo_layout.py`, a path literal of
 another module here, a `//<package>/...` pattern of the CI workflows or a directory of the clang-tidy header filter
-names something that does not exist.
+refers to a path that does not exist.
 
 The modules: `argument_comments`, `include_style`, `boost_usage`, `american_spelling`, `proto_file_layout`,
 `proto_next_id`, `textproto_headers`, `yaml_usage`, `pointer_nullability`, `no_auto`, `cpp_google_style`, `cpp_totw`,
@@ -121,8 +121,8 @@ checks (cpplint opens blocks of its own categories only). pylint's own messages 
    `--git-staged` in a temporary git repository, the scope, and that a fix is a fixed point the check accepts.
 3. Fix every finding in the same change. A check lands enforced or not at all: there is no list of checks that wait for
    their findings to be fixed (below). Iterate with `--only <check> --paths <dir>`, `--summary` and `--fix`.
-4. List the rule in `AGENTS.md` ("Enforced by" or the ToTW table). The `registry` IFTTT label of `checks.py` points
-   there, and `test_agents_style_sections.py` fails on a name there that no check has.
+4. List the rule in `AGENTS.md` ("Enforced by" or the ToTW table). The `registry` IFTTT label in `checks.py` references
+   that section, and `test_agents_style_sections.py` fails on a name there that no check has.
 
 A stock-tool rule goes into `.clang-tidy`, `CPPLINT.cfg` or `.pylintrc` instead, with the same three steps after the
 first.
@@ -161,5 +161,5 @@ make lint-tidy PKG=//legged_nmpc/legged_wb_mpc/...                              
   no other warning flag in a BUILD or `.bzl` file than `-Werror` and a `-Wno-...` with its reason on the line;
 - `test_lint_enforcement.py`, which keeps the pending, sweep and baseline mechanisms deleted and checks that `make lint`,
   the pre-commit hook and CI run every check;
-- `test_agents_style_sections.py`, which checks that every check, clang-tidy check and GCC flag the style sections of
-  `AGENTS.md` name exists, so that a rename or a typo there fails instead of leaving a rule that names nothing.
+- `test_agents_style_sections.py`, which checks that every check, clang-tidy check and GCC flag listed in the style sections of
+  `AGENTS.md` exists, so that a rename or a typo there fails instead of leaving a stale reference.

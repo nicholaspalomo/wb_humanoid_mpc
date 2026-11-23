@@ -210,9 +210,9 @@ bool isNumber(const google::protobuf::FieldDescriptor& field) {
 }
 
 /**
- * The RELOAD_HOT leaves of the task file that hold no number (a bool, an enum,
- * a registry name, a name list) and the test that shows each one applied as a
- * fresh start would apply it: the live-update parity tests
+ * The RELOAD_HOT leaves of the task file that contain no number (a bool, an
+ * enum, a registry name, a name list) and the test that shows each one applied
+ * as a fresh start would apply it: the live-update parity tests
  * (legged_centroidal_mpc:testLiveUpdateEqualsFreshStart,
  * legged_wb_mpc:testWholeBodyLiveUpdateEqualsFreshStart) perturb numbers
  * only.

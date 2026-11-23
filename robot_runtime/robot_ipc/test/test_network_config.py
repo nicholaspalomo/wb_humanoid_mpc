@@ -28,7 +28,7 @@
 
 """The Python network file loader and domain configuration: the properties testNetworkConfig.cpp checks in C++.
 
-A malformed textproto is an error naming its line and column, every invalid node, topic or field is an error naming it,
+A malformed textproto is an error reporting its line and column, every invalid node, topic or field is an error identifying it,
 format_network_config() and parse_network_config() round-trip, the shipped files parse, and the Cyclone DDS
 configuration and ports follow from the network.
 """

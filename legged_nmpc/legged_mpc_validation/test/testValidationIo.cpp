@@ -446,8 +446,8 @@ TEST(RunProvenance, TheToolchainRoundTripsThroughADocumentAndAGoldenHeader) {
       parsed->findPath("configuration_sha256")->find(configuration)->asString(),
       sha256Hex("key: 2\n"));
 
-  // The golden header carries the machine and the toolchain as notes, and reads
-  // back with them.
+  // The golden header includes the machine and the toolchain as notes, and
+  // reads back with them.
   const absl::StatusOr<GoldenProvenance> golden =
       makeRunGoldenProvenance(environment, {configuration});
   ASSERT_TRUE(golden.ok()) << golden.status();

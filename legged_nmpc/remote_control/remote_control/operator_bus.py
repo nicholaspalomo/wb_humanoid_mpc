@@ -45,7 +45,7 @@ Free of Tk, so that the tests exercise it headless:
 - TopicPublisher binds one topic of a bus to its message class; it is the `publisher` a GUI tab is given, and it
   refuses a message of another type instead of sending what the receiver would reject.
 - FsmCommandSender numbers the FSM commands (FsmCommand.sequence).
-- FsmStateMailbox and ConfigSaveStatusMailbox hand the messages the bus's receive thread delivers to the Tk thread,
+- FsmStateMailbox and ConfigSaveStatusMailbox pass the messages the bus's receive thread delivers to the Tk thread,
   which polls them: Tk is only ever called from its own thread.
 - OperatorBus is the GUI's node on the bus: one publisher per operator topic, and the robot/fsm_state and
   robot/config_save_status subscriptions.
@@ -202,18 +202,18 @@ class TopicPublisher:
     """Publishes one message type on one topic of a bus.
 
     This is the `publisher` the GUI's tabs are given: anything with publish(message). It checks the type, so that a tab
-    handing it the wrong message fails where the mistake is rather than on the receiver, which would drop the message
-    as carrying an unexpected type.
+    passing it the wrong message fails where the mistake is rather than on the receiver, which would drop the message
+    as having an unexpected type.
 
     Args:
         bus: anything with robot_ipc.Bus's publish(topic, message); the tests pass a bus that records.
         topic: the topic.
-        message_class: the generated class of the messages the topic carries.
+        message_class: the generated class of the messages the topic uses.
 
     Attributes:
         bus: The bus it publishes on.
         topic: The topic.
-        message_class: The generated class of the messages the topic carries.
+        message_class: The generated class of the messages the topic uses.
     """
 
     def __init__(
@@ -336,13 +336,13 @@ _MessageT = TypeVar("_MessageT", bound=protobuf_message.Message)
 
 
 class Mailbox(Generic[_MessageT]):
-    """Carries the messages of one subscription from the bus's receive thread to the Tk thread, in the order they arrived.
+    """Transfers the messages of one subscription from the bus's receive thread to the Tk thread, in the order they arrived.
 
-    put() is the bus callback; take_all() is called from the GUI's timer. Holding at most `capacity` messages, it
+    put() is the bus callback; take_all() is called from the GUI's timer. Keeping at most `capacity` messages, it
     drops the oldest when the GUI does not keep up. Thread-safe.
 
     Args:
-        capacity: How many messages it holds; positive.
+        capacity: How many messages it stores; positive.
     """
 
     def __init__(self, capacity: int = 64) -> None:
@@ -452,7 +452,7 @@ class OperatorBus:
 
         Raises:
             OSError: the file cannot be read (FileNotFoundError: it does not exist).
-            robot_ipc.NetworkConfigError: the file is invalid; the message names the line and column, or the node.
+            robot_ipc.NetworkConfigError: the file is invalid; the message reports the line and column, or the node.
             ValueError: the node is not in the network.
             robot_ipc.InterfaceError: the node's host is an address of another machine.
             robot_ipc.BusError: DDS cannot join the network's domain.
@@ -511,8 +511,8 @@ def mpc_parameter_update(
 ) -> mpc_parameter_update_pb2.MpcParameterUpdate:
     """The MpcParameterUpdate of a task file and, for a robot with a contact planner, its contact-planning file.
 
-    The update is the files (legged_mpc_config/README.md, "Live updates"): a block it does not carry means its
-    defaults, as at start-up, so the tab hands over the whole of each file. It carries the fingerprint of this build's
+    The update is the files (legged_mpc_config/README.md, "Live updates"): a block it does not include means its
+    defaults, as at start-up, so the tab passes all of each file. It includes the fingerprint of this build's
     schema (nproto_schema.schema_fingerprint()), which a receiver built from another version refuses, and the task
     file's identity, which a receiver that runs another configuration refuses (a GUI opened on the centroidal G1's file
     cannot retune the whole-body G1).
@@ -520,7 +520,7 @@ def mpc_parameter_update(
     Args:
         task: The task file, with the operator's values.
         contact_planning: The contact-planning file next to it, with the operator's values; None for a robot without
-            one, whose update carries none.
+            one, whose update includes none.
         config_path: The task file's identity, its path from robot_models/ on (robot_config_save.config_path_of()).
 
     Returns:
@@ -544,7 +544,7 @@ def joint_pd_gains_update(
 ) -> joint_pd_gains_update_pb2.JointPdGainsUpdate:
     """The JointPdGainsUpdate of a joint PD gains file.
 
-    Carries the gains, the fingerprint of JointPdGainsFile in this build's schema, and the PD gains file's
+    Includes the gains, the fingerprint of JointPdGainsFile in this build's schema, and the PD gains file's
     identity, which a receiver that runs another configuration refuses.
 
     Args:

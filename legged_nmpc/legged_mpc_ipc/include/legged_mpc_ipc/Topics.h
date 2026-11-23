@@ -36,8 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /**
  * The topics of the IPC bus (legged_nmpc/docs/distributed_runtime/README.md,
  * "Topics"). Each is a DDS topic of the same name (letters, digits, '_' and
- * '/'); the comment of each constant names the message it carries and who
- * publishes it. config/ipc/network.textproto gives every one its QoS profile
+ * '/'); the comment on each constant specifies its message type and publisher.
+ * config/ipc/network.textproto gives every one its QoS profile
  * and publishers (test/testTopics.cpp checks it).
  */
 namespace ocs2::legged::ipc::topics {
@@ -67,11 +67,11 @@ inline constexpr absl::string_view kOperatorWalkingVelocityCommand =
     "operator/walking_velocity_command";
 // FsmCommand, GUI -> robot, on change.
 inline constexpr absl::string_view kOperatorFsmCommand = "operator/fsm_command";
-// MpcParameterUpdate (legged_mpc_config: the whole task and contact planner
+// MpcParameterUpdate (legged_mpc_config: the full task and contact planner
 // files), GUI -> MPC and robot, on edit.
 inline constexpr absl::string_view kOperatorMpcParameters =
     "operator/mpc_parameters";
-// JointPdGainsUpdate (legged_mpc_config: the whole PD gains file, paired with
+// JointPdGainsUpdate (legged_mpc_config: the full PD gains file, paired with
 // its configuration identity), GUI -> robot, on edit.
 inline constexpr absl::string_view kOperatorPdGains = "operator/pd_gains";
 // JointTargets, GUI -> robot, on edit (JOINT_PD only).

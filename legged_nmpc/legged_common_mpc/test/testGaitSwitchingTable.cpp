@@ -53,9 +53,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The gait switching table of ProceduralMpcMotionManager: the default table a
  * gait file without gait_switching gets is the one the manager had as a member
  * initializer, row for row and field for field; a gait file's own table is
- * read in order and refused naming the row and the field when it is malformed;
- * and checkEveryGaitIsLoaded() refuses a table that names a gait the file
- * lacks.
+ * read in order and refused with the row and field reported when it is
+ * malformed; and checkEveryGaitIsLoaded() refuses a table that references a
+ * gait the file lacks.
  */
 
 namespace ocs2::legged {

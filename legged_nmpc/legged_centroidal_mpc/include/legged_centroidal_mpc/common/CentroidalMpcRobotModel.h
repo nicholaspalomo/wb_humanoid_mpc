@@ -95,7 +95,7 @@ namespace ocs2::legged {
  * scalar type of the solver or of CppAD: the normalized centroidal momentum,
  * the base pose and the joint angles of the state; the contact wrenches and the
  * joint velocities of the input. The base orientation is stored as a quaternion
- * (x, y, z, w), so the state lives on the product manifold [E(9), unit
+ * (x, y, z, w), so the state lies on the product manifold [E(9), unit
  * quaternion, E(nj)] (stateManifoldOf()) and the tuning layout maps onto it
  * through the Euler boundary (orientation/EulerBoundary.h).
  * getGeneralizedVelocities() updates the model's own copy of the Pinocchio
@@ -103,11 +103,11 @@ namespace ocs2::legged {
  * accessor takes a state of getStateDim(), an input of getInputDim() and
  * generalized coordinates of getConfigurationDim() = 7 + mpc_joint_dim entries,
  * unchecked: the solver and the control thread call them on every evaluation.
- * The state holds no base velocity: the base angular velocity accessors abort,
- * and getTwistBaseRtWorldEwrtWorld() needs the joint velocities besides the
- * state, whose size it checks (once per restart of the motion manager's stride
- * history, not on every evaluation). It and getRefPlanarMotion() need the
- * model in double precision and abort in the CppAD instantiation, which no
+ * The state contains no base velocity: the base angular velocity accessors
+ * abort, and getTwistBaseRtWorldEwrtWorld() needs the joint velocities besides
+ * the state, whose size it checks (once per restart of the motion manager's
+ * stride history, not on every evaluation). It and getRefPlanarMotion() need
+ * the model in double precision and abort in the CppAD instantiation, which no
  * caller of theirs uses.
  */
 template <typename SCALAR_T>

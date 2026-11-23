@@ -74,9 +74,9 @@ StateInputReference StateInputQuadraticCost::getReference(
     const vector_t& /*input*/,
     const TargetTrajectories& targetTrajectories,
     const PreComputation& /*preComputation*/) const {
-  // The nominal input hands the robot's weight to the feet the mode schedule
-  // calls stance feet, and none to a swinging one. This stays schedule-derived
-  // under the contact-implicit formulation, deliberately.
+  // The nominal input distributes the robot's weight to the feet the mode
+  // schedule calls stance feet, and none to a swinging one. This stays
+  // schedule-derived under the contact-implicit formulation, deliberately.
   //
   // It is tempting to see it as a soft `zero_wrench` and remove it along with
   // the hard one. That is a mistake, and an expensive one: it is the difference

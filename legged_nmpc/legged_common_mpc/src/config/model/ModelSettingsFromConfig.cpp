@@ -132,7 +132,7 @@ constexpr size_t kFootConstraintGains = 8;
 /**
  * An error gain of model_settings.foot_constraint, by its field name (a string
  * literal). Neither field has a default, since a nonnull pointer has none to
- * give: every initializer names both.
+ * give: every initializer specifies both.
  */
 struct NamedGain {
   const char* absl_nonnull field;
@@ -269,8 +269,8 @@ absl::Status checkSoftTermWeight(absl::string_view field, double weight) {
 // LINT.IfChange(contacts_3dof)
 /**
  * The 3-DoF contacts of model_settings.contacts_3dof, each named, attached to a
- * named parent and at a finite translation, or InvalidArgument naming the
- * entry. `names` holds the names of the 6-DoF contacts, which no 3-DoF contact
+ * named parent and at a finite translation, or InvalidArgument identifying the
+ * entry. `names` stores the names of the 6-DoF contacts, which no 3-DoF contact
  * may share; each name is added to it. A name may be a frame of the URDF model
  * at exactly the configured placement, which the MPC then uses instead of
  * adding one; that is checked when the MPC builds its model

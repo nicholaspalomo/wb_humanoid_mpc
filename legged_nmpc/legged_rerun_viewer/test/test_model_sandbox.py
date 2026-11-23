@@ -119,7 +119,7 @@ class SandboxSceneTest(unittest.TestCase):
         self.assertEqual(len(robot.pose_links_rt_world), 3)
         lower = robot.pose_links_rt_world[2]
         # The hip pitches the leg about +y: the lower link's origin swings from below the hip toward -x.
-        # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
+        # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field specifies the frames
         self.assertAlmostEqual(lower.position.x, -0.5 * math.sin(0.5))
         self.assertAlmostEqual(lower.position.z, -0.5 * math.cos(0.5))
         norm = math.sqrt(
@@ -262,7 +262,7 @@ class BinaryTest(unittest.TestCase):
             pose_base_rt_world = robot.pose_links_rt_world[
                 list(tree.links).index(tree.root_link)
             ]
-            # NOLINTNEXTLINE(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
+            # NOLINTNEXTLINE(frame-naming): the components of a frame-generic Pose; the enclosing field specifies the frames
             pos_base_rt_world_ewrt_world = pose_base_rt_world.position
             self.assertEqual(
                 (

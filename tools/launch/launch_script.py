@@ -30,7 +30,7 @@
     bazel run //tools/launch:export_script -- <launch file> --machine robot --output robot.sh \
         [--set name=value ...] [--env_prefix WB_ROBOT_] [--root ..]
 
-The robot-runtime image (docker/Dockerfile) carries no Python, so it cannot run the launcher. Its entry point runs the
+The robot-runtime image (docker/Dockerfile) has no Python, so it cannot run the launcher. Its entry point runs the
 script exported from the robot's `launch/robot.textproto` instead, so the launch file stays the one place the robot's
 command line is written.
 
@@ -167,7 +167,7 @@ def export_script(
         overrides: `--set` values, which become the script's defaults.
         env_prefix: the prefix of the shell variables, upper case.
         root: the directory the script changes into: absolute, or relative to the script's directory.
-        source_name: how the script's header names the launch file (default: `path`).
+        source_name: how the script's header identifies the launch file (default: `path`).
 
     Returns:
         The text of the script.

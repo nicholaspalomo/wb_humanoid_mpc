@@ -154,11 +154,11 @@ std::vector<VECTOR3_T<SCALAR_T>> getPosLinksRtWorldEwrtWorld(
 ///
 /// The one definition of the linear inverted pendulum's height in this
 /// repository. Every consumer that needs a nominal pendulum length evaluates it
-/// at the task file's `initialState` - the contact planner's
+/// at the task file's `initialState` (the contact planner's
 /// `shared.nomPosComRtFeetmeanEwrtWorldZ` and the DCM terminal cost's
-/// `dcm_terminal_cost.nomPosComRtFeetmeanEwrtWorldZ` when they are 0
-/// (CentroidalMpcInterface::getNomPosComRtFeetmeanEwrtWorldZ), and the
-/// locomotion heuristics' nominal CoM height - so that they cannot disagree;
+/// `dcm_terminal_cost.nomPosComRtFeetmeanEwrtWorldZ` when they are 0, via
+/// CentroidalMpcInterface::getNomPosComRtFeetmeanEwrtWorldZ, and the
+/// locomotion heuristics' nominal CoM height) so that they cannot disagree;
 /// the capture-point heuristic also measures it at every solve.
 /// tools/locomotion_heuristics/derive_parameters.py computes the same quantity
 /// the same way.
@@ -178,7 +178,8 @@ std::vector<VECTOR3_T<SCALAR_T>> getPosLinksRtWorldEwrtWorld(
 /// @param q Generalized coordinates
 /// (MpcRobotModelBase::getGeneralizedCoordinates of a state).
 /// @param pinocchioInterface Pinocchio interface of the MPC model.
-/// @param mpcRobotModel The MPC robot model, which names the contact frames.
+/// @param mpcRobotModel The MPC robot model, which provides the contact frame
+/// names.
 ///
 /// @return [m] computePosComRtFeetmeanEwrtWorldZ() on the biped contact set
 /// and, over the legs' contacts, on another set with legs;
@@ -436,8 +437,8 @@ inline ContactArray<pinocchio::FrameIndex> getContactFrameIndexArray(
  * Checks that `model` has a frame of every name of `contactNames`
  * (modelSettings.contactNames).
  *
- * @return InvalidArgument when there are no names; NotFound naming the first
- * contact frame that `model` does not have, which
+ * @return InvalidArgument when there are no names; NotFound identifying the
+ * first contact frame that `model` does not have, which
  * every term that reads a contact frame by its index would otherwise read out
  * of bounds (pinocchio::Model::getFrameId() returns nframes for an unknown
  * name).

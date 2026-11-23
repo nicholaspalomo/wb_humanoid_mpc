@@ -108,7 +108,7 @@ std::string twoJointUrdf() {
   return path;
 }
 
-/** A task file whose model_settings name the two-joint robot. */
+/** A task file whose model_settings specify the two-joint robot. */
 mpc_config::TaskFile twoJointTask() {
   mpc_config::TaskFile task;
   task.model_settings.robot_name = "two_joints";
@@ -782,7 +782,7 @@ mpc_config::TaskFile taskWithPointContacts(size_t numPointContacts) {
 }
 
 // A mode number has one bit per contact (common/ContactMask.h): a set of
-// kMaxNumContacts contacts is built, one more is refused naming the count.
+// kMaxNumContacts contacts is built, one more is refused with the count.
 TEST(ModelSettingsFromConfig, MoreContactsThanAModeNumberHoldsAreRefused) {
   constexpr size_t kNumFeet = 2;
   const absl::StatusOr<ModelSettings> largest =

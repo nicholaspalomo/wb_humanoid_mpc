@@ -160,7 +160,7 @@ costs: "external_torque_cost"
 #   base_pose  the roll, pitch and height of the base-pose reference that the state_weights of eulerzyx_base_rt_world (roll,
 #              pitch) and pos_base_rt_world_ewrt_world (z) track - and
 #              final_state_weights and the torso task-space cost with them - shaped per shooting node in
-#              SwitchedModelReferenceManager::shapePoseBaseRtWorld(). Without a heuristic that reference carries a HARD ZERO
+#              SwitchedModelReferenceManager::shapePoseBaseRtWorld(). Without a heuristic that reference has a HARD ZERO
 #              for roll and pitch - the target calculator zeroes the pitch and roll of finalPoseeulerzyxBaseRtWorld on every call - so
 #              anything listed here is the first opinion this MPC has about how the base is carried. It is a function
 #              of the operator's COMMANDED velocity. Inert while costs lists com_and_acom_tracking_cost, because
@@ -234,7 +234,7 @@ locomotion_heuristics {
   }
 
   # H_Theta(Phi) = b1 * sin(c1 * Phi + d1)  (Table C.2, equation 4.13), with Phi the gait phase in [0, 1). [0, 0.5)
-  # is the LF mode and [0.5, 1) the RF mode, and those name the foot IN CONTACT, not the one swinging - so the first
+  # is the LF mode and [0.5, 1) the RF mode, and those identify the foot IN CONTACT, not the one swinging - so the first
   # half of the cycle is left stance with the RIGHT foot in the air. Phi FREEZES at 0.0 or 0.5 through double support
   # rather than advancing, so this holds a constant offset there instead of continuing its cycle.
   # The two rates are pre-wired to the two shapes that make sense, so only the amplitudes have to be found.
@@ -248,7 +248,7 @@ locomotion_heuristics {
   }
 
   # H_z(v) = a2*v^2 + a1*v + a0  (Table C.2) in the MAGNITUDE of the commanded horizontal velocity, applied as an
-  # OFFSET to the reference height and never as an absolute height - the same channel carries the terrain that
+  # OFFSET to the reference height and never as an absolute height - the same channel is used for the terrain that
   # applyPosSurfaceRtWorldEwrtWorldZ() writes, and an absolute value would silently become a terrain override.
   # Crouching with speed buys the swing leg vertical room within the same joint range; it costs knee torque headroom.
   height_compensation {
@@ -353,7 +353,7 @@ locomotion_heuristics {
   #
   # TWO THINGS TO KNOW BEFORE LISTING IT. First, it is the only heuristic of the ten whose force is HORIZONTAL, so under
   # contact_input_parameterization: basis_vectors the reference has to be rotated into the local contact frame and the
-  # whole contact-force reference starts paying a forward-kinematics pass per shooting node per SQP iteration. The layer
+  # full contact-force reference starts paying a forward-kinematics pass per shooting node per SQP iteration. The layer
   # switches to that path by itself and warns; watch the solve time. Second, and more important: this may be the wrong
   # thing to want HERE. Bledt's control model is a single rigid body whose force reference is the only thing telling the
   # QP how hard to push, whereas these dynamics are full centroidal and the state cost already tracks the commanded
@@ -469,7 +469,7 @@ rollout {
 
 mpc {
   time_horizon: 1.2  # [s]
-  # solution_time_window is absent: every policy carries the whole horizon.
+  # solution_time_window is absent: every policy covers the full horizon.
   cold_start: false
 
   debug_print: false

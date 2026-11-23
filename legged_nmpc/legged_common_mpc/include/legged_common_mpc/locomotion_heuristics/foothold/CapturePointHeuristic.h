@@ -62,7 +62,7 @@ namespace ocs2::legged {
  *
  * Under this controller it is the heuristic with the clearest mandate. The foot
  * cost's xy weights are the only thing in the problem that can move a foot
- * sideways in response to a push while the mode schedule holds the timing
+ * sideways in response to a push while the mode schedule keeps the timing
  * fixed, and nothing is currently writing them a target.
  *
  * Like every LocomotionHeuristic, its const methods are safe to call

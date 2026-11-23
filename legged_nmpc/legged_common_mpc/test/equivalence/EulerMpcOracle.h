@@ -251,15 +251,15 @@ struct FiniteDifferenceJacobian {
 /**
  * The relative evaluation error delta_f assumed of a function finite
  * differences are taken of. A calibrated value, not a derived one: the derived
- * ceiling - a Pinocchio pass and a few small dense solves, O(1e4) operations of
+ * ceiling (a Pinocchio pass and a few small dense solves, O(1e4) operations of
  * unit round-off 1.1e-16 at a condition of at most O(1e2), so about 1e-10 of
- * the largest intermediate - would let errors of O(1e-6) through the bound at
+ * the largest intermediate) would let errors of O(1e-6) through the bound at
  * the steps used; 1e-12 of the row's magnitude is 100 times the evaluation
  * error measured on every shipped robot. The choice can only make a comparison
  * stricter than the derived ceiling would (a too small delta_f shows as a
  * failure, never as a pass), which is the safe side for an equivalence test.
  * Where the function is identically zero (an ambient gradient of 0), its
- * evaluations carry no error at all and the term vanishes: richardsonJacobian()
+ * evaluations have no error at all and the term vanishes: richardsonJacobian()
  * takes it relative to the row's own magnitude, floor 1 only where the row is
  * not zero.
  */

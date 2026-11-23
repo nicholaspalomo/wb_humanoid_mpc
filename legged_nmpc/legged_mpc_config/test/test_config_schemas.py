@@ -60,8 +60,8 @@ import nproto_textproto
 PACKAGE = "legged_mpc_config"
 PROTO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 STRUCT_NAMESPACE = "ocs2::legged::mpc_config::"
-# The messages a configuration file or the bus carries, the registries' names the GUI reads, the option messages no
-# file holds, and the primitives the blocks share.
+# The messages in a configuration file or on the bus, the registries' names the GUI reads, the option messages not in
+# any file, and the primitives the blocks share.
 ROOTS = (
     task_file_pb2.TaskFile,
     reference_file_pb2.ReferenceFile,

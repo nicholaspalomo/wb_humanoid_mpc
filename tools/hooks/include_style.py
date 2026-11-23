@@ -34,7 +34,7 @@ never included by its bare file name. The fix rewrites the brackets; clang-forma
 
 For Abseil the brackets are a build error waiting to happen, not only a style matter, and the finding says so. Bazel
 makes the @abseil-cpp headers visible through `-iquote` paths, which only a quoted include searches. An angle include,
-`#include <absl/log/log.h>`, skips them and falls through to the system include directories, which hold a different
+`#include <absl/log/log.h>`, skips them and falls through to the system include directories, which contain a different
 Abseil release or none. The dev image once built Abseil 20240722 into /usr/local (removed from docker/Dockerfile
 since), so such a file compiled there against headers of another version than the one it links against, and failed in
 CI's clean container, which has no Abseil outside Bazel's, with `absl/log/log.h: No such file or directory`.

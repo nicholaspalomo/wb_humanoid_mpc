@@ -52,8 +52,8 @@ exports_files([
     "docker/install_robotpkg.sh",
 ])
 
-# The rest of the dev container: //tools/dev_container:test_dev_container checks that it, the image and CI carry no ROS,
-# install the same Pinocchio, use one VNC display and publish the ports of the bus and of Rerun.
+# The rest of the dev container: //tools/dev_container:test_dev_container checks that it, the image and CI include no
+# ROS, install the same Pinocchio, use one VNC display and publish the ports of the bus and of Rerun.
 exports_files([
     ".devcontainer/openbox_layout.py",
     ".devcontainer/post_create.sh",

@@ -37,13 +37,13 @@ the library's own types:
 | `contact_planning` | `contactPlanningConfigFromConfig()`, or the library defaults for a robot without a file |
 | `robot` | the joint PD gains and the controller-side settings of the robot process |
 
-A conversion refuses a value the library cannot run with, naming the field of the file
+A conversion refuses a value the library cannot run with and reports the field path
 (`state_weights.joint_positions[joint=back_bkz].value`, `contacts.contact_wrench_cone_soft_constraint.friction_coefficient`).
 
 The roots of the configuration take the typed files, and keep a form that takes the file's path for the binaries and
 the tests that start from one: `ModelSettings::Create()`, `loadCustomPinocchioInterface()`, `GaitSchedule::Create()`,
 `ProceduralMpcMotionManager::Create()` and the target calculators of the two MPCs. `LeggedCostConstraintFactory`
-makes the terms of a typed task file. Hot reloads hand typed settings to the running objects
+makes the terms of a typed task file. Hot reloads pass typed settings to the running objects
 (`TargetTrajectoriesCalculatorBase::applyCommandLimits()`, `ProceduralMpcMotionManager::applyCommandLimits()`).
 
 ## Contacts and modes
@@ -62,19 +62,19 @@ point, the center less `wheelRadius()` along the ground normal (world z: the gro
 point. A wheel's joint is a URDF `continuous` joint, which every Pinocchio model builds as a revolute joint without
 position limits (`robot::model::parseUrdfFileForPinocchio()`, robot_runtime/robot_model): one coordinate, no row in the
 joint-limit cost, and no position weight in `state_weights` or `final_state_weights` (refused). In stance the
-centroidal MPC holds a rolling contact with its no-slip constraint (`RollingContactConstraintCppAd`, term
+centroidal MPC constrains a rolling contact with its no-slip constraint (`RollingContactConstraintCppAd`, term
 `<contact>_rollingNoSlip`), and `checkCentroidalContactSet()` refuses the terms that assume a point fixed on its link
 or a tilted patch (legged_nmpc/docs/rolling_contact/README.md, section 9).
 
 The legs group the contacts (`ModelSettings::legs`, from `model_settings.legs`). A leg has a name, the contacts at its
-end (one point foot, one wheel or one 6-DoF sole, or several), and a hip. The hip is the frame `hip_frame_name` names,
+end (one point foot, one wheel or one 6-DoF sole, or several), and a hip. The hip is the frame specified by `hip_frame_name`,
 or else the first joint below the floating base on the way up from the leg's first contact (`hipJointOf()`,
 `pinocchio_model/pinocchioUtils.h`, the walk the locomotion heuristics use too). `ModelSettings::Create()` reads the
 hip's position relative to the base at the URDF's neutral configuration and derives the leg's side from its y
 (`lateralSign`, +1 left, -1 right; a hip within `kHipSideTolerance` of the base's x-z plane is refused) and its front
 or hind position from its x against the mean hip x (`longitudinal`, `kCenter` within `kHipFrontHindTolerance`). Sides and positions are never
 typed. A biped contact set whose task file lists no legs gets two: `left` on contact 0 and `right` on contact 1,
-refused when a derived side contradicts that order, so no shipped file names its legs. A foot without a parent joint
+refused when a derived side contradicts that order, so no shipped file lists its legs. A foot without a parent joint
 of the URDF keeps the side of its index and has no hip. Any other set without `model_settings.legs` has no legs: the
 multi-contact Atlas has none. `legOfContact()` finds a contact's leg, and `isLeggedContactSet()` is true when every
 contact is in a leg.
@@ -83,12 +83,12 @@ The pendulum length above `feetmean` (`computeProxyPosComRtFeetmeanEwrtWorldZ()`
 the legs' contacts: the two feet of a biped, by the arithmetic it always had, every contact of a leg on another legged
 set, and the lowest contact on a set without legs.
 
-Generic code, anything meaningful for any contact count, holds per-contact data in two allocation-free types:
-- `ContactArray<T>` (`common/ContactArray.h`) holds one value per contact: an `std::array` of capacity
+Generic code, anything meaningful for any contact count, stores per-contact data in two allocation-free types:
+- `ContactArray<T>` (`common/ContactArray.h`) stores one value per contact: an `std::array` of capacity
   `kMaxNumContacts` with a size set once, at construction or with `assign()`. Indexing is unchecked, and the container
-  never allocates, so the realtime path holds its wrenches, frames and forces in one. `kMaxNumContacts` is paired with
+  never allocates, so the realtime path stores its wrenches, frames and forces in one. `kMaxNumContacts` is paired with
   MuJoCo's contact mask capacity (`MujocoUtils.h`).
-- `ContactMask` (`common/ContactMask.h`) holds the active contacts of a set, stored as the mode number itself. It is
+- `ContactMask` (`common/ContactMask.h`) stores the active contacts of a set as the mode number itself. It is
   trivially copyable and is passed by value.
 
 A mode number is the bitmask of the active contacts: contact `i` is bit `numContacts - 1 - i`, so contact 0 is the most
@@ -107,7 +107,7 @@ Code written for a left and a right foot uses the biped vocabulary:
   `kNumBipedModes`, and `bipedFootContactsOfMode()` / `bipedModeOfFootContacts()` between a mode and the two feet.
   The gait files' mode names `RF` and `LF` are the biped's.
 
-A gait or reference file names a mode as `parseModeNumber()` reads it against the contact set's `GaitModeLayout`
+A gait or reference file specifies a mode as `parseModeNumber()` reads it against the contact set's `GaitModeLayout`
 (`gaitModeLayoutOf()`, `gait/GaitSchedule.h`), trying the forms in this order:
 - `FLY` (no contact) and `STANCE` on any set;
 - `LF` and `RF` on a set whose `STANCE` is the two feet (below), which therefore refuses a leg of either name;
@@ -119,7 +119,7 @@ A gait or reference file names a mode as `parseModeNumber()` reads it against th
 A name listed twice, a leg or contact the set does not have and any other string are refused with the forms and the
 legs of the set. `STANCE` is the two feet (3) on a set ending in two 6-DoF feet, the shipped robots and the DRC Atlas
 multi-contact set included, and every contact on any other set. `GaitSchedule` starts the schedule, separates gaits and
-ends the schedule with that stance. `modeNumber2String()` prints a mode back in the first form that names it: `FLY`,
+ends the schedule with that stance. `modeNumber2String()` prints a mode back in the first form that matches it: `FLY`,
 `STANCE`, `LF` or `RF`, the legs joined by `_` when the mode is a union of whole legs, the digits otherwise, so the
 bipeds print FLY, RF, LF and STANCE as before.
 
@@ -129,17 +129,17 @@ The bipeds share `config/command/gait.textproto`, whose modes are FLY, RF, LF an
 `config/command/quadruped_gait.textproto` (filegroup `:quadruped_gait_config`): stance, trot, standing_trot,
 flying_trot, pace, static_walk and dynamic_walk, named by their stance legs (`LF_RH`, `RF_LH`, ...) for contacts and
 legs ordered LF, RF, LH, RH, with the timings of the OCS2 legged_robot ANYmal example. A robot that needs other gaits
-ships its own gait file in its package and points its launch files' `gait_file` variable (`launch/mpc.textproto`,
-`launch/dummy_sim.textproto`) and the validation's `RobotConfiguration::gaitFile` at it. `testModeSequenceTemplate`
+ships its own gait file in its package and sets its launch files' `gait_file` variable (`launch/mpc.textproto`,
+`launch/dummy_sim.textproto`) and the validation's `RobotConfiguration::gaitFile` to it. `testModeSequenceTemplate`
 checks every gait of the biped file against its literal modes and times, and `testQuadrupedGaitFile` reads the quadruped
 file on a four-leg layout.
 
 The procedural motion manager (`ProceduralMpcMotionManager`) switches gaits along the gait file's `gait_switching`
-table, one row up or down at a time, from the first row. A row names a gait and the command and stride-mean motion
+table, one row up or down at a time, from the first row. A row specifies a gait and the command and stride-mean motion
 thresholds at which the manager switches to the row after or before it (`gait_switching_table_config.proto` says what each one means). A
 file without the table gets `defaultGaitModeStates()` (`reference_manager/GaitSwitchingTable.h`): stance, slow_walk,
 walk, slower_trot, slow_trot, trot and run, the biped table the manager always had. `Create()` refuses a malformed
-table naming the row and the field, and a table naming a gait the file lacks (`checkEveryGaitIsLoaded()`). The
+table reporting the row and field, or a table referencing a gait the file lacks (`checkEveryGaitIsLoaded()`). The
 quadruped file has its own table: stance, trot and flying_trot, with thresholds set on ANYbotics ANYmal B, the
 quadruped that ships with the file (label `2026-11-10_anymal_b`, `legged_mpc_validation`). static_walk is a gait of
 the file but not a row of the table: between stance and trot it held a 0.5 m/s command in static_walk for about 2.4 s,
@@ -147,8 +147,8 @@ until the stride-mean speed passed the trot row's threshold, and the walk averag
 tuning is in its task file and PD gains.
 
 The wheeled bipeds use `config/command/wheeled_gait.textproto` (filegroup `:wheeled_gait_config`): the launch files
-of LimX Tron1 (`robot_models/limx_tron1/tron1_centroidal_mpc/launch/{mpc,dummy_sim}.textproto`) point their
-`gait_file` at it. Its contacts are the rolling contacts of the wheels (`model_settings.contacts_rolling`,
+of LimX Tron1 (`robot_models/limx_tron1/tron1_centroidal_mpc/launch/{mpc,dummy_sim}.textproto`) set their
+`gait_file` to it. Its contacts are the rolling contacts of the wheels (`model_settings.contacts_rolling`,
 [`rolling_contact`](../docs/rolling_contact/README.md)). Its two gaits, stance and drive, both stand on every contact
 (`STANCE`), so the file reads on any contact set, two wheels or four: the robot drives by rolling, and the no-slip
 constraint of each wheel turns the commanded base twist into wheel speeds. Its table goes from stance to drive on a
@@ -158,7 +158,7 @@ four-wheel layout and checks that a 0.5 m/s drive and a 0.5 rad/s turn select dr
 
 The wheeled quadrupeds use `config/command/wheeled_quadruped_gait.textproto` (filegroup
 `:wheeled_quadruped_gait_config`), which the launch files of the wheeled ANYmal C
-(`robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/launch/{mpc,dummy_sim}.textproto`) name. A
+(`robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/launch/{mpc,dummy_sim}.textproto`) use. A
 quadruped's four parallel axles let the base drive straight on its wheels but not yaw: a yaw would move the front and
 hind wheels sideways, which the no-slip constraint forbids (rolling_contact section 8). The file's table is stance,
 drive and turning_trot: drive takes every linear command and a yaw-rate command up to 0.15 rad/s, and a faster yaw-rate
@@ -182,17 +182,17 @@ The biped-only components refuse a contact set they cannot run on when they are 
 - the contact planner: `LipContactPlanner` and `HlipContactPlanner` in `Create()` and `setConfig()`, and the terms
   `foot_separation`, `zmp_support_region`, `yaw_torque_budget` and `alternating_feet` and the foothold integrator in
   `ContactPlanningTerm::validateContactSet()`, which `ContactPlanningProblem::finalize()` calls. Each returns the
-  InvalidArgument of `checkTwoContactCount()` (`common/TwoContactCount.h`), which names the component and the
+  InvalidArgument of `checkTwoContactCount()` (`common/TwoContactCount.h`), which reports the component and the
   contact count: "FootSeparationConstraint is written for two contacts; the contact set has 4 contacts". The check
   reads the count alone. Before them `makeContactPlanner()` and `contactPlannerSummary()` take the contact set
   (`ContactSetSummary`, which `ContactPlannerModule::Create()` fills from the reference manager's model) and refuse
-  every set but the biped's two 6-DoF feet, two point contacts included, naming `planner.type` and the count. That
+  every set but the biped's two 6-DoF feet, two point contacts included, reporting `planner.type` and the count. That
   covers the planners' step widths (`hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y`,
   `step_width.nom_pos_lfoot_rt_rfoot_ewrt_heading_y`), which nothing else reads;
 - the knee mimic blocks (`kneeMimicJointsFromConfig()`), with the same message;
 - the procedural arm swing, which swings the arms against the biped's gait phase: `configureArmSwing()` at start-up
   and `setArmSwingSettings()` on a hot reload refuse `arm_swing.generator: "procedural"` while the swing is active
-  (the robot names `model_settings.arm_joint_names` and the centroidal MPC does not track the ACoM), naming the
+  (the robot sets `model_settings.arm_joint_names` and the centroidal MPC does not track the ACoM), reporting the
   generator and the contact count. A reload that is refused keeps the running settings;
 - the reference manager's nominal footholds and swing references on the `step_width` anchor
   (`nominal_foothold.anchor`), which are `std::nullopt` on a set other than the biped's. The `nominal_stance` anchor
@@ -210,8 +210,8 @@ velocities. `foot_motion`, for a set of 3-DoF point contacts on separate legs (c
 to the base: a stance contact still in the world where it landed, a swing contact on its swing reference at the swing
 planner's height. `FootMotionLegReference` maps the contact's position and velocity to the leg's joints through the
 leg's Jacobian and its derivatives at the nominal posture, to second order, so the references stay independent of the
-state. The default posture holds every leg at its nominal place and every joint still, so on a trot both terms grow
-with the stride and hold the walking speed below the command (ANYmal B: 0.45 m/s of 0.5 m/s). No robot ships
+state. The default posture keeps every leg at its nominal pose and every joint still, so on a trot both terms grow
+with the stride and keep the walking speed below the command (ANYmal B: 0.45 m/s of 0.5 m/s). No robot ships
 `foot_motion`: on ANYmal B it brought the trot to the command, but the stronger joint references trigger the
 Gauss-Newton SQP's cycling with the hard swing normal-velocity rows (quaternion design README section 6, risk 12),
 measured in `robot_models/anybotics_anymal_b/README.md`, "Trot speed". `getPhaseVariable()` stays the biped's gait phase, which the arm
@@ -220,7 +220,7 @@ swing and `periodic_orientation` read.
 The planner rules `no_flight` and `phase_durations` and the `no_flight` row are written over the number of feet, and
 `minimum_double_support` is a minimum support count (every foot by default). The costs, constraints and heuristics
 written for two feet are refused by the MPC that selects them: the centroidal MPC's `checkCentroidalContactSet()`
-names each one ([`multi_contact_planning`](../docs/multi_contact_planning/README.md), section 7.2), and the whole-body
+lists each one ([`multi_contact_planning`](../docs/multi_contact_planning/README.md), section 7.2), and the whole-body
 MPC runs on the biped's two 6-DoF feet alone and refuses every other set.
 
 The swing trajectory planner plans every contact of the set, each from its own bit of the mode schedule, and the input

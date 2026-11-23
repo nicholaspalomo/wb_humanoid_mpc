@@ -76,8 +76,8 @@ TranslationalSteppingHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
   //
   // a1 is Bledt's constant plus a term proportional to the stance about to
   // begin. His a1 was regressed at one gait; this robot's gait scheduler
-  // changes the stance duration with the commanded speed, and Raibert's rule -
-  // the foot half a stance of travel ahead of the hip it lands under - is a1 =
+  // changes the stance duration with the commanded speed, and Raibert's rule
+  // (the foot half a stance of travel ahead of the hip it lands under) is a1 =
   // T_stance / 2. With the stance fraction at 0.5 and the constant at 0 the
   // lead is right on every gait the scheduler moves between; with the fraction
   // at 0 it is Bledt's.
@@ -93,8 +93,8 @@ TranslationalSteppingHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
       forwardGain * cmdLinvelBaseRtWorldEwrtHeadingXy.x() +
           parameters_.offsetPosFootRtWorldEwrtHeadingX,
       // The lateral constant is signed by the foot's own side, so one number in
-      // the task file widens the stance instead of shifting the whole robot to
-      // the left. The velocity-proportional part is NOT signed: both feet step
+      // the task file widens the stance instead of shifting the robot to the
+      // left. The velocity-proportional part is NOT signed: both feet step
       // the same way when the robot is asked to move sideways.
       lateralGain * cmdLinvelBaseRtWorldEwrtHeadingXy.y() +
           context.side * parameters_.offsetPosFootRtWorldEwrtHeadingY);

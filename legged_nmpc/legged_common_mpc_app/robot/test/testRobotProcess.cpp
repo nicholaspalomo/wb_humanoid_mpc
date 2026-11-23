@@ -374,7 +374,7 @@ TEST_F(RobotProcessTest, RunsTheLoopAndServesTheOperator) {
         return controller_.contactEstimatorName() == "AlwaysInContactEstimator";
       }));
   EXPECT_DOUBLE_EQ(controller_.gate().rampTime, 0.04);
-  // And from the task file, when it is saved: the whole file, whose missing
+  // And from the task file, when it is saved: the full file, whose missing
   // contact_wrench_gate block is the instantaneous gate.
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
   writeTaskFile("robot_state");
@@ -447,7 +447,7 @@ TEST_F(RobotProcessTest,
   ASSERT_TRUE(operatorBus_->start().ok());
   ASSERT_TRUE(process_->start().ok());
 
-  // The saved file names the estimator in use; applied over the update, it
+  // The saved file specifies the estimator in use; applied over the update, it
   // would put it back.
   writeTaskFile("robot_state");
   std::filesystem::last_write_time(

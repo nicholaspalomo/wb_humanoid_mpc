@@ -211,7 +211,7 @@ TEST(ResourcePathsTest,
   EXPECT_EQ(readFile(*path), kProbeContents);
 }
 
-// `bazel run` names the checkout in BUILD_WORKSPACE_DIRECTORY. A file found
+// `bazel run` sets BUILD_WORKSPACE_DIRECTORY to the checkout. A file found
 // there would let a binary with an incomplete `data` work on the developer's
 // machine and fail on the robot computer, so the checkout is not searched.
 TEST(ResourcePathsTest,

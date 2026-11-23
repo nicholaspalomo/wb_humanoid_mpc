@@ -51,7 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged {
 
 /**
- * Turns operator commands - a walking velocity or a target base pose - into the
+ * Turns operator commands (a walking velocity or a target base pose) into the
  * TargetTrajectories the MPC tracks, within the command limits and reference
  * defaults of the reference file.
  *

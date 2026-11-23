@@ -55,10 +55,10 @@ namespace ocs2::legged {
  * controller holds JOINT_PD on link loss as for a failing solver.
  *
  * The link registers on a bus that is not running yet; the robot process starts
- * the bus once everything is registered. start() hands the first observation to
- * the link (the MPC node serves its first reset as a full one by itself).
- * stop() has no thread to join - the IO thread is the bus's - and the callbacks
- * end with the link, whose destructor detaches them from the bus.
+ * the bus once everything is registered. start() passes the first observation
+ * to the link (the MPC node serves its first reset as a full one by itself).
+ * stop() has no thread to join (the IO thread belongs to the bus), and the
+ * callbacks end with the link, whose destructor detaches them from the bus.
  */
 class RemoteMpcLinkAdapter final : public MpcLink {
  public:
@@ -95,7 +95,7 @@ class RemoteMpcLinkAdapter final : public MpcLink {
 };
 
 /**
- * An MpcLinkFactory that hands the controller `link`, made before the
+ * An MpcLinkFactory that provides the controller with `link`, made before the
  * controller: the controller calls its factory once, from its constructor. The
  * reset target the controller passes is not used (a remote link's MPC node
  * resets to its own). A second call returns nullptr.

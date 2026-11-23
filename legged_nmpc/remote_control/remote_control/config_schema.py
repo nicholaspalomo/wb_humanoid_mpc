@@ -34,10 +34,10 @@
         if spec.renders:
             ...  # spec.path, spec.kind, spec.value, spec.slider_range(), config_schema.display_label(spec, task)
 
-Nothing here names a hyperparameter. The walk follows the descriptor of the file's message, so a field added to a
+Nothing here hardcodes a hyperparameter. The walk follows the descriptor of the file's message, so a field added to a
 schema is a parameter of the GUI with no code written here or in a tab (legged_mpc_config/README.md, "GUI
 metadata"): every numeric, bool and enum field,
-and every string field that names a registry entry, is one. A repeated string is a name list (the term lists, shown
+and every string field that references a registry entry, is one. A repeated string is a name list (the term lists, shown
 read-only); any other string, and bytes, is text the GUI does not edit.
 
 How a field renders is the schema's: its (legged_mpc_config.tuning) option (tuning_options.proto) gives the slider
@@ -51,12 +51,12 @@ A parameter is labeled by its field names alone, as the user decided: the dotted
 block down to it, with the key of each element it is in. No option renames a field, and no comment of the file is part
 of a label; display_label() adds only the unit and what annotations() says.
 
-A condition names a singular scalar by its path from the nearest message above the field that has it: from the file
+A condition specifies a singular scalar by its path from the nearest message above the field that has it: from the file
 for a file's own blocks (`contact_input_parameterization` in a block of the task file), and from the task file inside
-the MPC parameter update, which carries it as `task`. The walks hand every condition on as its path from the message
+the MPC parameter update, which includes it as `task`. The walks pass every condition on as its path from the message
 walked (`task.contact_input_parameterization`), which is what condition_value() and is_active() read.
 
-The walk yields what the file holds:
+The walk yields what the file contains:
 
 - a scalar the file sets, with its value and its line;
 - a scalar it leaves out, with the schema default, shown "(default)"; or, where the schema has no default because
@@ -535,7 +535,7 @@ def schema_fields(descriptor: Descriptor) -> list[SchemaField]:
       The fields.
 
     Raises:
-      SchemaError: A condition names no singular scalar of the file message.
+      SchemaError: A condition specifies no singular scalar of the file message.
     """
     found: list[SchemaField] = []
     _walk_schema(
@@ -554,7 +554,7 @@ def _resolved(parent: Tuning, tuning: Tuning, scopes: Scopes) -> Tuning:
     """`tuning` with the conditions its field declares itself made paths from the message walked.
 
     Args:
-      parent: The tuning of the block that holds the field.
+      parent: The tuning of the block that contains the field.
       tuning: What inherit() made of the field's own options below `parent`.
       scopes: The messages above the field that a condition may name a field of.
 
@@ -587,7 +587,7 @@ def _resolved_condition(condition: Condition, scopes: Scopes) -> Condition:
             else condition.field_path
         )
         return Condition(path, condition.values)
-    # The error of the message walked, which names the condition.
+    # The error of the message walked, which specifies the condition.
     _condition_field(scopes[0][1], condition.field_path)
     raise SchemaError(
         f"a condition names {condition.field_path}, which nothing above it has"
@@ -686,7 +686,7 @@ def parameters(
       The parameters.
 
     Raises:
-      SchemaError: A condition names no singular scalar of the file message.
+      SchemaError: A condition specifies no singular scalar of the file message.
     """
     tab, order = group(message.DESCRIPTOR)
     walker = _Walker(message, document, registries or {})
@@ -971,7 +971,7 @@ def _python_value(field: FieldDescriptor, value: Any) -> Any:
 # ---- Labels ----
 
 
-# The MPC formulations TuningOptions.formulations names, and how a label names each one's MPC.
+# The MPC formulations TuningOptions.formulations lists, and how a label identifies each one's MPC.
 # LINT.IfChange(formulation_names)
 CENTROIDAL = "centroidal"
 WHOLE_BODY = "whole_body"
@@ -985,7 +985,7 @@ FORMULATIONS: tuple[str, ...] = tuple(_FORMULATION_MPCS)
 
 
 def formulation_of(task: Any) -> str:
-    """The MPC formulation a task file configures: CENTROIDAL when it names a centroidal_model, WHOLE_BODY otherwise.
+    """The MPC formulation a task file configures: CENTROIDAL when it specifies a centroidal_model, WHOLE_BODY otherwise.
 
     The centroidal MPC requires a centroidal_model and the whole-body MPC reads none, so the field tells the two
     formulations' task files apart.

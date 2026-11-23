@@ -122,7 +122,7 @@ FrictionForceConeConstraint::FrictionForceConeConstraint(
     const PinocchioInterface& pinocchioInterface,
     bool scheduleGated)
     // The un-gated friction row is convex in Fz, so it is linearized rather
-    // than handed to the penalty with its indefinite Hessian; see the class
+    // than passed to the penalty with its indefinite Hessian; see the class
     // comment.
     : StateInputConstraint(scheduleGated ? ConstraintOrder::Quadratic
                                          : ConstraintOrder::Linear),
@@ -522,7 +522,7 @@ vector_t FrictionForceConeConstraint::coneConstraint(
   }
   // The exact Coulomb cone, as two rows that are both zero at the zero force;
   // see the class comment for why the gated row with sqrt(regularization) added
-  // back - which this term used to evaluate - admitted more friction than mu.
+  // back (which this term used to evaluate) admitted more friction than mu.
   const scalar_t muFz =
       config_.frictionCoefficient * forceContactEwrtSurface.z();
   const scalar_t F_friction_bound =

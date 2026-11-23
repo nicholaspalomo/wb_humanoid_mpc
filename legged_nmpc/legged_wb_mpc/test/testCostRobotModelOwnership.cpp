@@ -53,8 +53,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_wb_mpc/cost/JointTorqueCostCppAd.h"
 
 /*
- * The CppAD costs of the whole-body MPC that clone the robot model -
- * JointTorqueCostCppAd and EndEffectorDynamicsFootCost - own their copy and
+ * The CppAD costs of the whole-body MPC that clone the robot model
+ * (JointTorqueCostCppAd and EndEffectorDynamicsFootCost) own their copy and
  * release it: the cost and every clone of it, of which the solver makes one per
  * worker thread. Both used to keep the clone in a raw pointer that nothing
  * deleted, so every cost and every copy leaked a model. A robot model that

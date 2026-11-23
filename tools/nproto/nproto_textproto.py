@@ -38,9 +38,9 @@ extension, an unknown enum value name, a value of the wrong type or out of range
 alternatives of one oneof, a field number instead of a name, a deprecated field and a missing proto2 required field.
 The schema answers what it can, with the C++ parser's words: a field the message lists as an (nproto.retired_field) is
 "'<name>' is retired: <replacement>"; otherwise an unknown field says "Did you mean ..." when its snake-cased name is a
-field, and ends with the message's (nproto.retired_layout_hint). A text whose leading comment block names another
+field, and ends with the message's (nproto.retired_layout_hint). A text whose leading comment block specifies another
 message (`# proto-message: pkg.Other`, header_names_message()) is refused before it is parsed, and a file
-(load_textproto()) whose leading comment block names no message at all is refused too (check_proto_message_header()).
+(load_textproto()) whose leading comment block specifies no message at all is refused too (check_proto_message_header()).
 
 The C++ parser reports every problem of a text; this one, built on google.protobuf.text_format, reports the first.
 """
@@ -59,7 +59,7 @@ from nproto import retired_field_options_pb2
 
 MessageT = TypeVar("MessageT", bound=message_module.Message)
 
-# The header lines a configuration file names its schema with, in its leading comment block.
+# The header lines a configuration file specifies its schema with, in its leading comment block.
 # LINT.IfChange(header_lines)
 PROTO_FILE_HEADER = "proto-file:"
 PROTO_MESSAGE_HEADER = "proto-message:"
@@ -130,7 +130,7 @@ def former_package(descriptor: descriptor_module.Descriptor) -> str:
 def header_names_message(
     header_name: str, descriptor: descriptor_module.Descriptor
 ) -> bool:
-    """Whether `header_name`, the full name of a `# proto-message:` header, names the message `descriptor`.
+    """Whether `header_name`, the full name of a `# proto-message:` header, specifies the message `descriptor`.
 
     The twin of nproto::HeaderNamesMessage(): the message's full name, or, when its file sets (nproto.former_package),
     the full name it had in that package (`humanoid_mpc_config.TaskFile` for `legged_mpc_config.TaskFile`), so that a
@@ -156,10 +156,10 @@ def header_names_message(
 def canonical_header_text(
     text: str, descriptor: descriptor_module.Descriptor
 ) -> str:
-    """`text` with a `# proto-message:` header that gives the former full name of `descriptor` naming its current one.
+    """`text` with a `# proto-message:` header that gives the former full name of `descriptor` using its current one.
 
     What a save writes, so that a file saved before a package rename gets the new header the next time it is written.
-    Every other byte, and a text whose header names the current name, another message or nothing, stays as it is.
+    Every other byte, and a text whose header uses the current name, another message or nothing, stays as it is.
 
     Args:
       text: The textproto of a `descriptor` message.
@@ -214,10 +214,10 @@ def layout_hint(descriptor: descriptor_module.Descriptor) -> str:
 
 
 def explain_problem(pool: descriptor_pool.DescriptorPool, problem: str) -> str:
-    """`problem`, an error of the text parser, answered from the schema where it names an unknown field.
+    """`problem`, an error of the text parser, answered from the schema where it reports an unknown field.
 
     Args:
-      pool: The pool of the message being parsed, which holds the message types the problem names.
+      pool: The pool of the message being parsed, which contains the message types the problem references.
       problem: The parser's message, without its position.
 
     Returns:
@@ -376,10 +376,10 @@ def parse_textproto(
     Args:
       text: The textproto.
       message: The message to parse into; on error its contents are unspecified.
-      source: Names the text in errors, usually its path.
+      source: Identifies the text in errors, usually its path.
 
     Raises:
-      TextprotoError: `text` does not match the schema of `message`, or its header names another message.
+      TextprotoError: `text` does not match the schema of `message`, or its header specifies another message.
     """
     full_name = message.DESCRIPTOR.full_name
     header = header_message(text)
@@ -447,16 +447,16 @@ def read_textproto_file(path: str) -> str:
 def check_proto_message_header(
     text: str, message: message_module.Message, source: str
 ) -> None:
-    """Checks that the textproto `text` of a configuration file names its schema with a `# proto-message:` line.
+    """Checks that the textproto `text` of a configuration file specifies its schema with a `# proto-message:` line.
 
-    The twin of nproto::CheckProtoMessageHeader(). A file that names no message could be read as any message whose
+    The twin of nproto::CheckProtoMessageHeader(). A file that specifies no message could be read as any message whose
     fields it matches; text from memory (a bus payload, a test's string) is parsed with parse_textproto() alone.
-    Whether the line names the message of `message` (header_names_message()) is parse_textproto()'s check.
+    Whether the line specifies the message of `message` (header_names_message()) is parse_textproto()'s check.
 
     Args:
       text: The file's text.
       message: A message of the schema the file should name, for the error.
-      source: Names the text in errors, usually its path.
+      source: Identifies the text in errors, usually its path.
 
     Raises:
       TextprotoError: The leading comment block of `text` has no `# proto-message:` line.
@@ -471,7 +471,7 @@ def check_proto_message_header(
 
 
 def file_text(message: message_module.Message) -> str:
-    """`message` as the text of a configuration file: the `# proto-message:` line that names its schema, then its fields.
+    """`message` as the text of a configuration file: the `# proto-message:` line that specifies its schema, then its fields.
 
     The twin of nproto::WriteTextprotoFile(); load_textproto() reads a file of it back.
 
@@ -485,7 +485,7 @@ def file_text(message: message_module.Message) -> str:
 
 
 def load_textproto(path: str, message_class: type[MessageT]) -> MessageT:
-    """The textproto file at `path` as a `message_class`, parsed strictly; errors name the path.
+    """The textproto file at `path` as a `message_class`, parsed strictly; errors report the path.
 
     Args:
       path: The file.
@@ -496,7 +496,7 @@ def load_textproto(path: str, message_class: type[MessageT]) -> MessageT:
 
     Raises:
       OSError: The file cannot be read.
-      TextprotoError: It names no schema (check_proto_message_header()), does not match the schema
+      TextprotoError: It specifies no schema (check_proto_message_header()), does not match the schema
         (parse_textproto()), or is not valid UTF-8.
     """
     text = read_textproto_file(path)

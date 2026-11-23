@@ -28,7 +28,7 @@
 """Flags bare literal arguments that need a Google-style argument comment.
 
 The Google C++ style guide asks for the meaning of a non-obvious function argument to be visible at the call site, and
-this repository writes that as an argument comment carrying the parameter's name:
+this repository writes that as an argument comment with the parameter's name:
 
     ContactRectangle::loadContactRectangle(taskFile_, modelSettings_, /*contactIndex=*/0, verbose_);
 
@@ -45,7 +45,7 @@ conventional enough that a comment would be noise. Those are exempt:
     protobuf `add_*`), a member or variable being initialized (`stopped_(false)`), or conventional;
   - the callees in CONVENTIONAL_CALLEES and the types matched by CONVENTIONAL_TYPE_PATTERNS (std::max, block, resize,
     StrCat, EXPECT_NEAR, Eigen vectors, ...), where the position of a literal is its meaning;
-  - a line carrying `// NOLINT(argument-comment): <reason>`, or following a line carrying
+  - a line with `// NOLINT(argument-comment): <reason>`, or following a line with
     `// NOLINTNEXTLINE(argument-comment): <reason>` (the registry applies the markers, tools/hooks/checks.py).
 Preprocessor lines (#define bodies included) are not checked.
 """
@@ -378,7 +378,7 @@ def _literal_text(argument: list[Token]) -> str | None:
             "",
             token.text,
         )
-        # A user-defined literal (100ms, 2s) carries its unit, which is the explanation.
+        # A user-defined literal (100ms, 2s) includes its unit, which is the explanation.
         return token.text if _STANDARD_SUFFIX.match(suffix) else None
     return None
 

@@ -29,8 +29,8 @@
 
 A state stores the base orientation as a unit quaternion, which a linear interpolation between two knots takes off the
 unit sphere and, between a quaternion and its negative, through zero. The robot models interpolate states on the
-manifold - slerp on the quaternion block, linear elsewhere (`MpcRobotModelBase::getDesiredState(targets, time)`,
-`interpolateStateTrajectory`) - and the policy and the rollouts through the problem's `StateManifold`
+manifold (slerp on the quaternion block, linear elsewhere: `MpcRobotModelBase::getDesiredState(targets, time)`,
+`interpolateStateTrajectory`), and the policy and the rollouts through the problem's `StateManifold`
 (legged_nmpc/docs/quaternion_base_orientation/README.md, sections 2.7 and 2.9). This check flags the two linear
 interpolations of a state under legged_nmpc/ that bypass them:
 
@@ -38,8 +38,8 @@ interpolations of a state under legged_nmpc/ that bypass them:
                          TargetTrajectories::getDesiredState(), which interpolates the state trajectory linearly. The
                          robot model's two-argument and the reference manager's three-argument overloads are not
                          flagged;
-                       - a call `LinearInterpolation::interpolate(...)` none of whose arguments names an input (an
-                         identifier containing `input`, as in `plan.input` or `target.inputTrajectory`): inputs live in
+                       - a call `LinearInterpolation::interpolate(...)` none of whose arguments references an input (an
+                         identifier containing `input`, as in `plan.input` or `target.inputTrajectory`): inputs are in
                          a vector space and are interpolated linearly, PolicySnapshot's included;
                        - a using-declaration of `LinearInterpolation::interpolate` and a namespace alias of
                          `LinearInterpolation`, which hide the qualified call and with it the input exemption: write

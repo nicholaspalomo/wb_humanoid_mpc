@@ -64,7 +64,7 @@ namespace ocs2::legged {
  * the observation current then, through the controller's reset target:
  * MPC_MRT_Interface::resetMpcNode() for a full one, resetMpcSolver() otherwise;
  *  2. it solves once (MPC_MRT_Interface::advanceMpc()), which moves the policy
- * to the MRT buffer, and before that hands the observation of the solve to
+ * to the MRT buffer, and before that passes the observation of the solve to
  * Config::solverObservationObserver;
  *  3. it reports the result to the supervisor
  * (MpcResetSupervisor::onSolveResult()), then to the solve observer;
@@ -129,7 +129,7 @@ class InProcessMpcLink final : public MpcLink {
     SolveObserver solveObserver;
     /// Optional: called on the thread that solves with the observation each
     /// solve starts from, right before the solve
-    /// (MPC_MRT_Interface::SolverObservationObserver); the nodes hand it to
+    /// (MPC_MRT_Interface::SolverObservationObserver); the nodes pass it to
     /// ProceduralMpcMotionManager::observe().
     MPC_MRT_Interface::SolverObservationObserver solverObservationObserver;
     /// See Execution.
@@ -177,9 +177,9 @@ class InProcessMpcLink final : public MpcLink {
       InProcessMpcLink* absl_nullable* absl_nullable created);
 
   /**
-   * Hands the MPC the initial observation and starts the solver thread, which
-   * begins with a full reset from it; with Execution::kCaller, serves that
-   * reset here, on the calling thread, and starts no thread. A link starts
+   * Passes the initial observation to the MPC and starts the solver thread,
+   * which begins with a full reset from it; with Execution::kCaller, serves
+   * that reset here, on the calling thread, and starts no thread. A link starts
    * once: a second call, also after stop(), is refused with an error log.
    */
   void start(const SystemObservation& initialObservation) override;

@@ -73,15 +73,15 @@ vector_t InputQuadraticCost::inputDeviation(
     const TargetTrajectories& targetTrajectories) const {
   // The contact-force reference, from the reference manager rather than
   // computed here. It is still weight compensation and nothing else on every
-  // robot shipped in this repository - getDesiredInput() makes exactly the call
+  // robot shipped in this repository (getDesiredInput() makes exactly the call
   // this line used to make when no wrench heuristic is listed, so this is a
-  // no-op refactor there - but it is now the one place that reference is
+  // no-op refactor there), but it is now the one place that reference is
   // decided, which is what lets Bledt's H_f heuristics shape it
   // (legged_nmpc/docs/locomotion_heuristics/README.md). The reference manager
   // is also the only object that knows the contact flags at an arbitrary node
-  // time, which is why the reference cannot live in targetTrajectories: the
-  // stance set changes several times inside one horizon and that trajectory's
-  // knots are placed by the command (three on a straight walk).
+  // time, which is why the reference cannot be stored in targetTrajectories:
+  // the stance set changes several times inside one horizon and that
+  // trajectory's knots are placed by the command (three on a straight walk).
   return input -
          referenceManagerPtr_->getDesiredInput(targetTrajectories, state, time);
 }

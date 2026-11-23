@@ -84,7 +84,7 @@ class EntryPointsTest(unittest.TestCase):
     def test_no_hook_edits_sys_path(self):
         hooks = os.path.join(_repository_root(), "tools", "hooks")
         for name in sorted(os.listdir(hooks)):
-            # Bazel's runfiles also hold the generated `_<test>_stage2_bootstrap.py` files.
+            # Bazel's runfiles also contain the generated `_<test>_stage2_bootstrap.py` files.
             if not name.endswith(".py") or name.startswith(("test_", "_")):
                 continue
             with open(os.path.join(hooks, name), encoding="utf-8") as f:

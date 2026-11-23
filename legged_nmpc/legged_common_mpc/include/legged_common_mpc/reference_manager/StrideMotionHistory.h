@@ -124,11 +124,11 @@ BasePlanarMotion instantaneousPlanarMotion(
  * stall of 1 s on the recorded walks, the whole-body G1's). A longer gap
  * outlasts every shipped MPC horizon (1.0 to 1.2 s), past which the robot has
  * no plan left to walk on and MPC_BASE::run() does not run before a reset: the
- * history restarts - its next sample is a first one again - as it does after
+ * history restarts (its next sample is a first one again), as it does after
  * reset() and when the clock runs backwards.
  *
- * Before the first sample. A history that has just (re)started holds less than
- * a window. The base is taken to have moved before its first sample at the
+ * Before the first sample. A history that has just (re)started contains less
+ * than a window. The base is taken to have moved before its first sample at the
  * constant `seed` motion given with that sample (the motion manager gives the
  * exact instantaneous planar motion of the observation the solve starts from,
  * instantaneousPlanarMotion(); in operation a history restarts at a full reset
@@ -139,8 +139,8 @@ BasePlanarMotion instantaneousPlanarMotion(
  * reads the sway as motion for up to a window (seeded with the exact pelvis
  * twist, 67 % and 81 % of the restart instants of the G1's and R1's recorded
  * walks read a turn above 0.15 rad/s, for up to 1.3 s). isMeasuredOver()
- * therefore tells a mean measured over its whole window - after the first
- * sample, the samples at most kMaxSampleGap apart throughout - from one that is
+ * therefore tells a mean measured over its full window (after the first
+ * sample, with samples at most kMaxSampleGap apart throughout) from one that is
  * not, and ProceduralMpcMotionManager's gait switches read only the former.
  *
  * A copyable value; not thread-safe (ProceduralMpcMotionManager uses it on the

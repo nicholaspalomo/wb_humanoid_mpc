@@ -70,7 +70,7 @@ namespace ocs2::legged {
 class MujocoRobotBackend final : public RobotBackend {
  public:
   /** InvalidArgument when the options lack the scene or the initial state, or
-   * name an unknown gantry hold. */
+   * specify an unknown gantry hold. */
   static absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> Create(
       const RobotBackendOptions& options);
 

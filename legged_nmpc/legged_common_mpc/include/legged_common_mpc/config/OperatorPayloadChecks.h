@@ -51,7 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged {
 
 /**
- * OK when `message` carries no field this build's schema lacks;
+ * OK when `message` has no field this build's schema lacks;
  * FailedPrecondition listing each one by its path and number
  * (nproto::UnknownFieldPaths()) otherwise: the sender was built from another
  * version of the schema.
@@ -75,7 +75,7 @@ std::string mpcParameterUpdateSchemaFingerprint();
  * identity refuses an update without a config_path, which a sender of this
  * build always fills.
  *
- * @return OK, or FailedPrecondition naming the unknown fields, the two
+ * @return OK, or FailedPrecondition reporting the unknown fields, the two
  * fingerprints, the two robots or the two paths.
  */
 absl::Status checkMpcParameterUpdate(
@@ -97,7 +97,7 @@ std::string jointPdGainsFileSchemaFingerprint();
  * update from the whole-body one's; a receiver with an identity refuses an
  * update without a config_path, which a sender of this build always fills.
  *
- * @return OK, or FailedPrecondition naming the unknown fields, the two
+ * @return OK, or FailedPrecondition reporting the unknown fields, the two
  * fingerprints, or the two paths.
  */
 absl::Status checkJointPdGainsUpdate(

@@ -55,7 +55,7 @@ namespace {
 
 // The rows of the stance constraint g = [p; e]
 // (stanceFootAccelerationConstraintConfig()), kNumConstraints of them: the
-// position p, whose z row holds the foot's height, then the orientation error
+// position p, whose z row stores the foot's height, then the orientation error
 // e.
 constexpr Eigen::Index kHeightRow = kZAxisIndex;
 constexpr int kOrientationErrorRowStart = kPositionDim;

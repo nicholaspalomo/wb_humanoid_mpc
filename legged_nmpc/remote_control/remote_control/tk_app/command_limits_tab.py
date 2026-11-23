@@ -59,11 +59,11 @@ def _disabled_banner(reason: str) -> str:
 class CommandLimitsTab(ttk.Frame):
     """The parameters of the reference file: the command limits, the command ramps and the reference defaults.
 
-    These are the parameters that bound what the operator can ask for - the largest velocity a full stick means, the
+    These are the parameters that bound what the operator can ask for: the largest velocity a full stick means, the
     acceleration the reference ramps at, the nominal stance height. They do not travel on the parameter topic: the C++
     side reads them from this file, and the parameter updater of the running MPC, of either formulation, watches the
     file and reloads the consumers that registered for it (``TargetTrajectoriesCalculatorBase`` and
-    ``ProceduralMpcMotionManager``). Saving is therefore the whole mechanism - there is no publisher here - and the
+    ``ProceduralMpcMotionManager``). Saving is therefore the full mechanism (there is no publisher here), and the
     running MPC picks the change up, about a second later, for the parameters the schema marks hot; the others are
     labeled "(restart)". Save also sends the saved file to the robot's store, which the robot process reads at its next
     start, as the keyboard command node reads the file.

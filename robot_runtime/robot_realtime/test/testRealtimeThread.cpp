@@ -252,7 +252,7 @@ int expectFailure(const char* absl_nonnull call,
 
 // Runs in a child process (the death-test machinery forks or re-executes the
 // test binary), because it lowers the process's resource limits for good. Exits
-// 0 when every call failed cleanly with the expected error.
+// 0 when every call failed with the expected error.
 [[noreturn]] void runSetupWithoutPrivileges(rlim_t memlockLimit) {
   if (!dropRealtimeCapabilities()) {
     absl::FPrintF(stderr, "capset failed: %s\n", std::strerror(errno));

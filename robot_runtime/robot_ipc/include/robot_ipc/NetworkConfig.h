@@ -140,10 +140,10 @@ struct NetworkConfig {
 /**
  * Reads and validates a network file. It is parsed strictly
  * (google::protobuf::TextFormat): a syntax error, an unknown field or a value
- * of the wrong type is an InvalidArgument error that names the file, the line
+ * of the wrong type is an InvalidArgument error that reports the file, the line
  * and the column, such as "config/ipc/network.textproto:3:42: Message type
  * "robot_ipc_proto.NetworkConfig.Node" has no field named "hots"." The content
- * is then validated, and an error names the node, the topic or the field, such
+ * is then validated, and an error identifies the node, the topic or the field,
  * as "config/ipc/network.textproto: domain_id: 300 is not a domain id in [0,
  * 232]". A file that cannot be read is NotFound.
  */
@@ -159,7 +159,7 @@ absl::StatusOr<NetworkConfig> parseNetworkConfig(absl::string_view text,
  * (Bus::Create() runs them): at least one node, valid and unique node names,
  * valid hosts, a domain id in [0, kMaxDomainId], a valid tag, valid and unique
  * topic names whose publishers are nodes of the network, and transport values
- * in range. Errors are InvalidArgument and name the node, the topic or the
+ * in range. Errors are InvalidArgument and identify the node, the topic or the
  * field, as in loadNetworkConfig().
  */
 absl::Status validateNetworkConfig(const NetworkConfig& config);

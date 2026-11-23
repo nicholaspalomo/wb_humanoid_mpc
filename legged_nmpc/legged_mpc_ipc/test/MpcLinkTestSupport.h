@@ -65,7 +65,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /**
  * What the tests of the network MPC link share: a small deterministic MPC
  * (OCS2's ScriptedMpc, whose plan depends on the time and the state it solves
- * from), buses on ephemeral loopback ports, and a gate that holds a policy "in
+ * from), buses on ephemeral loopback ports, and a gate that keeps a policy "in
  * flight" on the solver thread for as long as a test needs.
  */
 namespace ocs2::legged::ipc::test_support {
@@ -89,7 +89,7 @@ SystemObservation observationAt(scalar_t time, scalar_t value);
 /** The reset target trajectories of the tests: the observation held. */
 TargetTrajectories resetTargetsFor(const SystemObservation& observation);
 
-/** A one-second horizon over the whole of which the solution is sent, unless
+/** A one-second horizon over all of which the solution is sent, unless
  * `solutionTimeWindow` is positive. */
 mpc::Settings mpcSettings(scalar_t solutionTimeWindow = -1.0);
 
@@ -127,7 +127,7 @@ SystemObservation manifoldObservationAt(scalar_t time, scalar_t value);
  */
 class ManifoldScriptedSolver final : public SolverBase {
  public:
-  /** `stateManifold` is shared with the policies it hands out
+  /** `stateManifold` is shared with the policies it returns
    * (ManifoldLinearController takes a std::shared_ptr). */
   ManifoldScriptedSolver(std::shared_ptr<const StateManifold> stateManifold,
                          size_t inputDim);
@@ -253,7 +253,7 @@ legged_mpc_msgs::MpcPolicy makePolicyMessage(scalar_t initTime,
 /**
  * Holds the threads that pass it while it is closed. The MPC server's
  * annotations provider passes it, so that a test can keep a solved policy from
- * being published - in flight - and let it go when it wants.
+ * being published (in flight) and let it go when it wants.
  */
 class Gate {
  public:

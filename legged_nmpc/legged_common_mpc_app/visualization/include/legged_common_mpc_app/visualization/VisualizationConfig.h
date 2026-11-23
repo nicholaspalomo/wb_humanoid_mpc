@@ -78,7 +78,7 @@ struct VisualizationConfig {
  * robot's config/mpc/task.textproto, read strictly: loadTaskFile(), then
  * visualizationConfigFromConfig() over the contact frames of `modelSettings`).
  *
- * @return The errors of loadTaskFile(), which name the file, the line and the
+ * @return The errors of loadTaskFile(), which report the file, the line and the
  * column, and those of visualizationConfigFromConfig() prefixed with the file.
  */
 absl::StatusOr<VisualizationConfig> loadVisualizationConfig(

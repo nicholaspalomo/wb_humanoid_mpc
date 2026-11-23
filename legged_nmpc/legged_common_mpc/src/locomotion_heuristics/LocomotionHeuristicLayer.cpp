@@ -93,7 +93,7 @@ LocomotionHeuristicLayer::Create(
 
   // The foothold anchor keeps the feet apart laterally with the nominal step
   // width, with each contact's nominal stance point (the nominal_stance
-  // anchor), or - with hip_centered_stepping - with the hips. With none of
+  // anchor), or (with hip_centered_stepping) with the hips. With none of
   // them, every other foothold heuristic is a velocity- or rate-proportional
   // correction around the base's own lateral line, half of a zero step width
   // to either side, and both feet are targeted onto the same point: towards

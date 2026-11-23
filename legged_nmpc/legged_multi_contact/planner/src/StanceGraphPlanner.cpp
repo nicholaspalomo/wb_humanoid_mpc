@@ -1309,7 +1309,7 @@ std::string legName(size_t leg, size_t legs) {
 /**
  * The path from the initial stance of `context` through the scenario's
  * waypoints to its goal: one lazy weighted A* per leg, each from where the last
- * ended, within what is left of the search's budgets. NotFound names the leg,
+ * ended, within what is left of the search's budgets. NotFound reports the leg,
  * the stance nearest its goal and why its last changes failed.
  */
 absl::StatusOr<FoundPath> findPath(PlanningContext& context,

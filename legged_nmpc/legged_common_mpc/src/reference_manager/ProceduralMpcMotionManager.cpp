@@ -516,7 +516,7 @@ void ProceduralMpcMotionManager::preSolverRun(
   switchedModelReferenceManagerPtr_->setTargetTrajectories(targetTrajectories);
 
   // The thresholds of the gait the manager is in. This was a function-static
-  // copy, initialized once for the whole process and shared by every instance:
+  // copy, initialized once process-wide and shared by every instance:
   // a second manager, or this one after a reset of currentGaitMode_, went on
   // switching with the thresholds of whatever gait the first one had last
   // reached.

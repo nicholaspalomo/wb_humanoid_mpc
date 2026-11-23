@@ -48,14 +48,14 @@ namespace ocs2::legged {
  * and what the backend adds around it. Selected by name with --backend
  * (RobotBackendRegistry): `mujoco` is the MuJoCo simulator
  * (MujocoRobotBackend), so that simulation runs the hardware topology. A
- * hardware backend is registered next to it under its own name; it names the
- * supervisor that drives it (supervisorName(): the FSM bridge and the fall
+ * hardware backend is registered next to it under its own name; it specifies
+ * the supervisor that drives it (supervisorName(): the FSM bridge and the fall
  * recovery of RobotSupervisorRegistry): `sim` drives the simulator's gantry,
  * torque switch and resets (simulator()), `hardware` the backend's torque
  * switch only (enableTorques(), enterSafeState()). See
  * legged_nmpc/legged_common_mpc_app/robot/README.md, "A hardware backend".
  *
- * WHAT THE STATE CARRIES. hardware().getRobotState() is what the backend
+ * WHAT THE STATE CONTAINS. hardware().getRobotState() is what the backend
  * measures: the joints, the contact flags, the base's orientation and angular
  * velocity (the IMU's on hardware), the IMU's linear acceleration
  * (RobotState::getSpecforceBaseRtWorldEwrtBase()), and the base's position

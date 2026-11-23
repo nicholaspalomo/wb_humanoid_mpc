@@ -92,8 +92,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * (`pos_surface_rt_world_ewrt_world_z`, moved on a hot reload). The targets
  * used to be written at an absolute nom_pos_base_rt_surface_ewrt_world_z, so
  * the base reference ignored the ground at launch and snapped back to it one
- * solve after a reload, while the reference manager lifted the initial target -
- * a measured, absolute pose - by the whole terrain height.
+ * solve after a reload, while the reference manager lifted the initial target
+ * (a measured, absolute pose) by the full terrain height.
  *
  * Every property is a difference against the same run on flat ground, or
  * against the height the target was published at, so none of them depends on
@@ -623,7 +623,7 @@ TEST(BaseHeightFollowsTerrainTest,
     referenceManager.preSolverRun(time, time + kHorizon, state,
                                   kBipedModeStance);
     // Positive control: the plan is in use and its target is the densified one
-    // - a knot per plan node, then the operator's own knot past the plan - so
+    // (a knot per plan node, then the operator's own knot past the plan), so
     // the tail below is read from the operator's copy.
     const TargetTrajectories& target = referenceManager.getTargetTrajectories();
     ASSERT_TRUE(referenceManager.planReferencesUsableAt(time));
@@ -638,7 +638,7 @@ TEST(BaseHeightFollowsTerrainTest,
     }
   }
 
-  // The reload moves the whole reference, the tail from the operator's copy
+  // The reload moves the full reference, the tail from the operator's copy
   // included, and it stays moved.
   referenceManager.setPosSurfaceRtWorldEwrtWorldZ(
       kReloadedPosSurfaceRtWorldEwrtWorldZ);

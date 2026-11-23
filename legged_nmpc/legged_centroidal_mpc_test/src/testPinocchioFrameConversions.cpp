@@ -247,10 +247,10 @@ TEST_F(TestPinocchioFrameConversions, transformPointBackAndForth) {
     for (const pinocchio::FrameIndex& contactIndex :
          getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
       vector3_t testPoint = vector3_t::Random();
-      // transformPoint* carries the frame translation as well as its rotation,
+      // transformPoint* applies the frame translation as well as its rotation,
       // so the inverse of transformPointLocalToWorld is
-      // transformPointWorldToLocal - not rotateVectorWorldToLocal, which drops
-      // the translation and so cannot round-trip a point.
+      // transformPointWorldToLocal, not rotateVectorWorldToLocal (which drops
+      // the translation and so cannot round-trip a point).
       EXPECT_TRUE(testPoint.isApprox(transformPointLocalToWorld<scalar_t>(
           transformPointWorldToLocal<scalar_t>(
               testPoint, pinocchioInterface_.getData(), contactIndex),

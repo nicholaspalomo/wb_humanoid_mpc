@@ -176,7 +176,7 @@ class ResolveInputPathTest(unittest.TestCase):
                     bus_listener.resolve_input_path("network.textproto"),
                     in_working,
                 )
-                # Nothing exists: the error names the path relative to where the tool was started.
+                # Nothing exists: the error reports the path relative to where the tool was started.
                 self.assertEqual(
                     bus_listener.resolve_input_path("absent.textproto"),
                     os.path.join(working, "absent.textproto"),

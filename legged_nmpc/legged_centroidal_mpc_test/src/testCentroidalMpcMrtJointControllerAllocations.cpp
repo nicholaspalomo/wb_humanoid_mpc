@@ -119,8 +119,8 @@ class CountingSink final : public ControllerEventSink {
   std::atomic<int> posted{0};
 };
 
-/** The modes the robot process hands the controller, in turn: every entry, and
- * the hold of WB_MPC. */
+/** The modes the robot process passes to the controller, in turn: every entry,
+ * and the hold of WB_MPC. */
 constexpr const char* absl_nonnull kModes[] = {
     "ZERO_TORQUE", "JOINT_PD", "GRAVITY_COMP", "SAFETY",
     "JOINT_PD",    "WB_MPC",   "ZERO_TORQUE"};

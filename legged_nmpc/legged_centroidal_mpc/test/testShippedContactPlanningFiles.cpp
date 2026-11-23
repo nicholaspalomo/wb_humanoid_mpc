@@ -325,7 +325,7 @@ TEST_P(ShippedContactPlanningFile,
  * The terminal DCM cost's pendulum is the planner's: both files leave
  * nom_pos_com_rt_feetmean_ewrt_world_z out, which each consumer resolves with
  * the same function of the model (computeProxyPosComRtFeetmeanEwrtWorldZ), or
- * write the same explicit override. The two keys live in different files (LINT:
+ * write the same explicit override. The two keys are in different files (LINT:
  * <robot>_pendulum <-> <robot>_dcm_pendulum). Checked on what each consumer
  * RESOLVES, not only on what the files write, so a consumer that resolved the
  * model's pendulum differently would fail here.

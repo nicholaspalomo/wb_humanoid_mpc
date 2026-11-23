@@ -482,7 +482,7 @@ def _run_main(
     """Runs main() in the dev container with the fake bazel, which exits with the status `statuses` gives a command.
 
     Args:
-      argv: main()'s arguments but --output, which names a database that holds `old_database` before the run.
+      argv: main()'s arguments but --output, which specifies a database that contains `old_database` before the run.
       aquery_output: What the fake aquery prints; one action of //pkg:lib compiling pkg/a.cpp when None.
       statuses: The exit status of each Bazel command by name, 0 for the others.
       info_output: The execution_root line the fake info prints, when not None.
@@ -1093,7 +1093,7 @@ class RunTest(unittest.TestCase):
 
 
 class CompileActionsQueryTest(unittest.TestCase):
-    """The aquery expression quotes each label, since a label may hold a character the query language reserves (`+`)."""
+    """The aquery expression quotes each label, since a label may contain a character the query language reserves (`+`)."""
 
     def test_quotes_every_label(self) -> None:
         self.assertEqual(

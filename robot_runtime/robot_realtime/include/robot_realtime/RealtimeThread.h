@@ -107,10 +107,10 @@ absl::Status prefaultStack(size_t bytes);
 /**
  * Pins the calling thread to `cores` (0-based CPU numbers).
  *
- * @return InvalidArgument when `cores` is empty or names a CPU that does not
- * exist or that the process may not use (a container's cpuset),
+ * @return InvalidArgument when `cores` is empty or specifies a CPU that does
+ * not exist or that the process may not use (a container's cpuset),
  * FailedPrecondition when the kernel left out some of the cores; the message
- * names them.
+ * lists them.
  */
 absl::Status setCurrentThreadAffinity(absl::Span<const int> cores);
 
@@ -169,7 +169,7 @@ struct RealtimeThreadConfig {
  * priority is rejected before anything changes.
  *
  * @return OK when every step took effect. Otherwise the error of the first step
- * that failed, with a message that names every step that failed and why
+ * that failed, with a message that lists every step that failed and why
  * ("pinning the thread: ...; locking memory: ..."); the others took effect.
  */
 absl::Status configureCurrentThread(const RealtimeThreadConfig& config);

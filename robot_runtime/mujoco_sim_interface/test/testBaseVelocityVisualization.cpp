@@ -140,7 +140,7 @@ TEST(BaseVelocityVisualization,
 }
 
 // The command is a velocity along the ground in the heading frame. It used to
-// be turned by the whole base attitude, so a pitched base drew it tilted into
+// be turned by the full base attitude, so a pitched base drew it tilted into
 // the ground, at its horizontal length, and the yaw-rate arrows along the
 // tilted base z.
 TEST(BaseVelocityVisualization,

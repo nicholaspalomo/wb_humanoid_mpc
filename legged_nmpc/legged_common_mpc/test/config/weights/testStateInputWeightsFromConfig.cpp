@@ -29,13 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The task file's weights and states by name become the MPC's matrices and
 // vectors on the layout of its state and input: each block lands at the
-// coordinates of its MPC whatever order the file names joints and contacts in,
+// coordinates of its MPC whatever order the file lists joints and contacts in,
 // every element is `scaling` times its entry, and what the MPC needs and does
-// not have, or a weight below 0, is refused naming the field path, every
-// problem at once. An absent scaling is 1, and the schemas refuse their retired
-// keys naming their replacement. Every shipped task file's state_weights,
+// not have, or a weight below 0, is rejected with the field path, every
+// problem at once. An absent scaling is 1, and the schemas reject their retired
+// keys and report their replacements. Every shipped task file's state_weights,
 // final_state_weights and initial_state convert to the n_t rows of the tuning
-// layout - the tangent of the quaternion state, one row fewer than the state -
+// layout (the tangent of the quaternion state, one row fewer than the state)
 // with each orientation block on its own rows, and the initial state onto the
 // quaternion state.
 
@@ -188,8 +188,8 @@ struct ExpectedBlock {
 /**
  * tuningLayoutOf(layout) describes the vector stateValuesFromConfig() builds
  * from `stateText`, which counts 1, 2, ... in state order: each block, in
- * order, is the field of that name, at the offset where placeState() puts it -
- * its first and last entries hold the field's first and last values - and the
+ * order, is the field of that name, at the offset where placeState() puts it
+ * (its first and last entries store the field's first and last values), and the
  * field exists in both StateValues and StateWeights.
  */
 void expectTuningLayoutIsPlaceStatesLayout(
@@ -367,7 +367,7 @@ struct WeightField {
 
 /**
  * Expects `convert` of `valid` with any one weight of `fields` set to -1 or NaN
- * to be refused naming its path, and set to 0 to be accepted: a weight below 0
+ * to be rejected with its path, and set to 0 to be accepted: a weight below 0
  * makes the quadratic cost, and the Gauss-Newton Hessian the solver builds from
  * it, indefinite, while 0 switches a term off.
  */
@@ -939,7 +939,7 @@ TEST(TerminalStateWeightsFromConfigTest,
     expected *= 4.0;
     EXPECT_TRUE(*terminal == expected);
   }
-  // A refused conversion is the conversion's error, naming the field.
+  // A failed conversion returns the conversion error, identifying the field.
   const mpc_config::TaskFile refused = taskFile(
       absl::StrCat("final_state_weights { scaling: 3 ", kWholeBodyState, " }"));
   expectRefused(terminalStateWeightsFromConfig(

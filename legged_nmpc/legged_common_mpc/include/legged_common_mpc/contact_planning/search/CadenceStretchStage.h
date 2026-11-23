@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged {
 
 /**
- * `cadence_stretch`: re-time the whole incumbent by scaling the node grid,
+ * `cadence_stretch`: re-time the incumbent by scaling the node grid,
  * recovering the cadences the grid's quantization cannot express.
  *
  * A phase of the plan lasts a whole number of nodes, so the stride the planner
@@ -55,9 +55,9 @@ namespace ocs2::legged {
  * grid of node duration `s * dt` re-times every phase of the plan together.
  * Every term is an exact function of the node duration (the LIP block is cosh /
  * sinh of omega dt, the heading block is linear in it, the nominal step
- * displacement is a ratio of it), and ContactPlan carries its own dt, so a
- * re-timed plan needs no new representation - which is what
- * `SearchRun::assembleWithGrid` and `SearchRun::chosenDt` exist for.
+ * displacement is a ratio of it), and ContactPlan stores its own dt, so a
+ * re-timed plan needs no new representation (which is what
+ * `SearchRun::assembleWithGrid` and `SearchRun::chosenDt` exist for).
  *
  * Two qualifications on that exactness, both of which used to be missing and
  * both of which are properties of the caller rather than of this stage. The
@@ -97,13 +97,13 @@ class CadenceStretchStage final : public SearchStage {
    * the stage safe to enable, and it is the only part of it that is not
    * arithmetic.
    *
-   * `input` carries the part of the phase active at planning time that has
+   * `input` contains the part of the phase active at planning time that has
    * ALREADY elapsed, and the bound is wrong without it. The gait limits are
-   * limits on a whole phase, and PhaseDurationsRule enforces them as
+   * limits on a full phase, and PhaseDurationsRule enforces them as
    * initialPhaseNodes(foot, true) plus the nodes of the phase inside the
    * horizon; the run of the assignment that contains node 0 is only that second
-   * part. Budgeting the entire maximum for the remainder - which is what this
-   * function did, because it never saw the elapsed time - returns a stretch the
+   * part. Budgeting the full maximum for the remainder (which is what this
+   * function did, because it never saw the elapsed time) returns a stretch the
    * total duration cannot absorb: at dt 0.1 with maxSwingDuration 0.6, a foot
    * 0.4 s into its swing and two swing nodes left in the horizon, the bound was
    * 0.6 / 0.2 = 3.0 and the stage was free to stretch to its configured
@@ -123,7 +123,7 @@ class CadenceStretchStage final : public SearchStage {
    * duration.
    *
    * With an input the bound also includes commitWindowStretch(), so that the
-   * stretched plan still hands the executed schedule over at the commit
+   * stretched plan still transitions from the executed schedule at the commit
    * boundary the way the unstretched one does.
    */
   static scalar_t admissibleStretch(
@@ -137,20 +137,19 @@ class CadenceStretchStage final : public SearchStage {
    * The largest stretch that keeps the LAST committed node live at the commit
    * boundary, never below 1 (infinity when at most one node is committed).
    *
-   * The stretch re-times the whole assignment, committed prefix included, but
+   * The stretch re-times the full assignment, committed prefix included, but
    * not the boundary: ContactPlan:: committedUntil stays input.committedUntil.
-   * committedSampleTimes() sampled the committed nodes on the planner.dt grid -
-   * at their midpoints, and the last one AT the boundary, with the state the
-   * executed schedule hands over there
-   * - and mergeModeSchedules takes the plan's mode just after the boundary. On
-   * a grid of node duration s dt the last committed node starts at
-   * (numCommitted - 1) s dt; once that passes the boundary an EARLIER committed
-   * node is live at the merge, and the merged schedule replays the executed
-   * state from before the boundary after it. The common case is a boundary
-   * extended to the touch-down of a swing in flight
+   * committedSampleTimes() sampled the committed nodes on the planner.dt grid
+   * (at their midpoints, and the last one AT the boundary, with the state the
+   * executed schedule provides there), and mergeModeSchedules takes the plan's
+   * mode just after the boundary. On a grid of node duration s dt the last
+   * committed node starts at (numCommitted - 1) s dt; once that passes the
+   * boundary an EARLIER committed node is live at the merge, and the merged
+   * schedule replays the executed state from before the boundary after it. The
+   * common case is a boundary extended to the touch-down of a swing in flight
    * (commitBoundaryForSchedule): that swing then stays in the air past the
-   * touch-down the robot is already descending to - at dt 0.1, a touch-down
-   * 0.32 s ahead and a stretch of 1.25 it landed 55 ms late - which breaks the
+   * touch-down the robot is already descending to (at dt 0.1, a touch-down
+   * 0.32 s ahead and a stretch of 1.25 it landed 55 ms late), which breaks the
    * guarantee that a swing in flight is never re-timed by a later plan. Nothing
    * downstream caught it, because planAgreesWithSwingsInFlight only rejects a
    * plan that has a foot DOWN which the applied schedule has in the air.

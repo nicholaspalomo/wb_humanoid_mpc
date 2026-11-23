@@ -36,7 +36,7 @@ namespace ocs2::legged::node {
 /**
  * How the laptop-side binaries (the MPC nodes, the dummy simulators, the
  * keyboard teleoperation) end: SIGINT (Ctrl-C) and SIGTERM (the launcher's
- * stop, `docker stop`) ask them to shut down cleanly, and a second one ends the
+ * stop, `docker stop`) ask them to shut down, and a second one ends the
  * process at once with the signal's default action, so that a shutdown that
  * hangs can still be cut short.
  */

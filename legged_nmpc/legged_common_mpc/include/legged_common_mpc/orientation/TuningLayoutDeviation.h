@@ -103,7 +103,7 @@ struct TuningDeviationApproximation {
  * orientation slots, with a = R(xi)^T R(xi_r) w_B,r
  *     (getJacobianAngvelBaseRtWorldEwrtBase()).
  * It reads the orientation only through those four robot-model accessors; the
- * slots hold xi and w_B, and the orientation blocks are 3 x 4. The residual is
+ * slots store xi and w_B, and the orientation blocks are 3 x 4. The residual is
  * invariant under xi -> -xi, except the orientation rows' tilt at an exactly
  * upside-down attitude (orientation/BaseOrientation.h). The 3 x 4 blocks are
  * not: each is a tangent Jacobian times E+(xi), which changes sign with xi, as
@@ -138,7 +138,7 @@ struct TuningDeviationApproximation {
  * pitch angle to the roll rate by +1.5 and the roll angle to the pitch rate by
  * -1.5.
  *
- * Use: a cost holds one by value, built from the robot model it evaluates, and
+ * Use: a cost stores one by value, built from the robot model it evaluates, and
  * calls evaluate() for a value and linearize() for a Gauss-Newton approximation
  * (cost/TuningGaussNewton.h). A copyable, immutable value type that keeps a
  * pointer to the robot model, which must outlive it and every copy. Its const

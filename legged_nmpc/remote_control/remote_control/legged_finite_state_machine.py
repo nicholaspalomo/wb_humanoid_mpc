@@ -25,9 +25,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The control modes of the robot process's FSM, by the names operator/fsm_command and robot/fsm_state carry.
+"""The control modes of the robot process's FSM, by the names used in operator/fsm_command and robot/fsm_state.
 
-The robot process runs the FSM (its mode names: legged_common_mpc/mrt/ControlMode.h); the remote control names them:
+The robot process runs the FSM (its mode names: legged_common_mpc/mrt/ControlMode.h); the remote control defines them:
 - ZERO_TORQUE: de-energized, passive motors.
 - JOINT_PD: joint position servoing to the nominal posture.
 - GRAVITY_COMP: gravity compensation, zero-g compliance.

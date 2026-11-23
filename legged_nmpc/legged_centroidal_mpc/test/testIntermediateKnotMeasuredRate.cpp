@@ -134,7 +134,7 @@ scalar_t wrapped(scalar_t angle) {
 /**
  * The parts velocityCommandKnots() cuts a segment into: knotSubdivisionCount()
  * of the segment that moves at `linvelBaseRtWorldEwrtHeadingXy` and turns at
- * `rateYawBaseRtWorld` for `duration`, its knots carrying the velocity target
+ * `rateYawBaseRtWorld` for `duration`, with its knots using the velocity target
  * `cmdLinvelBaseRtWorldEwrtHeadingXy`.
  */
 size_t segmentParts(const vector2_t& linvelBaseRtWorldEwrtHeadingXy,
@@ -481,7 +481,7 @@ TEST(IntermediateKnotMeasuredRate,
     const scalar_t elapsed = horizon * static_cast<scalar_t>(sample) / kSamples;
     const vector_t reference =
         stack.model().getDesiredState(targets, kInitTime + elapsed);
-    // Both segments hold the same twist in steady state: one arc over the
+    // Both segments maintain the same twist in steady state: one arc over the
     // horizon.
     const PlanarPose onTheArc = integrated(
         start, linvelBaseRtWorldEwrtHeadingXy, rateYawBaseRtWorld, elapsed);

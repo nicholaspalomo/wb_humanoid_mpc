@@ -44,7 +44,7 @@ A launch file is a textproto of launch_proto.LaunchFile (proto/launch_file.proto
     }
 
 The file is parsed strictly with protobuf's text format: an unknown field, a value of the wrong type or a syntax
-error is a LaunchFileError naming the file, the line and the column. The launcher's own checks (names, machines,
+error is a LaunchFileError identifying the file, the line and the column. The launcher's own checks (names, machines,
 commands, durations, variables) name the process or the variable instead.
 
 `{name}` in a command argument or an environment value is replaced by the variable `name` (str.format syntax, `{{`
@@ -234,14 +234,14 @@ def _seconds(value: float, context: str) -> float:
 
 
 def _machine(entry: launch_file_pb2.LaunchFile.Process, context: str) -> str:
-    """The machine of a process, as --machine names it.
+    """The machine of a process, as --machine specifies it.
 
     The text format rejects an unknown value name, but takes any number for this open enum, and an unset field reads
     as MACHINE_UNSPECIFIED: both are errors here.
 
     Args:
         entry: The process.
-        context: Names the process in the error message.
+        context: Identifies the process in the error message.
 
     Returns:
         A name of MACHINES.
@@ -336,7 +336,7 @@ def _parse_shutdown(
 
     Args:
         entry: The shutdown entry of the file (unset: every default).
-        source: Names the file in the error messages.
+        source: Identifies the file in the error messages.
 
     Returns:
         The policy.

@@ -212,7 +212,7 @@ CentroidalMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
   const std::vector<VelocityCommandKnot> knots = velocityCommandKnots(
       velocityCommand, initTime, initState, measuredMotion);
 
-  // The state carries the NORMALIZED centroidal momentum h = [p / m, L / m].
+  // The state stores the NORMALIZED centroidal momentum h = [p / m, L / m].
   // Its linear part is the CoM velocity, which the target sets to the commanded
   // velocity of the base (the pelvis). That is exact for a command that does
   // not turn: a body turning rigidly at the yaw rate omega moves its CoM at
@@ -223,7 +223,7 @@ CentroidalMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
   // the vertical through its CoM at the commanded yaw rate: L = I_G * (0, 0,
   // yaw_rate), i.e. the yaw column of the locked inertia I_G, which is the
   // composite rigid body inertia that ccrba() leaves in data.Ig. That column is
-  // dominated by I_zz but also carries the products of inertia I_xz and I_yz,
+  // dominated by I_zz but also includes the products of inertia I_xz and I_yz,
   // without which the target would not correspond to any rigid rotation of the
   // body. The previous mapping, yaw_rate / m, dropped the inertia altogether,
   // which for the DRC Atlas made the yaw momentum target 8x too small (and

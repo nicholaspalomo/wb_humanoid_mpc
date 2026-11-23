@@ -92,7 +92,7 @@ struct CentroidalMpcLoopStep {
  * The centroidal MPC of a shipped configuration in a lockstep loop, without a
  * simulator: the interface's problem solved by its SQP MPC with the reference
  * manager, the target calculator and the procedural motion manager registered
- * as the MPC node registers them, every solve's observation handed to the
+ * as the MPC node registers them, every solve's observation passed to the
  * motion manager before it (the command neither filtered nor ramped, its limits
  * 1, so a command is applied as given), an MRT on the state manifold, and a
  * plant that is the projected rollout of the policy over one MPC period

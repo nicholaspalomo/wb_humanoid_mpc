@@ -2,7 +2,7 @@
 
 The closed-loop runs of five configurations after the packages, the namespace `ocs2::humanoid`, the macros and the proto
 packages were renamed from `humanoid` to `legged` (`humanoid_nmpc` to `legged_nmpc` and so on). The rename changes no
-code path, so each run is held to the label it was last recorded under. Recorded on commit 54ce1bff with the uncommitted
+code path, so each run is compared against the label it was last recorded under. Recorded on commit 54ce1bff with the uncommitted
 rename. Each document's provenance gives the worktree state (between 1967 and 1983 changed paths, since every run adds
 the documents of the runs before it to the worktree), the machine (Intel Core Ultra 7 265K, 20 logical cores, 30.2 GiB),
 GCC 13.3.0, HPIPM `GENERIC` and the container image `unknown` (`VALIDATION_CONTAINER_IMAGE` was not passed). The runs

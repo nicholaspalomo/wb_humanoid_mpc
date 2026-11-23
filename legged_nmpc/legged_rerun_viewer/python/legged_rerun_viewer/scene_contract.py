@@ -77,7 +77,7 @@ def instance_path(instance: str) -> str:
 
 
 def link_path(instance: str, link: str) -> str:
-    """world/robots/<instance>/<link>: carries the link's world pose."""
+    """world/robots/<instance>/<link>: stores the link's world pose."""
     return f"{ROBOTS_ROOT}/{instance}/{link}"
 
 

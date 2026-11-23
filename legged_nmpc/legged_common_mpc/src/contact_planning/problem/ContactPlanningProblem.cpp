@@ -263,7 +263,7 @@ std::vector<MiqpBinaryVariable> ContactPlanningProblem::binaryVariables(
 bool ContactPlanningProblem::propagate(const ContactLogicState& state,
                                        MiqpAssignment& a) const {
   // The rules are run to a fixpoint. Every rule reads the live assignment, so
-  // it sees what the others - and the same rule earlier in the same pass - have
+  // it sees what the others (and the same rule earlier in the same pass) have
   // already fixed; a pass that fixes nothing ends the propagation.
   for (int pass = 0; pass < kMaxPropagationPassesPerNode * state.numNodes;
        ++pass) {

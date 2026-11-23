@@ -111,7 +111,7 @@ def _starts_with_copyright(text: str) -> bool:
 def check_license_docstring(
     source: str, path: str
 ) -> list[check_types.Finding]:
-    """A module docstring that holds the license."""
+    """A module docstring that contains the license."""
     tree = _parse(source)
     docstring = _docstring_node(tree) if tree is not None else None
     if docstring is None or not _starts_with_copyright(docstring.text):

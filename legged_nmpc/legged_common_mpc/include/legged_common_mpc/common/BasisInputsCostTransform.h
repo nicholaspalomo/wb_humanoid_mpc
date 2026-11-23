@@ -68,10 +68,11 @@ namespace ocs2::legged {
  * the λ that produce a given wrench, the metric the optimizer sees on the
  * wrench becomes R + reg · (B Bᵀ)⁻¹, and with the DRC Atlas weights at the time
  * of writing (reg = 1e-4 against R entries of 1e-5 .. 2e-4) the second term
- * dominates, so R's moment and tangential weights barely matter. null_space S =
- * blkdiag(I - B_i⁺ B_i): only the λ that produce no wrench are penalized. The
- * metric on the wrench is then exactly R, and the λ block is still positive
- * definite whenever R is positive definite on the contact wrenches and reg > 0.
+ * dominates, so R's moment and tangential weights have little effect.
+ * null_space S = blkdiag(I - B_i⁺ B_i): only the λ that produce no wrench are
+ * penalized. The metric on the wrench is then exactly R, and the λ block is
+ * still positive definite whenever R is positive definite on the contact
+ * wrenches and reg > 0.
  *
  * See legged_nmpc/docs/contact_basis_vectors/README.md.
  */
@@ -93,8 +94,8 @@ inline constexpr absl::string_view kNullSpaceBasisRegularization = "null_space";
 inline constexpr absl::string_view kDefaultBasisRegularization =
     kFullDiagonalBasisRegularization;
 
-/** The task-file field naming the regularization; the registry's error messages
- * name it. */
+/** The task-file field specifying the regularization; the registry's error
+ * messages report it. */
 inline constexpr absl::string_view kBasisRegularizationField =
     "contacts.basis_regularization";
 /** The task-file field of the regularization weight `reg`. */
@@ -140,7 +141,7 @@ inline matrix_t nullSpaceRegularizationShape(const matrix_t& basisGeneratorMap,
 }
 
 namespace basis_inputs_cost_internal {
-/** One registered regularization shape: the name the task file selects it by
+/** One registered regularization form: the name the task file selects it by
  * and the function that builds it. */
 struct RegularizationEntry {
   // NOLINTNEXTLINE(totw-view-member): every entry is a string literal of a constexpr registry, alive for the whole program.
@@ -264,8 +265,8 @@ struct BasisInputsCostTransformConfig {
   }
 };
 
-/** Checks the parts of the config a task file sets; the messages name the key
- * to change. */
+/** Checks the parts of the config a task file sets; the messages identify the
+ * key to change. */
 inline absl::Status validateBasisInputsCostTransformConfig(
     const BasisInputsCostTransformConfig& config) {
   const absl::StatusOr<BasisRegularizationBuilder> builder =
@@ -298,7 +299,7 @@ inline matrix_t transformWrenchInputCostToBasisSpace(
  * Whether the λ block of a transformed input cost is positive definite, which
  * the QP needs for a unique input. It fails when the regularization weight is
  * zero, or under null_space when R gives some contact wrench direction no
- * weight; the message names the keys that fix it.
+ * weight; the message identifies the keys that fix it.
  */
 inline absl::Status checkLambdaBlockPositiveDefinite(const matrix_t& R_basis,
                                                      size_t numBasisInputs) {

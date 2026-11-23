@@ -27,7 +27,7 @@
 
 """Tests for tools/bazel, the Bazelisk wrapper that makes the compiling commands of every Bazel on the machine take turns.
 
-Two builds in two containers, each sized to the whole machine by .bazelrc, once crashed a 30 GB workstation.
+Two builds in two containers, each sized to the full machine by .bazelrc, once crashed a 30 GB workstation.
 """
 
 import os

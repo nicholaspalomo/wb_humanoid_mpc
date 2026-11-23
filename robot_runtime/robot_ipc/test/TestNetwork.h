@@ -42,7 +42,7 @@ namespace robot::ipc {
  * id and domain tag are drawn once per process, so the tests that Bazel runs at
  * once never discover each other, while every bus of this process (any call
  * with the same `domainIndex`) shares the domain. A test that needs two
- * networks apart (the two ends of a relay) uses two indices. Hand it to a child
+ * networks apart (the two ends of a relay) uses two indices. Pass it to a child
  * process with formatNetworkConfig() to share it across processes.
  */
 NetworkConfig isolatedTestNetwork(absl::Span<const std::string> nodeNames,

@@ -80,7 +80,7 @@ class ExecutionRule : public ContactPlanningTerm {
   }
   /**
    * The foot is scheduled to be in contact at ctx.time but is not measured in
-   * contact, and the latch holds the swing that just ended. Returns true when
+   * contact, and the latch stores the swing that just ended. Returns true when
    * the rule extended the swing and reported it; otherwise the latch is
    * cleared.
    */

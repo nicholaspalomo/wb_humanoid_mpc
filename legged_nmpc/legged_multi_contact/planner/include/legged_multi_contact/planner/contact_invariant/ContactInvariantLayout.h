@@ -35,7 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged::multi_contact {
 
 /** One contact candidate of a contact-invariant problem: where its force or
- * wrench sits in the physical input. Passive data. */
+ * wrench is located in the physical input. Passive data. */
 struct ActivationCandidate {
   std::string name;
   // The index of the candidate's force in the physical input; a surface

@@ -88,7 +88,7 @@ inline TuningLayout quaternionLayoutOf(const ModelSettings& settings,
  * the same attitude, its rotation tangent Jacobian is
  * configurationTangentLift(xi) (E^+, 3 x 4), the heading its twist heading and
  * interpolation slerps it. The Euler boundary accessors convert with
- * orientation/EulerBoundary.h. The centroidal state holds no base angular
+ * orientation/EulerBoundary.h. The centroidal state stores no base angular
  * velocity: reading or writing one fails the test, where
  * CentroidalMpcRobotModel aborts. The centroidal base twist and a centroidal
  * knot's planar command need the centroidal momentum matrix, which this model
@@ -463,8 +463,8 @@ class QuaternionLayoutRobotModel final : public MpcRobotModelBase<scalar_t> {
         getContactWrenchStartIndices(contactIndex));
   }
 
-  /** Fails the test, naming `caller`: the state holds no base angular velocity.
-   */
+  /** Fails the test, reporting `caller`: the state has no base angular
+   * velocity. */
   static void failWithoutAngvelBaseRtWorldEwrtBase(
       const char* absl_nonnull caller) {
     ADD_FAILURE() << caller

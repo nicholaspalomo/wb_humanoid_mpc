@@ -339,9 +339,8 @@ TEST_F(RelaxedContactConstraintsTest,
   ASSERT_GT(posFootRtWorldEwrtWorldZ - heights.minCoeff(), 0.01)
       << "the sole center must sit well above the lowest corner";
 
-  // Ground under the lowest corner: the foot is touching, so the gap - and with
-  // it the whole residual - is zero, even though the sole center is a
-  // centimeter up.
+  // Ground under the lowest corner: the foot is touching, so the gap (and the
+  // residual) is zero, even though the sole center is a centimeter up.
   LEGGED_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<ContactComplementarityConstraint> termPtr,
       ContactComplementarityConstraint::Create(*cornerHeights_, *robotModel_,
@@ -457,7 +456,7 @@ TEST_F(RelaxedContactConstraintsTest,
        ComplementarityDerivativesMatchFiniteDifferencesUnderNormalization) {
   // The scales multiply both derivative blocks, so a normalization applied to
   // the value but not to the Jacobian would pass every value test above and
-  // still hand the solver a wrong gradient.
+  // still pass the solver a wrong gradient.
   const scalar_t posSurfaceRtWorldEwrtWorldZ =
       cornerHeights_->getPosLinksRtWorldEwrtWorldZ(state_).minCoeff() - 0.03;
   expectDerivativesMatchFiniteDifferences(
@@ -660,7 +659,7 @@ TEST_F(RelaxedContactConstraintsTest,
         1.0e-9)
         << "tilt " << tilt;
 
-    // The lever arm is the configured footprint's: the toe edge sits at x_max
+    // The lever arm is the configured footprint's: the toe edge is at x_max
     // of the contact rectangle.
     EXPECT_NEAR(rock.normPosCornerRtContactEwrtContactX,
                 footprint.getBounds().max_pos_corners_rt_contact_ewrt_contact_x,

@@ -127,10 +127,10 @@ ModeSchedule walkSchedule() {
 //   [s + 0.7, s + 0.8)  double support
 //   [s + 0.8, s + 1.4)  RF: right stance, the LEFT foot swings
 //
-// Each foot is down 0.8 s of its own 1.4 s stride (beta = 4/7). What matters is
-// that 1.4 s does not divide the 1 s MPC horizon of the DRC Atlas: the contact
-// fraction of a foot over the next horizon - the window-based beta this
-// subsystem used to compute - then varies from node to node (0.4 to 0.75 here),
+// Each foot is down 0.8 s of its own 1.4 s stride (beta = 4/7). Because
+// 1.4 s does not divide the 1 s MPC horizon of the DRC Atlas, the contact
+// fraction of a foot over the next horizon (the window-based beta this
+// subsystem used to compute) varies from node to node (0.4 to 0.75 here),
 // whereas on the 1 s walk above it is 0.6 at every node, the same number as the
 // stride's own duty factor, and no test run on that walk can tell the two
 // apart.
@@ -178,7 +178,7 @@ ModeSchedule runSchedule() {
  * Re-reads a layer's coefficients from its task file when it goes out of scope,
  * however the test leaves it - including through a failed ASSERT. The suite
  * shares its interfaces across cases, so a case that retunes a layer and does
- * not put the file's numbers back hands the next case a different controller.
+ * not put the file's numbers back leaves the next case a different controller.
  * (It used to "restore" with a default-constructed configuration, whose zeros
  * are not what the DRC Atlas ships, and passed only because gtest ran the cases
  * in declaration order.)
@@ -220,7 +220,7 @@ class RestoreCoefficientsFromFileOnExit {
  * accessors the costs use, after a real preSolverRun() on a real walking
  * schedule.
  *
- * Five interfaces, built once for the whole suite because each build compiles
+ * Five interfaces, built once for the suite because each build compiles
  * or loads the CppAD libraries:
  *
  *  - `shipped_`: the task file exactly as it ships, all three lists empty. The
@@ -400,7 +400,7 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
   }
 
   /**
-   * The initial state carrying a command: world CoM velocity
+   * The initial state with a command: world CoM velocity
    * `linvelComRtWorldEwrtWorldXy`, heading `yaw`, and
    * `mnormAngmomComRtWorldEwrtWorldZ` in the angular-momentum channel. The
    * momentum part of the state is NORMALIZED, [p/m, L/m], so index 5 is L_z/m,
@@ -1118,7 +1118,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   // Bledt's H_Theta and H_z are functions of the COMMANDED velocity. Under
   // online contact planning the planned_com_override rule rewrites the target's
   // momentum channel with the plan's own swaying CoM velocity, and only
-  // getCmdLinvelBaseRtWorldEwrtWorldXy() still carries the operator's command.
+  // getCmdLinvelBaseRtWorldEwrtWorldXy() still retains the operator's command.
   // So the seam must read that accessor, and not the momentum of the state it
   // is shaping: here the two disagree, and the pitch has to follow the command
   // (1 m/s forward), not the state's channel (-1 m/s, which would lean the
@@ -1226,7 +1226,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
        PeriodicOrientationCarriesItsRateIntoTheAngularMomentum) {
   // The shaped attitude R(t) oscillates with the gait phase, so the reference
   // has to rotate at w = vee(dR/dt R'), and on the centroidal state the rate
-  // lives in the angular momentum: L / m of the whole body turning at w with
+  // is in the angular momentum: L / m of the whole body turning at w with
   // its joints at the reference, I_G w / m. Measured against an oracle
   // independent of the code under test: w by a central difference of the shaped
   // attitude's rotation matrix, I_G by Pinocchio's ccrba at the measured state.
@@ -1701,7 +1701,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
        CentripetalForceReachesTheWorldFrameReference) {
   // m omega x v with omega = 0.5 rad/s about z and v = (1.0, 0.4): m * 0.5 *
   // (-0.4, 1.0), shared over the stance feet, on top of W / n straight up - in
-  // the WORLD frame, which on the basis-vector model means the whole reference
+  // the WORLD frame, which on the basis-vector model means the full reference
   // is rotated into each foot's local contact frame. Read back through the
   // world-frame accessor. The yaw rate is not in the target as such: it is
   // recovered from the momentum channel as m h_z / I_zz, so this also pins that
@@ -1709,10 +1709,10 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   //
   // Measured on a robot TURNED to heading 0.7. At heading 0 the Atlas's sole
   // frames are the world frame to 2e-16 in the initial posture, so writing the
-  // world force into the local frame unrotated - getDesiredInput() taking the
+  // world force into the local frame unrotated (getDesiredInput() taking the
   // input-frame path despite wrenchHeuristicsNeedWorldFrame(),
   // setForceContactEwrtParam() in place of setForceContactEwrtWorld(), or a
-  // transposed rotation - gave bit for bit the same numbers there. Here each of
+  // transposed rotation) gave bit for bit the same numbers there. Here each of
   // them reads back as the right force turned by 0.7 or 1.4 rad, tens of
   // newtons off on the horizontal force of single support.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer =
@@ -2504,7 +2504,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   // With no step width and no hip_centered_stepping, nothing keeps the feet
   // apart: every other foothold heuristic nudges a target on the base's own
   // lateral line, and both feet would be aimed at the same point. The error
-  // must name both ways out. (The positive controls are built in
+  // must list both ways out. (The positive controls are built in
   // SetUpTestSuite: the same list on the shipped 0.45 m step width is
   // `stanceAnchored_`, and a zero step width with hip_centered_stepping listed
   // is `zeroStepWidth_`.)

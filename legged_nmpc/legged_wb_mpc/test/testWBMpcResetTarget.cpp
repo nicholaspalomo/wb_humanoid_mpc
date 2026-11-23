@@ -84,7 +84,7 @@ namespace {
 class G1Model {
  public:
   G1Model()
-      // A file missing from the runfiles throws here, naming the data
+      // A file missing from the runfiles throws here, reporting the data
       // dependency to add (robot::resolveResourcePath).
       : task_(checkedValue(loadTaskFile(checkedValue(robot::resolveResourcePath(
             "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto"))))),

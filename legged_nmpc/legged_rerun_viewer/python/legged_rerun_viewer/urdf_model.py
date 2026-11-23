@@ -31,7 +31,7 @@
                       search_roots=default_search_roots(urdf_path))
 
 A mesh named "package://<package>/<path>" is looked up in the directory of that package: the nearest directory named
-<package> above the URDF (the URDF itself usually lives in it), or one directly inside a directory above the URDF,
+<package> above the URDF (the URDF itself is usually in it), or one directly inside a directory above the URDF,
 or else a directory named <package> anywhere under one of the search roots (the repository's robot_models/). A
 "file://" URI or a plain path is taken as is, relative to the URDF's directory.
 
@@ -65,7 +65,7 @@ _FILE_SCHEME = "file://"
 
 
 class UrdfError(ValueError):
-    """A URDF that cannot be read, naming the file and the element."""
+    """A URDF that cannot be read, reporting the file and the element."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -499,7 +499,7 @@ def parse_urdf(
         The model.
 
     Raises:
-        UrdfError: the document is not a URDF the bridge can draw; the message names the file and the element.
+        UrdfError: the document is not a URDF the bridge can draw; the message reports the file and the element.
     """
     try:
         robot = ElementTree.fromstring(text)

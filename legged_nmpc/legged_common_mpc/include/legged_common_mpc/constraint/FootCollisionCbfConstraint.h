@@ -63,7 +63,7 @@ namespace ocs2::legged {
  * v_a - v_b is taken with the base at rest. The base's linear velocity moves
  * both points alike, and its angular velocity w adds w x (p_a - p_b), which is
  * orthogonal to p_a - p_b: neither changes dh/dt, so the row is exact in both
- * formulations although the centroidal state holds no base twist. The joint
+ * formulations although the centroidal state contains no base twist. The joint
  * velocities are the model's getJointVelocities(), the input of the centroidal
  * MPC and the state of the whole-body MPC.
  *

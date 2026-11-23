@@ -48,7 +48,7 @@ SOURCE_PACKAGE = os.path.abspath(
 class TestPackageImportPath(unittest.TestCase):
     """The modules imported are the files next to this test, wherever the tree links them to.
 
-    Compared as files (os.path.samefile), not as paths: Bazel may hand the interpreter the sources' real paths and this
+    Compared as files (os.path.samefile), not as paths: Bazel may pass the interpreter the sources' real paths and this
     test their runfiles links. A package found through a shell's PYTHONPATH (another checkout's
     legged_nmpc/remote_control, say) is another file, and fails.
     """

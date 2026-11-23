@@ -28,7 +28,7 @@
 """The topics of the IPC bus, the Python twin of include/legged_mpc_ipc/Topics.h.
 
 Each topic is a DDS topic of the same name (legged_nmpc/docs/distributed_runtime/README.md, "Topics"). The comment of
-each constant names the message it carries and who publishes it; config/ipc/network.textproto gives each its QoS
+each constant specifies the message it uses and who publishes it; config/ipc/network.textproto gives each its QoS
 profile (test/test_topics.py checks that every constant here equals its C++ twin).
 """
 
@@ -53,9 +53,9 @@ VIZ_TELEMETRY = "viz/telemetry"
 OPERATOR_WALKING_VELOCITY_COMMAND = "operator/walking_velocity_command"
 # FsmCommand, GUI -> robot, on change.
 OPERATOR_FSM_COMMAND = "operator/fsm_command"
-# MpcParameterUpdate (legged_mpc_config: the whole task and contact planner files), GUI -> MPC and robot, on edit.
+# MpcParameterUpdate (legged_mpc_config: the full task and contact planner files), GUI -> MPC and robot, on edit.
 OPERATOR_MPC_PARAMETERS = "operator/mpc_parameters"
-# JointPdGainsUpdate (legged_mpc_config: the whole PD gains file, paired with its configuration identity), GUI -> robot, on edit.
+# JointPdGainsUpdate (legged_mpc_config: the full PD gains file, paired with its configuration identity), GUI -> robot, on edit.
 OPERATOR_PD_GAINS = "operator/pd_gains"
 # JointTargets, GUI -> robot, on edit (JOINT_PD only).
 OPERATOR_JOINT_TARGETS = "operator/joint_targets"

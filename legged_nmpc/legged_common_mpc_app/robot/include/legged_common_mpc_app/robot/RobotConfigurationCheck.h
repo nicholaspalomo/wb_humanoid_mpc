@@ -69,7 +69,8 @@ struct RobotConfigFiles {
 /**
  * The files at `paths` read strictly (loadTaskFile() and its siblings), with
  * the contact planner's file beside the task file when there is one
- * (loadContactPlanningFileBeside()). The loaders' errors, which name the file.
+ * (loadContactPlanningFileBeside()). The loaders' errors, which identify the
+ * file.
  */
 absl::StatusOr<RobotConfigFiles> loadRobotConfigFiles(
     const RobotConfigDirectory::Files& paths);
@@ -123,7 +124,7 @@ struct RobotConfigurationCheckContext {
  * options (RobotBackendRegistry::checkOptions()). A start-up check added later
  * belongs here, once.
  *
- * @return The first refusal, naming the file and the field.
+ * @return The first refusal, identifying the file and the field.
  */
 absl::Status checkRobotConfiguration(
     const RobotConfigFiles& files,

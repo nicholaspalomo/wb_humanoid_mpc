@@ -139,7 +139,7 @@ scalar_t elapsedInCurrentPhase(const ContactPlannerInput& input) {
  * they say in which node a switch happened but not when. The time is in
  * `input.committedPhaseStartTimes`: the start of the contact phase the foot is
  * in at the node's sample, which is exactly that switch when it lies between
- * the two samples. When it does not, or the input carries no times, the switch
+ * the two samples. When it does not, or the input has no times, the switch
  * is placed at the node start, which is all the grid itself can say.
  */
 scalar_t committedSwitchTime(const ContactPlannerInput& input,
@@ -250,8 +250,8 @@ scalar_t appendPhase(std::vector<GaitPhase>& gait,
   if (endTime - startTime <= kMinPhaseDuration && endNode == startNode) {
     return startTime;
   }
-  // A phase that merely continues the one before it is the SAME phase. This
-  // matters beyond tidiness: the deadbeat step is evaluated once per
+  // A phase that merely continues the one before it is the SAME phase. This is
+  // required for correctness: the deadbeat step is evaluated once per
   // single-support phase, at the pre-impact state that phase ends in, so a
   // swing split into two adjacent phases would have its landing spot computed
   // twice - the first time from a pre-impact state flowed only part of the way.
@@ -481,7 +481,7 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(
   std::vector<GaitPhase> gait;
 
   // NOTE that standing is NOT handled by returning here. It used to be:
-  // `!walking` produced one all-stance phase over the whole horizon and
+  // `!walking` produced one all-stance phase over the full horizon and
   // returned before the committed window below, which made the standing plan
   // the one plan this planner produces that is not built from
   // input.committedContacts - in flat contradiction of the comment on that
@@ -1002,10 +1002,10 @@ void HlipContactPlanner::fillContactsAndPhases(const ContactPlannerInput& input,
   }
 
   // The per-interval ZMP, for display: the reduced model's own ZMP at the
-  // interval's midpoint. It is not constant over an interval - in double
+  // interval's midpoint. It is not constant over an interval (in double
   // support the constant-velocity roll-out's ZMP is the CoM itself, and an
-  // event can fall inside an interval - so lipReferenceState() reads the
-  // phases, not this. It used to hold the midpoint of the feet in double
+  // event can fall inside an interval), so lipReferenceState() reads the
+  // phases, not this. It used to store the midpoint of the feet in double
   // support, a ZMP inconsistent with the constant-velocity CoM the plan
   // publishes there.
   for (int interval = 0; interval < numIntervals; ++interval) {

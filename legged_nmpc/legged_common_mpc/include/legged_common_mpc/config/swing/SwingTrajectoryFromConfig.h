@@ -46,8 +46,8 @@ namespace ocs2::legged {
  * Nothing is logged: a verbose start-up prints the file.
  *
  * @param config The swing_trajectory_config block.
- * @return The settings; InvalidArgument naming the field when a value is not
- * finite (inf or nan) or out of the range its schema comment states:
+ * @return The settings; InvalidArgument identifying the field when a value is
+ * not finite (inf or nan) or out of the range its schema comment states:
  * swing_time_scale > 0, apex_pos_foot_rt_swingend_ewrt_world_z >= 0,
  * impact_proximity_factor_liftoff_slope
  *         <= 0, impact_proximity_factor_touchdown_slope >= 0,

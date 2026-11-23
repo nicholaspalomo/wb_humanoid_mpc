@@ -54,7 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /**
  * CentroidalMpcInterface::Create() refuses every contact-input configuration
- * error with an InvalidArgument that names the field to change (findings
+ * error with an InvalidArgument that identifies the field to change (findings
  * A79/A90, AC5, and the basis wiring of the generator set and the
  * regularization), and does so before any CppAD model is built. Each case edits
  * one field of the shipped DRC Atlas configuration, so every other value is the
@@ -78,7 +78,7 @@ class ContactInputParameterizationWiringTest : public ::testing::Test {
   }
 
   /** Create()'s status for the shipped configuration with `edit` applied, which
-   * must be an InvalidArgument naming every phrase. */
+   * must be an InvalidArgument containing every phrase. */
   void expectRefusedNaming(absl::string_view name,
                            absl::FunctionRef<void(mpc_config::TaskFile&)> edit,
                            absl::Span<const std::string> phrases) const {
@@ -108,8 +108,8 @@ class ContactInputParameterizationWiringTest : public ::testing::Test {
 
 TEST_F(ContactInputParameterizationWiringTest,
        TheRetiredBooleanIsRefusedByTheParserNamingItsReplacement) {
-  // A task file still carrying the retired boolean does not parse: the parser
-  // names what replaced it, with the position.
+  // A task file still containing the retired boolean does not parse: the parser
+  // reports what replaced it, with the position.
   const std::string directory =
       absl::StrCat(testing::TempDir(), "/wiring_retired");
   absl::StatusOr<CentroidalRobotFiles> files =

@@ -150,7 +150,7 @@ cc_library(
         "//legged_nmpc/legged_mpc_msgs:messages_nproto",
         # The multi-contact plan's patches, for the state estimator's contact heights (PlannedSurfaceHeights.h).
         "//legged_nmpc/legged_multi_contact/plan:multi_contact_plan_nproto",
-        # The plot configuration, whose mujoco_viewer names the MuJoCo viewer without --viewer (RobotAppOptions.h).
+        # The plot configuration, whose mujoco_viewer specifies the MuJoCo viewer without --viewer (RobotAppOptions.h).
         "//legged_nmpc/legged_rerun_viewer:plot_config_cc_proto",
         "//legged_nmpc/legged_rerun_viewer:plot_config_nproto",
         "//legged_state_estimation/legged_state_estimator:state_estimator",
@@ -312,7 +312,7 @@ cc_library(
     ],
 )
 
-# The loop runner paces on absolute deadlines, counts overruns, hands the timing over once per window and stops cleanly.
+# The loop runner paces on absolute deadlines, counts overruns, and passes the timing once per window before stopping.
 cc_test(
     name = "test_realtime_loop_runner",
     size = "small",
@@ -346,7 +346,7 @@ cc_test(
 )
 
 # Everything the realtime thread calls on the mailboxes, the event log and the telemetry sampler allocates nothing and
-# takes no lock once built. A binary of its own: the allocation counter replaces malloc for the whole process.
+# takes no lock once built. A binary of its own: the allocation counter replaces malloc for the process.
 cc_test(
     name = "test_robot_realtime_allocations",
     size = "small",
@@ -457,7 +457,7 @@ cc_test(
 
 # The contacts' surface heights for the state estimator (ContactSurfaceHeightSource.h): the flat ground, a multi-contact
 # plan's patches (a seat, a ramp, none on a wall or far from every patch), the task file's selection, and an
-# allocation-free fill(). Linked statically for the allocation counter, which replaces malloc for the whole binary.
+# allocation-free fill(). Linked statically for the allocation counter, which replaces malloc for the binary.
 cc_test(
     name = "test_contact_surface_height_source",
     size = "small",
@@ -487,7 +487,7 @@ cc_test(
     ],
 )
 
-# The planned contact switch times handed to the state estimator (PlannedSwitchTimesSource.h): the controller's, none
+# The planned contact switch times passed to the state estimator (PlannedSwitchTimesSource.h): the controller's, none
 # without a policy, allocation-free. Linked statically for the allocation counter.
 cc_test(
     name = "test_planned_switch_times_source",
@@ -825,7 +825,7 @@ cc_test(
     ],
 )
 
-# The checks start-up and a save share (checkRobotConfiguration()): each refuses on its own, naming the field.
+# The checks start-up and a save share (checkRobotConfiguration()): each refuses on its own, identifying the field.
 cc_test(
     name = "test_robot_configuration_check",
     size = "small",
@@ -903,7 +903,7 @@ cc_test(
     size = "small",
     srcs = ["test/testRobotAppOptions.cpp"],
     copts = FIRST_PARTY_COPTS,
-    # The shipped plot configurations, which name the viewer of make launch-<robot>-sim.
+    # The shipped plot configurations, which specify the viewer of make launch-<robot>-sim.
     data = ["//legged_nmpc/legged_rerun_viewer:plot_config"],
     deps = [
         ":robot_process",

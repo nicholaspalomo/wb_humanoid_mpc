@@ -63,20 +63,20 @@ struct JointMimicSettings {
  * contact set (`numContacts`, ModelSettings::numContacts()) is not two feet is
  * refused.
  *
- * @return The settings; InvalidArgument naming the field when a multiplier or
- * gain is not finite (inf or nan), and InvalidArgument naming the knee joint
- * mimic and the count when `numContacts` is not two.
+ * @return The settings; InvalidArgument identifying the field when a multiplier
+ * or gain is not finite (inf or nan), and InvalidArgument reporting the knee
+ * joint mimic and the count when `numContacts` is not two.
  */
 absl::StatusOr<BipedFeetArray<JointMimicSettings>> kneeMimicJointsFromConfig(
     const mpc_config::MimicJointsConfig& mimicJoints, size_t numContacts);
 
 /**
  * kneeMimicJointsFromConfig() for the centroidal MPC, whose
- * JointMimicKinematicConstraint holds the position alone and has no use for a
- * velocity gain.
+ * JointMimicKinematicConstraint constrains the position alone and has no use
+ * for a velocity gain.
  *
  * @return The settings, velocity gains 0; InvalidArgument as
- * kneeMimicJointsFromConfig(), and naming a velocity_gain that is not 0.
+ * kneeMimicJointsFromConfig(), and reporting a velocity_gain that is not 0.
  */
 absl::StatusOr<BipedFeetArray<JointMimicSettings>>
 kneeMimicKinematicJointsFromConfig(

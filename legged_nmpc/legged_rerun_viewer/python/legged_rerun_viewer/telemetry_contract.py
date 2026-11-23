@@ -43,7 +43,7 @@ each group's description says what its values are:
 - The balance panels plot all three sources: the whole-body CoM, the DCM / ICP xi = c + c_dot / omega with
   omega = sqrt(g / z0) from the model, the ZMP of the contact wrenches and the ACoM attitude.
 
-The MPC's state holds the base orientation as a quaternion and its velocity as the body angular velocity w_B. The plots
+The MPC's state stores the base orientation as a quaternion and its velocity as the body angular velocity w_B. The plots
 show the ZYX Euler angles (roll, pitch, yaw) of the quaternion, their rates T_B(Theta)^-1 w_B, which are display values
 only and NaN, a gap in the plot, within about 1e-6 rad of a pitch of +-90 degrees, and w_B itself: the "Base Pose &
 Euler" tab has a row of each rate below the Euler angles.
@@ -94,7 +94,7 @@ FORCE_NAMES = ("force_x", "force_y", "force_z")
 LEFT = "left"
 RIGHT = "right"
 
-# How the producer names the series of a group whose names depend on the robot.
+# How the producer labels the series of a group whose names depend on the robot.
 JOINT_NAMES_RULE = "the robot's joints, ModelSettings::fullJointNames in order"
 DOF_NAMES_RULE = (
     "base_x, base_y, base_z, base_yaw, base_pitch, base_roll"
@@ -120,7 +120,7 @@ CONSTRAINT_TERM_NAMES_RULE = (
 STATE_NAMES_RULE = "x0, x1, ...: one per component of the MPC state"
 INPUT_NAMES_RULE = "u0, u1, ...: one per component of the MPC input"
 
-# A curve of a robot-dependent group names its series by position: "[0]" is the group's first name.
+# A curve of a robot-dependent group identifies its series by position: "[0]" is the group's first name.
 _INDEX_SERIES = re.compile(r"^\[(\d+)\]$")
 
 
@@ -134,7 +134,7 @@ class SeriesGroup:
         unit: of every value.
         description: what the values are.
         colors: "#rrggbb" per name (palette.py's curve colors, for the panel groups); empty: Rerun picks.
-        names_rule: how the producer names the series when `names` is empty.
+        names_rule: how the producer labels the series when `names` is empty.
     """
 
     path: str
@@ -890,7 +890,7 @@ def _contact_tangential_panel(title: str, side: str) -> Panel:
 
 
 # The seven tabs of the panel groups, one small plot per panel. The joint panels plot every joint of the robot, and the
-# curves name the first of them. "Base Pose & Euler" shows the base's Euler angles, their rates and its body angular
+# curves label the first of them. "Base Pose & Euler" shows the base's Euler angles, their rates and its body angular
 # velocity, so that a plot configuration that selects it alone shows all three.
 # LINT.IfChange(panel_tabs)
 PANEL_TABS: tuple[Tab, ...] = (

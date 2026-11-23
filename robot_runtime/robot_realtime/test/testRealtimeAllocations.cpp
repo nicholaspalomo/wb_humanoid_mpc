@@ -56,7 +56,7 @@ using std::chrono::microseconds;
 using std::chrono::milliseconds;
 using std::chrono::nanoseconds;
 
-// A telemetry sample as the realtime thread would hand it to the communication
+// A telemetry sample as the realtime thread would pass it to the communication
 // thread: storage on the heap, of a size fixed when the queue is built.
 struct TelemetrySample {
   double time = 0.0;
@@ -190,7 +190,7 @@ TEST(RealtimeAllocationTest,
 }
 
 // The pieces together, as the robot process's realtime thread uses them: pace,
-// compute, hand a telemetry sample to the communication thread, account for the
+// compute, pass a telemetry sample to the communication thread, account for the
 // cycle and publish the timing once per window.
 TEST(RealtimeAllocationTest, aWholeRealtimeCycleDoesNotAllocate) {
   const TelemetrySample prototype = makePrototype();

@@ -2,7 +2,7 @@
 
 Every robot is a directory of Bazel packages: a description package (`*_description`: the URDF and MuJoCo models in
 `urdf/`, the meshes, and the model sandbox `launch/sandbox.textproto`) and one package per MPC that runs it
-(`*_centroidal_mpc`, and for the Unitree G1 also `g1_wb_mpc`), which holds the MPC's configuration in `config/`, its
+(`*_centroidal_mpc`, and for the Unitree G1 also `g1_wb_mpc`), which contains the MPC's configuration in `config/`, its
 launch files in `launch/` and, for the centroidal MPCs, a Pinocchio playground in `test/testPinocchioModel.cpp`.
 `tests/` cross-checks them: the URDF and MJCF inertias agree, the launch files start built binaries with files that
 exist, the filegroups ship no side files, and each robot's joint PD gains are stable in its MJCF at the simulator's
@@ -53,13 +53,13 @@ Edit a file and save it, or move the sliders of the tuning GUI (`legged_nmpc/rem
 configuration").
 
 - A file is parsed strictly: an unknown or misspelled field, a value of the wrong type or a field given
-  twice is an error naming the file, line and column. At start-up it stops the process; a running stack refuses the
+  twice returns an error with the file, line, and column. At start-up it stops the process; a running stack refuses the
   edit, logs why, and keeps the values it runs with.
-- Weights and states name what they weigh, never an index: `{x y z}` blocks
+- Weights and states are keyed by name rather than index: `{x y z}` blocks
   (`state_weights { pos_base_rt_world_ewrt_world { x: 0 y: 0 z: 0 } }`), the base orientation as Euler angles
   (`eulerzyx_base_rt_world { yaw: 0 pitch: 0 roll: 85 }`, which one layer maps onto the MPC's unit-quaternion state:
   legged_nmpc/docs/quaternion_base_orientation/README.md, section 2.10), and every joint of the MPC model exactly once, in any order
-  (`joint_positions { joint: "back_bkz" value: 5 }`). A block that names a joint the model does not have, or misses
+  (`joint_positions { joint: "back_bkz" value: 5 }`). A block that references a joint the model does not have, or misses
   one, is refused with the joint's name.
 - The schemas mark each field `RELOAD_HOT` or `RELOAD_START_UP`
   (`legged_nmpc/legged_mpc_config/tuning_options.proto`). A running MPC, centroidal or whole-body, polls its task
@@ -73,7 +73,7 @@ configuration").
   (`tools/deploy/README.md`, "Simulation").
 - In the GUI, the MPC Parameters, Joint PD Gains and Command Limits tabs are rendered from the schemas, so a field
   added to a schema (with its conversion in C++) appears on its tab without GUI code. A slider moved on the first two
-  publishes the whole edited file to the running stack (`operator/mpc_parameters`, `operator/pd_gains`) without
+  publishes the edited file to the running stack (`operator/mpc_parameters`, `operator/pd_gains`) without
   writing it; `enable_online_tuning: false` in the task file locks all three tabs. **Save** writes the edited values into the
   file and keeps every other byte of it (comments, blank lines, LINT directives, and the spelling of unchanged
   values), replacing the file atomically so that no watcher reads half a file; the file as first loaded is kept

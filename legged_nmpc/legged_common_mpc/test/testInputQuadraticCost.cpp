@@ -270,7 +270,7 @@ TEST_F(InputQuadraticCostTest, AHotReloadOfTheInputWeightsReplacesROnly) {
   EXPECT_TRUE(bitwiseEqual(live.dfdu, started.dfdu));
   EXPECT_TRUE(bitwiseEqual(live.dfduu, reloaded));
 
-  // A clone carries the reloaded weights, as every worker's copy of the problem
+  // A clone has the reloaded weights, as every worker's copy of the problem
   // must.
   const std::unique_ptr<InputQuadraticCost> clone(cost->clone());
   EXPECT_TRUE(bitwiseEqual(clone->getInputWeights(), reloaded));

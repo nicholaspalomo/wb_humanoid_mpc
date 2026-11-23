@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The viewer annotations of the policies the robot accepts
 // (MpcPolicy.annotations: the contact planner's target contact patches and the
-// scaled walking command), handed to one consumer of the robot process by
+// scaled walking command), passed to one consumer of the robot process by
 // RemoteMpcLink::takeAnnotations(): those of the newest accepted policy, once
 // each, and none of a policy the link drops.
 
@@ -81,7 +81,7 @@ TEST(RemoteMpcLinkAnnotations,
       RemoteMpcLink::Create(robotBus.get(), &supervisor, linkConfig);
   ASSERT_TRUE(link.ok()) << link.status();
 
-  // Every policy carries two target patches and a velocity that counts the
+  // Every policy has two target patches and a velocity that counts the
   // policies.
   std::atomic<int> solves{0};
   MpcServer::Hooks hooks;
@@ -142,7 +142,7 @@ TEST(RemoteMpcLinkAnnotations,
   EXPECT_DOUBLE_EQ(annotations.scaled_cmd_angvel_base_rt_world_ewrt_world_z,
                    -0.3);
   EXPECT_GE(annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_x, 1.0);
-  // Taken once: the same policy's annotations are not handed out again; the
+  // Taken once: the same policy's annotations are not returned again; the
   // next accepted policy brings new ones.
   const double first =
       annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_x;

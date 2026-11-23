@@ -29,8 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The task file's solver blocks become OCS2's settings: an empty block gives
 // the settings structs' defaults, every field reaches its setting, integrators
-// are named as OCS2 names them, and what the settings cannot hold is refused
-// naming the field. The schema refuses the keys it retired, naming what to do.
+// are named as OCS2 names them, and invalid settings are refused with the field
+// name. The schema refuses retired keys and reports what to do.
 
 #include <limits>
 #include <string>
@@ -332,7 +332,7 @@ struct RangedField {
 };
 
 /** Expects `convert` to refuse every out-of-range value and NaN of every field,
- * naming the field. */
+ * reporting the field. */
 template <typename Config, typename Convert>
 void expectEveryOutOfRangeValueRefused(
     absl::Span<const RangedField<Config>> fields, Convert convert) {
@@ -437,7 +437,7 @@ TEST(SolverSettingsFromConfigTest, TheEndsOfTheRangesAreAccepted) {
 }
 
 TEST(SolverSettingsFromConfigTest, AnAbsentWindowOrRateIsOcs2sSentinel) {
-  // The schema has no sentinel: an absent field is the whole horizon and
+  // The schema has no sentinel: an absent field means the full horizon and
   // solving as fast as possible, which OCS2's struct spells -1.
   const absl::StatusOr<mpc::Settings> settings =
       toMpcSettings(mpc_config::MpcSettingsConfig{});

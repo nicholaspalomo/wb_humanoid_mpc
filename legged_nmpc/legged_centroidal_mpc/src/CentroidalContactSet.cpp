@@ -320,7 +320,7 @@ absl::Status appendRefusedRollingSelections(const mpc_config::TaskFile& task,
 }
 
 /**
- * Returns OkStatus, or InvalidArgument naming the rolling contacts of
+ * Returns OkStatus, or InvalidArgument listing the rolling contacts of
  * `modelSettings` and every selection of `task` a rolling contact cannot run
  * (kRollingRefusedSoftConstraints, appendRefusedRollingSelections()).
  * Precondition: modelSettings.hasRollingContacts().

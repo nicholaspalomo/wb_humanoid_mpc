@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * What the live-tuning tests of the whole-body MPC share: the G1 whole-body
- * files, the variant of its task file whose problem carries the terms the
+ * files, the variant of its task file whose problem includes the terms the
  * shipped one leaves out, the MPCs built from them, and the states they are
  * evaluated at. Every MPC of the test program tapes its CppAD libraries into
  * one working directory made for the run, so that each library is generated
@@ -75,7 +75,7 @@ mpc_config::TaskFile shippedTaskFile();
  * friction_force_cone, and foot_collision_cbf listed, so that
  * joint_torque_weights, contacts.contact_wrench_cone_soft_constraint, the soft
  * weights of model_settings.foot_constraint and collision_cbf_constraint are
- * carried by a running problem; and a swing pitch, which the swing foot's cost
+ * included in a running problem; and a swing pitch, which the swing foot's cost
  * then holds the foot to.
  */
 mpc_config::TaskFile variantTaskFile();
@@ -90,9 +90,9 @@ std::unique_ptr<WBMpcInterface> createWholeBodyMpc(
 
 /**
  * Expects `interface` to run on the quaternion layout of the whole-body state
- * (design section 2.3): its optimal control problem carries the robot model's
- * state manifold, the interface's own, whose ambient state - the unit
- * quaternion of the base among it - has one row more than its tangent and is
+ * (design section 2.3): its optimal control problem uses the robot model's
+ * state manifold, the interface's own, whose ambient state (the unit
+ * quaternion of the base among it) has one row more than its tangent and is
  * the robot model's state.
  */
 void expectQuaternionLayout(const WBMpcInterface& interface);

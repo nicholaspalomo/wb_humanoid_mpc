@@ -42,10 +42,10 @@ does not have is inserted at the end of its block, with every block and keyed el
 its line), and to the file's parsed message, through protobuf reflection. The edited text is then parsed strictly
 (nproto_textproto) and must be the edited message exactly, field for field and bit for bit; otherwise the edit is
 refused with the difference and nothing is written. A value is written as its field's type spells it: a value the file
-already holds keeps the file's spelling (5 stays 5, 5e-5 stays 5e-5); a double gets the shortest digits that read back
+already has keeps the file's spelling (5 stays 5, 5e-5 stays 5e-5); a double gets the shortest digits that read back
 to it (repr), a float the shortest that read back to the same float; integers are decimal, booleans true or false,
 enums by name, strings quoted and escaped. The one byte change no edit asks for: an edited file whose `# proto-message:`
-header gives the name its schema had before a package rename names the current one (nproto_textproto.canonical_header_text()).
+header gives the name its schema had before a package rename uses the current one (nproto_textproto.canonical_header_text()).
 
 save() writes a temporary file next to the file, flushes and fsyncs it and renames it over the file, so the 1 Hz file
 watchers of the MPC and the robot never read half a file. ensure_backup() keeps the file as it was before the first
@@ -168,7 +168,7 @@ def apply_edits(
       text: The file's text; it must parse strictly.
       message_class: The generated class of its schema.
       edits: The edits, in order.
-      source: Names the text in errors, usually its path.
+      source: Identifies the text in errors, usually its path.
 
     Returns:
       The edited text and its message.
@@ -284,7 +284,7 @@ def save(
 ) -> EditResult:
     """Applies `edits` to the file at `path` (apply_edits()) and writes the result atomically when the text changed.
 
-    The file must name its schema with a `# proto-message:` line (nproto_textproto.check_proto_message_header()), as
+    The file must specify its schema with a `# proto-message:` line (nproto_textproto.check_proto_message_header()), as
     every loader of it requires.
 
     Args:
@@ -505,7 +505,7 @@ def _navigate(
     where: _Where,
     create: bool,
 ) -> tuple[Any, FieldDescriptor, textproto_document.PathSegment]:
-    """(the message that holds the last segment's field, that field, the last segment) of a path through `message`."""
+    """(the message that contains the last segment's field, that field, the last segment) of a path through `message`."""
     current = message
     for segment in segments[:-1]:
         field = _field(current, segment, where)

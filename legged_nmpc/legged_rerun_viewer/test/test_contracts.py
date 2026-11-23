@@ -274,7 +274,7 @@ class TelemetryGroupsTest(unittest.TestCase):
                 )
 
     def test_complete_groups_carry_every_series_of_the_panels(self) -> None:
-        # The panels duplicate values for plotting; the complete groups carry every series. Spot-check the kinds of
+        # The panels duplicate values for plotting; the complete groups include every series. Spot-check the kinds of
         # data: per DOF, per joint, per contact, per frame.
         complete = {
             group.path

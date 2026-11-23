@@ -73,7 +73,7 @@ struct FootCollisionSpheres {
   scalar_t kneeCollisionSphereRadius = 0.0;
 };
 
-/** A point of the legs that carries a collision sphere: an index into
+/** A leg point that has a collision sphere: an index into
  * footCollisionPointFrames(). */
 enum class FootCollisionPoint {
   kLeftAnkle,

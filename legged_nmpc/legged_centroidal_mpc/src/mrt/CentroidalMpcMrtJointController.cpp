@@ -105,7 +105,7 @@ namespace ocs2::legged {
 
 namespace {
 
-/** The class name the events carry. */
+/** The class name recorded in events. */
 constexpr char kControllerName[] = "CentroidalMpcMrtJointController";
 
 }  // namespace
@@ -225,7 +225,7 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
   otherJointIndices_ =
       robotDescription.getJointIndices(modelSettings.fixedJointNames);
   // Once, here, what the control cycle then takes for granted
-  // (jointActionUnchecked()): every joint it writes carries an action in a
+  // (jointActionUnchecked()): every joint it writes has an action in a
   // RobotJointAction of the robot description, as holdAction_ is one.
   checkJointIndices(robotDescription, mpcJointIndices_, kControllerName);
   checkJointIndices(robotDescription, otherJointIndices_, kControllerName);
@@ -448,7 +448,7 @@ void CentroidalMpcMrtJointController::updateMpcState(
       vPinocchio_);
 
   // h = A(q) v / m, A of updateCentroidalDynamics() for the model type, without
-  // its allocations: the whole robot's momentum (ccrba() on the twin) or the
+  // its allocations: the full robot's momentum (ccrba() on the twin) or the
   // single rigid body's, whose joint block is zero.
   if (info.centroidalModelType ==
       CentroidalModelType::SingleRigidBodyDynamics) {
@@ -659,9 +659,9 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
     // measurement is (LookaheadPolicyEvaluator). A policy the evaluator refuses
     // is not left to MRT_BASE::evaluatePolicy(), which allocates, logs and
     // aborts on a malformed policy: the robot is held as for a solver that
-    // keeps failing - the entry's hold on the cycle that handed over to the
-    // policy, the JOINT_PD action otherwise - until a policy the evaluator
-    // takes is in use.
+    // keeps failing (using the entry hold on the cycle that transitioned to the
+    // policy, or the JOINT_PD action otherwise) until a policy the evaluator
+    // accepts is in use.
     const LookaheadPolicyEvaluator::Outcome outcome = policyEvaluator_.evaluate(
         mpcLink_->getPolicy(), currentMpcObservation_.time, simDt,
         currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
@@ -764,7 +764,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
     fillPlannedCoordinates(contactFrameState);
     const ContactArray<matrix3_t>& rotmatContactsRtWorld =
         rigidBodyDynamics_->computeRotmatContactsRtWorld(plannedCoordinates_);
-    // The policy carries a wrench wherever its own schedule expects contact.
+    // The policy includes a wrench wherever its own schedule expects contact.
     // Whether a contact can actually transmit it is decided by the measured
     // contact state of this cycle, not by the plan: the wrench of a contact
     // that is not touching is dropped, and after touch-down it is debounced
@@ -1139,7 +1139,7 @@ void CentroidalMpcMrtJointController::applyEntryBlend(
   // the held action to the MPC action at every measured q and qd
   // (blendJointActionLinearInTorque(): the gains blend linearly, the targets as
   // gain-weighted means). Blending every field on its own, as this did, is not
-  // linear in the torque - kp q_des is the product of two blended fields - and
+  // linear in the torque (kp q_des is the product of two blended fields), and
   // blending the feedforward alone would leave the PD term to jump. The held
   // action goes into a workspace of the robot's size: a copy of equal sizes, no
   // allocation.

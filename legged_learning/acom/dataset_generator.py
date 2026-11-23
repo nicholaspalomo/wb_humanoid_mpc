@@ -40,7 +40,7 @@ from xml.etree import ElementTree
 import mujoco
 import numpy as np
 
-# Joint types that carry no degree of freedom and are therefore absent from both
+# Joint types that have no degree of freedom and are therefore absent from both
 # the Pinocchio and the MuJoCo joint vectors.
 _URDF_DOF_FREE_JOINT_TYPES = frozenset(("fixed", "floating"))
 
@@ -126,12 +126,12 @@ def _parse_pinocchio_joint_order(urdf_path: str) -> list[str]:
         urdf_path: Path to the URDF file.
 
     Returns:
-        Names of all joints carrying at least one degree of freedom, ordered as
+        Names of all joints with at least one degree of freedom, ordered as
         Pinocchio orders them.
 
     Raises:
         ValueError: If the URDF does not describe a single-rooted kinematic tree,
-            or names a joint without its parent or child link.
+            or specifies a joint without its parent or child link.
     """
     root = ElementTree.parse(urdf_path).getroot()
     link_names = {link.attrib["name"] for link in root.findall("link")}
@@ -197,8 +197,8 @@ class AcomDatasetGenerator:
 
     Raises:
         ValueError: If the model is not a floating-base model of single-DoF
-            joints, if the URDF and the MJCF name different joints, or if
-            `fixed_joints` names a joint the model does not have.
+            joints, if the URDF and the MJCF define different joints, or if
+            `fixed_joints` lists a joint the model does not have.
     """
 
     def __init__(
@@ -323,7 +323,7 @@ class AcomDatasetGenerator:
         """Reorders a per-joint array from MuJoCo order into the dataset's.
 
         The dataset's joint axis is Pinocchio's order when a URDF was given (and
-        MuJoCo's otherwise), without the fixed joints; `active_joint_names` names
+        MuJoCo's otherwise), without the fixed joints; `active_joint_names` lists
         its entries.
 
         Args:
@@ -348,7 +348,7 @@ class AcomDatasetGenerator:
         """The box `generate_dataset` samples the active joints from.
 
         It is the joint-limit box itself, untrimmed, so every posture the MPC can
-        reach within its limits - the robot's nominal stance included - is inside
+        reach within its limits (including the robot's nominal stance) is inside
         the training distribution, and the C++ acceptance test, which samples the
         URDF limits, grades the network on the distribution it was fit to.
 
@@ -456,13 +456,13 @@ class AcomDatasetGenerator:
             mujoco.mj_subtreeVel(self.model, self.data)
 
             # subtree_angmom is expressed about the subtree CoM. Index _ROOT_BODY_ID
-            # is the robot's root link, so its subtree is the whole robot and the
+            # is the robot's root link, so its subtree covers all robot links and the
             # momentum is about the whole-body CoM. Body 0 is MuJoCo's world body;
             # using it would silently fold in any other top-level body such as
             # terrain or a manipulated object.
             A_omega[:, col] = self.data.subtree_angmom[_ROOT_BODY_ID]
 
-        # Columns 3..5 hold the momentum induced by unit base angular velocity with
+        # Columns 3..5 store the momentum induced by unit base angular velocity with
         # the joints locked, which is by definition the whole-body locked inertia.
         # Columns 6.. hold the joint contribution. Columns 0..2 are identically
         # zero because angular momentum about the CoM is invariant to translation.

@@ -794,7 +794,7 @@ class _Finder:
                 )
 
     def _array_parameter(self, i: int) -> None:
-        """Reports an array parameter (`const double p[3]`) whose `[` carries no annotation."""
+        """Reports an array parameter (`const double p[3]`) whose `[` has no annotation."""
         code = self.code
         if i < 2 or code[i].ws_before:
             return

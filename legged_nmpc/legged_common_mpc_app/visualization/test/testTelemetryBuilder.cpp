@@ -245,7 +245,7 @@ legged_mpc_msgs::RobotStateSample withMeasForceFeetEwrtWorldZ(
 }
 
 /** The groups that are NaN by contract in the tests' data: the reference's
- * target carries no contact forces, so its ZMP. */
+ * target has no contact forces, so its ZMP. */
 bool isNotANumberByContract(absl::string_view path, bool hasAcom) {
   return path == "zmp/x" || path == "zmp/y" ||
          (!hasAcom &&
@@ -729,7 +729,7 @@ TEST_F(TelemetryBuilderTest,
               refAngvelBaseRtWorldEwrtBase.y(), kTolerance);
 }
 
-// The same on the centroidal MPC, whose state holds the centroidal momentum:
+// The same on the centroidal MPC, whose state stores the centroidal momentum:
 // the reference's base twist is the mapping's A_b^-1 (m hbar - A_j qd_j) at the
 // target's posture, so a target whose momentum is that of a turn about the
 // world z axis at a yaw rate r, with the joints still, shows (0, 0, r) in the

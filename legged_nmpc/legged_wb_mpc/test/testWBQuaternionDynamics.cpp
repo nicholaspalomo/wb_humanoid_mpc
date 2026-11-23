@@ -541,7 +541,7 @@ TEST(WBQuaternionDynamics,
   // One node of the SQP, a single RK4 step of its dt, drifts further, by the
   // method's truncation alone: halving the step shrinks it at least 16-fold
   // (RK4's local error is of order 5). The drift does not add up over the nodes
-  // - each node's state is retracted onto the manifold - and the shooting gap
+  // (each node's state is retracted onto the manifold), and the shooting gap
   // ignores it (StateManifold::difference() reads the flow's quaternion through
   // its direction only).
   const scalar_t sqpStep = g1->task.multiple_shooting.dt;

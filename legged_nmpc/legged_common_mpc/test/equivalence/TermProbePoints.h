@@ -154,9 +154,9 @@ std::vector<TargetedProbePoint> barrierBandPoints(
  * feet do not turn. The whole body's ZeroAccelerationConstraintCppAd, under the
  * same suffix, tapes the rates exactly
  * (legged_wb_mpc/end_effector/OrientationErrorWrtPlaneRates.h) and is not
- * classified. testQuaternionRootTermHessians.cpp holds the state blocks of such
- * a soft constraint at the points at rest only;
- * testQuaternionRootTermDerivatives.cpp does not use it, and holds every state
+ * classified. testQuaternionRootTermHessians.cpp checks the state blocks of
+ * such a soft constraint at the points at rest only;
+ * testQuaternionRootTermDerivatives.cpp does not use it, and checks every state
  * Jacobian at every point, the twist constraint's with the dropped term Av_ang
  * (dM/dx) omega added.
  */
@@ -270,9 +270,9 @@ struct TermExemption {
 
 /**
  * What a term test's coverage lacks: one finding for every label of `expected`
- * that is not in `checked` and that no exemption names; one for every exemption
- * whose term was checked after all, whose reason no longer holds; and one for
- * every exemption that names no label of `expected`. Empty when the test
+ * that is not in `checked` and that no exemption lists; one for every exemption
+ * whose term was checked after all, whose reason no longer applies; and one for
+ * every exemption that matches no label of `expected`. Empty when the test
  * checked every term it covers.
  */
 std::vector<std::string> coverageFindings(
@@ -282,12 +282,12 @@ std::vector<std::string> coverageFindings(
 
 /**
  * Which terms a term test checked only against zeros: one finding for every
- * label of `expected` that is in `checked` but not in `nonZero` - its
- * `quantity` (the reported first derivative, the reported Hessian) was zero at
- * every point it was checked at - and that no exemption names; one for every
+ * label of `expected` that is in `checked` but not in `nonZero` (its
+ * `quantity`, the reported first derivative or the reported Hessian, was zero
+ * at every point it was checked at) and that no exemption lists; one for every
  * exemption whose term was non-zero after all; and one for every exemption that
- * names no label of `expected`. Empty when every checked term was checked where
- * it is not zero.
+ * matches no label of `expected`. Empty when every checked term was checked
+ * where it is not zero.
  */
 std::vector<std::string> nonZeroFindings(
     absl::Span<const std::string> expected,
@@ -298,7 +298,7 @@ std::vector<std::string> nonZeroFindings(
 
 /**
  * Adds to `problem` the soft form of the first stance foot's zero-velocity
- * constraint it holds as a hard equality constraint (`<foot>_zeroVelocity`: the
+ * constraint it has as a hard equality constraint (`<foot>_zeroVelocity`: the
  * centroidal MPC's ZeroVelocityConstraintCppAd, the whole body's
  * ZeroAccelerationConstraintCppAd; `<contact>_rollingNoSlip` on a rolling
  * contact, the centroidal MPC's RollingContactConstraintCppAd), wrapped as the
@@ -310,8 +310,8 @@ std::vector<std::string> nonZeroFindings(
  * the penalty's slope, and the whole body's soft gradient. Returns the soft
  * term's label
  * (`softConstraint.<foot>_zeroVelocity` or
- * `softConstraint.<contact>_rollingNoSlip`), or nullopt when `problem` holds no
- * hard zero-velocity constraint or already holds the soft form.
+ * `softConstraint.<contact>_rollingNoSlip`), or nullopt when `problem` has no
+ * hard zero-velocity constraint or already has the soft form.
  */
 std::optional<std::string> addSoftStanceFootConstraint(
     OptimalControlProblem& problem,

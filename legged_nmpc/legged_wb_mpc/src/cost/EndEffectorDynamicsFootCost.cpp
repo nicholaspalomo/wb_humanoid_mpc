@@ -76,9 +76,9 @@ constexpr int kImpactProximityScalerIndex = kSqrtWeightsOffset + kFootCostDim;
 constexpr int kParameterDim = kImpactProximityScalerIndex + 1;
 
 /**
- * Returns InvalidArgument naming the first weight of `weights` that is negative
- * or not finite: the cost weighs each error by the square root of its weight,
- * which is NaN for a negative one.
+ * Returns InvalidArgument identifying the first weight of `weights` that is
+ * negative or not finite: the cost weighs each error by the square root of its
+ * weight, which is NaN for a negative one.
  */
 absl::Status checkWeights(const EndEffectorDynamicsWeights& weights) {
   const VECTOR18_T<scalar_t> values = weights.toVector();

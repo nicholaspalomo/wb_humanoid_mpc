@@ -72,8 +72,8 @@ class TermCollection {
 
   /**
    * Adds a term under a unique name and takes ownership of it. A null term or a
-   * name already in the collection is an InvalidArgument naming the term, and
-   * leaves the collection unchanged.
+   * name already in the collection is an InvalidArgument identifying the term,
+   * and leaves the collection unchanged.
    */
   absl::Status add(std::string name, TermPtr term) {
     if (term == nullptr) {

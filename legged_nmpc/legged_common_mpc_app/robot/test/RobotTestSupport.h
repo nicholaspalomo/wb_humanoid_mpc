@@ -111,10 +111,10 @@ bool waitFor(absl::FunctionRef<bool()> condition,
 
 /**
  * A RobotController that plans nothing: every active mode commands a joint PD
- * to the posture it is handed (gravity is carried by the gantry in the tests),
+ * to the posture it is given (gravity is carried by the gantry in the tests),
  * ZERO_TORQUE no gain and no torque as the MRT controllers do, and it records
- * what the robot process hands it. The realtime-thread methods are called by
- * the loop only; the getters below are for the test thread.
+ * what the robot process passes to it. The realtime-thread methods are called
+ * by the loop only; the getters below are for the test thread.
  */
 class ScriptedRobotController final : public RobotController {
  public:

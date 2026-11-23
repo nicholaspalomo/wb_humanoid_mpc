@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * under in the problem's cost collection, which the parameter updater finds it
  * by, and the name its CppAD library is compiled and cached under. The two are
  * defined apart, and pinned here with today's spellings, so that renaming a
- * term fails this test instead of renaming - and so regenerating - a library.
- * JointTorqueCostCppAd tapes computeJointTorques, which now carries the
+ * term fails this test instead of renaming (and so regenerating) a library.
+ * JointTorqueCostCppAd tapes computeJointTorques, which now includes the
  * joint-base coupling of the mass matrix that it used to leave out. The robots
  * ship model_settings.recompile_libraries_cpp_ad: false, so a library compiled
  * from the old function would be loaded in place of the new one if it were

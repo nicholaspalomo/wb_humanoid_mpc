@@ -522,8 +522,8 @@ TEST_F(HlipPlanningIntegrationTest,
   referenceManager_->preSolverRun(time, time + horizon, state,
                                   kBipedModeStance);
 
-  // Positive control: the schedule itself no longer holds a lift-off, so read
-  // off it alone the foot is unknown.
+  // Positive control: the schedule itself no longer contains a lift-off, so
+  // read off it alone the foot is unknown.
   const ModeSchedule& schedule = referenceManager_->getModeSchedule();
   EXPECT_FALSE(
       firstSwingAfter(schedule, -std::numeric_limits<scalar_t>::infinity())
@@ -564,7 +564,7 @@ TEST_F(HlipPlanningIntegrationTest, TheGaitAdvancesAtTheCommandedVelocity) {
   // And so does the reduced model. The average falls short of the command over
   // this horizon because the first step of the deadbeat law is placed behind
   // the center of mass, which is how the H-LIP accelerates out of a standstill;
-  // what matters is that the plan is walking forward at a speed of the
+  // the check here is that the plan is walking forward at a speed of the
   // commanded order.
   const scalar_t horizon = config.horizon();
   const scalar_t meanLinvelComRtWorldEwrtWorldX =
@@ -697,7 +697,7 @@ TEST_F(HlipPlanningIntegrationTest,
 TEST_F(HlipPlanningIntegrationTest, TheTerminalDcmReferenceFollowsThePlan) {
   // The lateral orbit needs the DCM beyond the stance foot, towards the foot
   // about to land. The terminal cost's own reference is the center of the
-  // terminal support - the stance foot itself during single support - and at
+  // terminal support (the stance foot itself during single support), and at
   // its weight it wins: the center of mass is held over the foot, the planner
   // reads a state with no lateral velocity and narrows the next step to
   // minPosLfootRtRfootEwrtHeadingY, and the robot falls sideways. With a plan
@@ -892,7 +892,7 @@ TEST_F(HlipPlanningIntegrationTest,
 }
 
 /**
- * The reload path returns a Status that names the key, leaves the running
+ * The reload path returns a Status that identifies the key, leaves the running
  * configuration in force when it rejects one, and warns when the planner's
  * shortest swing falls below the swing trajectory planner's swingTimeScale.
  */
@@ -911,11 +911,11 @@ TEST_F(HlipPlanningIntegrationTest,
 }
 
 /**
- * The module's reload and its factory return the rejection that names the key,
- * keep the running configuration of the module and of its reference manager,
- * and never build from a configuration that does not validate. Both used to
- * throw, and the planner's own reload did so on the worker thread, which cannot
- * catch.
+ * The module's reload and its factory return the rejection that identifies
+ * the key, keep the running configuration of the module and of its reference
+ * manager, and never build from a configuration that does not validate. Both
+ * used to throw, and the planner's own reload did so on the worker thread,
+ * which cannot catch.
  */
 TEST_F(HlipPlanningIntegrationTest,
        TheModuleRefusesByItsKeyAConfigurationItCannotRun) {
@@ -1053,9 +1053,8 @@ TEST_F(HlipPlanningIntegrationTest, TheModelRulesRequireWhatTheRegistrySays) {
  * shared.nom_pos_com_rt_feetmean_ewrt_world_z both left out, as shipped, the
  * DCM terminal cost and the planner both run on omega = sqrt(g / h), h the
  * model's center of mass above its soles at the initial state, computed here
- * independently of the interface
- * - and a plan carries that omega. The control: explicit positive heights are
- * used as given, each by its own consumer.
+ * independently of the interface, and a plan uses that omega. The control:
+ * explicit positive heights are used as given, each by its own consumer.
  */
 TEST_F(HlipPlanningIntegrationTest,
        TheDcmCostAndThePlannerRunOnTheModelsPendulum) {
@@ -1171,10 +1170,10 @@ TEST_F(HlipPlanningIntegrationTest,
 /**
  * With the contact planner on, the planned footholds reach the whole-body MPC
  * only through task_space_foot_cost's xy weights, which the Atlas ships at 0
- * (AC2): the interface says so at start-up, naming the keys to raise. The
- * start-up log also names the planner planner.type actually selects rather than
- * calling every planner the mixed-integer one (A34). The control of the warning
- * - no warning with the weights raised - is in the test above.
+ * (AC2): the interface says so at start-up, listing the keys to raise. The
+ * start-up log also reports the planner planner.type actually selects rather
+ * than calling every planner the mixed-integer one (A34). The control of the
+ * warning (no warning with the weights raised) is in the test above.
  */
 TEST_F(HlipPlanningIntegrationTest,
        WeightlessFootholdsAreWarnedAboutAndTheLogNamesTheConfiguredPlanner) {

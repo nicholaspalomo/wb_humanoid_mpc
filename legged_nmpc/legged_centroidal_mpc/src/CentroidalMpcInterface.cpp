@@ -259,8 +259,8 @@ absl::Status CentroidalMpcInterface::setupModels() {
                                    /*scaleTotalMass=*/false));
   pinocchioInterfacePtr_ =
       std::make_unique<PinocchioInterface>(std::move(pinocchioInterface));
-  // Every term that reads a contact frame - the centroidal model info, the
-  // dynamics, the foot costs and constraints - looks it up by model_settings'
+  // Every term that reads a contact frame (the centroidal model info, the
+  // dynamics, the foot costs and constraints) looks it up by model_settings'
   // name; a name the model does not have would be read out of bounds.
   RETURN_IF_ERROR(checkContactFramesExist(pinocchioInterfacePtr_->getModel(),
                                           modelSettings_.contactNames));
@@ -522,7 +522,7 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
       const std::vector<ContactWrenchConeBasisMatrix> basisMatrices,
       contactWrenchConeBasesFromConfig(contacts, modelSettings_));
   // The decorator models, each owning a clone of the inner model; Create()
-  // refuses bases that do not match the contact set. They carry a pinocchio
+  // refuses bases that do not match the contact set. They store a pinocchio
   // interface so that they can rotate the local-frame basis wrench into the
   // world frame for a given state.
   ASSIGN_OR_RETURN(basisDecoratorPtr_,
@@ -828,11 +828,11 @@ absl::Status CentroidalMpcInterface::setupLocomotionHeuristics() {
   // heuristics (legged_nmpc/docs/locomotion_heuristics/README.md).
   //
   // Here rather than in the constructor because every failure it can have is a
-  // configuration error the operator has to read - an unknown name, a name in
+  // configuration error the operator has to read (an unknown name, a name in
   // the wrong list, a coefficient outside its range, a foothold heuristic under
-  // an online contact planner - and this is the function that returns a Status.
-  // `initialState_` is already loaded by the time this runs, which matters: the
-  // model constants the heuristics need (the hip positions and the nominal CoM
+  // an online contact planner), and this is the function that returns a Status.
+  // `initialState_` is already loaded by the time this runs, because the model
+  // constants the heuristics need (the hip positions and the nominal CoM
   // height) are properties of the nominal standing posture.
   //
   // Every robot ships with all three lists empty, so on all of them this builds
@@ -891,9 +891,9 @@ absl::Status CentroidalMpcInterface::setupLocomotionHeuristics() {
 /******************************************************************************************************/
 
 // What setupOptimalControlProblem() builds every contact's terms from: pointers
-// to its locals, which outlive the per-contact helpers it is handed to. No
+// to its locals, which outlive the per-contact helpers it is passed to. No
 // field has a default, since a nonnull pointer has none to give: the one
-// initializer below names every field.
+// initializer below lists every field.
 struct CentroidalMpcInterface::ContactTermInputs {
   const MpcFormulationTasks* absl_nonnull formulationTasks;
   const LeggedCostConstraintFactory* absl_nonnull factory;
@@ -929,11 +929,11 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   const mpc_config::TaskFile& task = config_.task;
 
   // The contact_implicit block, before any term is built (a field the schema
-  // does not know - a renamed or misspelled one - is refused by the strict
-  // parser). The values are divisors and penalty weights: refused with a Status
-  // naming the field, rather than CHECK-aborting inside a term constructor or
-  // turning a penalty into a reward, whenever the formulation that reads them
-  // is listed.
+  // does not know, such as a renamed or misspelled one, is refused by the
+  // strict parser). The values are divisors and penalty weights: refused with a
+  // Status identifying the field, rather than CHECK-aborting inside a term
+  // constructor or turning a penalty into a reward, whenever the formulation
+  // that reads them is listed.
   if (usesContactImplicitFormulation(formulationTasks)) {
     RETURN_IF_ERROR(
         validateContactImplicitConfig(modelSettings_.contactImplicitConfig));
@@ -1043,7 +1043,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   // CppAD-compiled EE kinematics (zero-velocity, normal-velocity constraints,
   // foot tracking cost) first convert u_basis → u_wrench = M * u_basis before
   // extracting joint velocities at wrench-space offsets. Only the
-  // joint-velocity block of M matters here (the kinematics never read the
+  // joint-velocity block of M is used here (the kinematics never read the
   // contact block), so the local-frame map is sufficient.
   std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>> effectiveMappingPtr;
   if (usesContactBasisVectorInputs()) {
@@ -1071,7 +1071,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   // (CentroidalModelPinocchioMapping::getPinocchioJointPosition()): the foot
   // velocity constraints then read only the attitude of the stored quaternion,
   // as every other term does, on the unit sphere and off it. The kinematics'
-  // taped functions keep copies of the callback, so it holds its own copies of
+  // taped functions keep copies of the callback, so it stores its own copies of
   // the model info and of the mapping (a std::shared_ptr, as the std::function
   // it is stored in must be copyable) rather than references to this function's
   // locals.
@@ -1290,9 +1290,9 @@ absl::Status CentroidalMpcInterface::addCostTerms(
                               std::move(inputQuadraticCost));
   }
   // Terminal cost: the DCM viability cost (dcm_terminal_cost) or the quadratic
-  // final_state_weights cost (terminal_cost), whichever the costs list names;
-  // the conversion refuses a list that names both, so the two branches below
-  // are exclusive.
+  // final_state_weights cost (terminal_cost), whichever the costs list
+  // specifies; the conversion refuses a list that includes both, so the two
+  // branches below are exclusive.
   if (formulationTasks.hasCost(MpcCostType::kDcmTerminalCost)) {
     // A dcm_terminal_cost without nom_pos_com_rt_feetmean_ewrt_world_z has the
     // model's pendulum length, resolved here and, through the cost's own
@@ -1574,7 +1574,7 @@ absl::Status CentroidalMpcInterface::addPlannedContactTerms(
   }
   const multi_contact::LoadedScenario& scenario =
       plannedReferenceManagerPtr_->scenario();
-  // The terrain is on the tape: the library's name carries its hash.
+  // The terrain is on the tape: the library's name includes its hash.
   const std::string libraryName = absl::StrCat(
       "terrain_non_penetration_", contactName, "_",
       multi_contact::terrainSceneHash(scenario.scenario.terrain_scene));
@@ -1741,7 +1741,7 @@ absl::Status CentroidalMpcInterface::addContactHardConstraintsAndFootCosts(
         contact_term::name(footName, contact_term::kNormalVelocityName),
         getNormalVelocityConstraint(*eeKinematicsPtr, i));
   }
-  // The same row, priced instead of imposed. Imposed, it fixes the whole height
+  // The same row, priced instead of imposed. Imposed, it fixes the height
   // profile of a scheduled swing and the solver can neither land early nor
   // late; priced, it shapes the swing and is overruled whenever anything else
   // pays more, which is what the contact-implicit formulation needs of a

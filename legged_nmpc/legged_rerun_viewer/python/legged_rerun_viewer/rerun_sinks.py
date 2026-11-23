@@ -106,7 +106,7 @@ def viewer_executable() -> str | None:
 
 
 def url_endpoint(url: str) -> tuple[str, int] | None:
-    """The (host, port) of a gRPC URL such as rerun+http://127.0.0.1:9876/proxy; None when it names no host or port."""
+    """The (host, port) of a gRPC URL such as rerun+http://127.0.0.1:9876/proxy; None when it specifies no host or port."""
     try:
         parts = urllib.parse.urlsplit(url.removeprefix("rerun+"))
         port = parts.port
@@ -192,7 +192,7 @@ class Sink:
 
         Raises:
             ValueError: a sink option it needs is missing.
-            OSError: serve_web: its gRPC or web port is in use (the message names the port and its flag).
+            OSError: serve_web: its gRPC or web port is in use (the message includes the port and its flag).
             RuntimeError: another failure of rerun-sdk to start the sink.
         """
         if self._runs:
@@ -421,7 +421,7 @@ def attach_sink(
 
     Raises:
         ValueError: an unknown sink name (the message lists the valid ones), or a sink option it needs is missing.
-        OSError: serve_web: its gRPC or web port is in use (the message names the port and its flag).
+        OSError: serve_web: its gRPC or web port is in use (the message includes the port and its flag).
         RuntimeError: another failure of rerun-sdk to start the sink.
     """
     return make_sink(name, blueprint, options).attach(recording)

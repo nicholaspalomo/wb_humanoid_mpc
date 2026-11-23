@@ -27,17 +27,17 @@
 
 """Every parameter the GUI renders reaches the wire and the file, on every robot, headless (no Tk, no bus, no C++).
 
-For each robot's task, contact-planning, reference and PD gains files, as the tabs hold them (tuned_file.TunedFile):
+For each robot's task, contact-planning, reference and PD gains files, as the tabs store them (tuned_file.TunedFile):
 
-1. every rendered value the file sets is changed at once, and the edited file - parsed strictly from its edited text,
-   which is what the tabs publish - holds every new value and every other parameter as it was;
+1. every rendered value the file sets is changed at once, and the edited file (parsed strictly from its edited text,
+   which is what the tabs publish) contains every new value and every other parameter as it was;
 2. saving writes exactly those values: every other line of the file is kept byte for byte, comments and LINT
    directives included;
 3. values the file leaves out (defaults) are inserted where the schema puts them, and read back as the file's;
 4. the MPC parameter update built from the edited files round-trips through the wire format and is what the saved
    files parse into.
 
-Nothing here names a parameter: the parameters are the schemas' (config_schema), so a field added to a schema is
+Nothing here hardcodes a parameter: the parameters are the schemas' (config_schema), so a field added to a schema is
 covered the day it is added.
 """
 

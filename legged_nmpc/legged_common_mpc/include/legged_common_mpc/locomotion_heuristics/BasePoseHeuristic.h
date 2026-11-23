@@ -108,8 +108,8 @@ struct BasePoseHeuristicContext {
    * Gait phase at this node, in [0, 1), from
    * SwitchedModelReferenceManager::getPhaseVariable().
    *
-   * [0, 0.5) is the LF mode and [0.5, 1) the RF mode, and those name the foot
-   * IN CONTACT, not the one swinging: bipedFootContactsOfMode maps LF to
+   * [0, 0.5) is the LF mode and [0.5, 1) the RF mode, and those identify the
+   * foot IN CONTACT, not the one swinging: bipedFootContactsOfMode maps LF to
    * contact flags {true, false}. So the first half of the cycle is left stance
    * with the RIGHT foot in the air, and the second half is the mirror of it.
    *

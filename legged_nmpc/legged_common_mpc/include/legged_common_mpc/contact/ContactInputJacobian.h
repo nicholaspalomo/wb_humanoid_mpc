@@ -49,7 +49,7 @@ namespace ocs2::legged {
  * BasisInputsModelDecorator the same contact occupies a wider block of
  * non-negative scalings of a local-frame wrench-cone basis, and the force is
  * `B_local * lambda`: the identity block is then wrong in every entry, and a
- * term that writes one hands the solver a Jacobian for a function it is not
+ * term that writes one passes the solver a Jacobian for a function it is not
  * evaluating.
  *
  * The contact's input block is `[getContactWrenchStartIndices(i), +
@@ -80,18 +80,18 @@ matrix_t inputJacobianForceContactEwrtParam(
  * The row with `f_n = inputRowForceContactEwrtParamZ . input`: the third row of
  * inputJacobianForceContactEwrtParam().
  *
- * The contact-implicit terms use `f_n` as a LOAD INDICATOR - a number that is
- * zero exactly when the foot carries no contact wrench, and grows with the load
- * - rather than as a physical force, which is why both frames above serve. This
- * function additionally CHECKs the two properties that make the indicator
+ * The contact-implicit terms use `f_n` as a LOAD INDICATOR (a number that is
+ * zero exactly when the foot carries no contact wrench, and grows with the
+ * load) rather than as a physical force, which is why both frames above serve.
+ * This function additionally CHECKs the two properties that make the indicator
  * sound, because a new input parameterization could otherwise violate them:
  *
  *  - the row is non-negative, so no input can reduce the indicator while adding
- * load. Together with the sign constraint each parameterization already carries
- * (the friction cone for the wrench models; the non-negativity of the scalings
- * under BasisInputsModelDecorator, every one of whose generators is built with
- * a local normal force of exactly 1) this makes the indicator vanish if and
- * only if the whole wrench does;
+ * load. Together with the sign constraint each parameterization already
+ * enforces (the friction cone for the wrench models; the non-negativity of the
+ * scalings under BasisInputsModelDecorator, every one of whose generators is
+ * built with a local normal force of exactly 1) this makes the indicator vanish
+ * if and only if the wrench is zero;
  *  - the row is not identically zero, i.e. some input of this contact does
  * produce a normal force.
  */

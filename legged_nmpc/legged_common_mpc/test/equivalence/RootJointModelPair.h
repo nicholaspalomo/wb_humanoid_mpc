@@ -109,7 +109,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * differ only in how R is formed (trigonometric products against the
  * quaternion's quadratic form, each entry within a few units of round-off) and
  * how the root velocity is formed (T_B dTheta against w_B); a tree of depth d
- * then carries that difference through d compositions. The suite's labeled
+ * then propagates that difference through d compositions. The suite's labeled
  * bounds, each derived at its declaration:
  *
  *   (T1) round-off of two evaluations of one chain of transforms, 1e-12
@@ -129,7 +129,7 @@ namespace ocs2::legged {
 /** One shipped MPC configuration, by its files relative to the repository root
  * (string literals). Passive data. */
 struct EquivalenceRobot {
-  /** The configuration's package, e.g. "g1_wb_mpc": names the test case. */
+  /** The configuration's package, e.g. "g1_wb_mpc", used as the test name. */
   const char* absl_nonnull name;
   /** Its task file: which URDF joints the MPC model keeps
    * (ModelSettings::mpcModelJointNames). */

@@ -2,7 +2,7 @@
 # proto-message: legged_mpc_config.ConfigRegistries
 #
 # The names each registry of the stack accepts: the choices the tuning GUI offers for a string field whose
-# (legged_mpc_config.tuning) option names a registry. Written from the registries by
+# (legged_mpc_config.tuning) option specifies a registry. Written from the registries by
 # `bazel run //tools/config_registries:print_config_registries`; do not edit it by hand:
 # //tools/config_registries:config_registries_test fails when it and the registries differ.
 

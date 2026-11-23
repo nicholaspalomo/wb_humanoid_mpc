@@ -60,7 +60,7 @@ inline bool fixBinary(MiqpAssignment& a,
  * core of the rules written over the number of feet (no_flight with a count of
  * one, minimum_double_support with its minimum support count).
  *
- * `nodeBinaries` holds the binary index of every foot at the node, in foot
+ * `nodeBinaries` stores the binary index of every foot at the node, in foot
  * order, and `boundFeet` has one entry per foot. A free binary counts as a
  * possible contact, so the pass is sound on a partial assignment: a bound foot
  * is fixed down only when the other feet cannot reach the count in any

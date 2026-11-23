@@ -149,9 +149,9 @@ struct Conversion {
   using Proto = ProtoType;
 };
 
-// The file messages, which hold every block message (FillWithTestValues fills
-// submessages recursively), the registries' names, the primitives, and the
-// option messages, which no file holds.
+// The file messages, which contain every block message (FillWithTestValues
+// fills submessages recursively), the registries' names, the primitives, and
+// the option messages, which no file contains.
 using AllMessages = ::testing::Types<
     Conversion<TaskFile, legged_mpc_config::TaskFile>,
     Conversion<ReferenceFile, legged_mpc_config::ReferenceFile>,

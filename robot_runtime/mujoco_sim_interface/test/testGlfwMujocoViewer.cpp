@@ -355,7 +355,7 @@ TEST(GlfwMujocoViewer, TheWindowShowsWhatTheOffscreenBufferShows) {
     ASSERT_TRUE(viewer.ok())
         << "the GLFW viewer did not open its window on " << (*xvfb)->display();
     // Some 60 frames of the same state, by which the tracking camera, which
-    // eases towards the robot, has settled.
+    // eases towards the robot, has stabilized.
     absl::SleepFor(absl::Seconds(1));
     absl::StatusOr<GlfwMujocoViewerTestPeer::Capture> captured =
         GlfwMujocoViewerTestPeer::captureWindow(viewer, absl::Seconds(10));
@@ -384,7 +384,7 @@ TEST(GlfwMujocoViewer, TheWindowShowsWhatTheOffscreenBufferShows) {
   ASSERT_TRUE(frame.ok()) << frame.status();
 
   // Both are llvmpipe, so the pixels agree but for a few on depth-sensitive
-  // edges - the floor's far edge and the shadows' - where the window's 24-bit
+  // edges (the floor's far edge and the shadows') where the window's 24-bit
   // depth buffer and MuJoCo's offscreen one round differently.
   int64_t equal = 0;
   int64_t close = 0;

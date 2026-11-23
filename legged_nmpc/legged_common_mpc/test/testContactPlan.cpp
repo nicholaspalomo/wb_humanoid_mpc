@@ -91,10 +91,10 @@ size_t modeWithSwinging(size_t foot) {
  * The planner input the reference manager builds from the executed schedule,
  * built the way ContactPlanningReferenceManager::makePlannerInput builds it:
  * the commit boundary of the applied schedule, then
- * fillPlannerInputFromSchedule() - contacts, phase timing, the committed window
- * and the last swung foot - with a lift-off history that has seen `schedule`.
+ * fillPlannerInputFromSchedule() (contacts, phase timing, the committed window
+ * and the last swung foot) with a lift-off history that has seen `schedule`.
  * The input used to be assembled here by hand, and without the last swung foot,
- * so these tests planned from an input production never hands the planner.
+ * so these tests planned from an input production never passes to the planner.
  */
 ContactPlannerInput makeInput(const ModeSchedule& schedule,
                               scalar_t time,
@@ -236,8 +236,8 @@ ModeSchedule expectMergedScheduleHonorsMinimumDurations(
 // nudging getDesPosFootRtWorldEwrtWorldXy()'s argument. The caller used
 // `liftOffTime - 0.5 * dt
 // + 1e-6`, and lround(k - 0.5 + eps) == k, so it read the LIFT-OFF node. Under
-// the shipped `hlip` planner that node already holds the swing's landing
-// position, which collapsed the whole swing reference to a constant at its own
+// the shipped `hlip` planner that node already stores the swing's landing
+// position, which collapsed the swing reference to a constant at its own
 // target. See ContactPlan.h.
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -374,11 +374,11 @@ TEST(ContactPlanNodeLookup, theBeforeLookupsAreEmptyOnAnInvalidPlan) {
 // ---------------------------------------------------------------------------------------------------------------
 // describe(): the length of every step, the line planner.logPlans writes.
 //
-// The step used to be measured from the LIFT-OFF node -
-// desPosFeetRtWorldEwrtWorldXyTraj[end] - desPosFeetRtWorldEwrtWorldXyTraj[k] -
-// which is the same off-by-one
+// The step used to be measured from the LIFT-OFF node
+// (desPosFeetRtWorldEwrtWorldXyTraj[end] -
+// desPosFeetRtWorldEwrtWorldXyTraj[k]), which is the same off-by-one
 // getPrevDesPosFootRtWorldEwrtWorldXy() exists to keep callers out of. Under
-// the shipped `hlip` planner the lift-off node already carries the swing's
+// the shipped `hlip` planner the lift-off node already stores the swing's
 // LANDING position, and so does the touch-down node, so the difference was
 // identically zero and every stepping swing of every H-LIP plan logged a
 // (0.000,0.000) displacement. It is now measured from node k - 1, the last node
@@ -448,9 +448,9 @@ TEST(ContactPlanDescribe,
   plan.contacts = {{true, true},  {true, true},  {false, true},
                    {false, true}, {false, true}, {true, true}};
   // The convention HlipContactPlanner writes: the landing spot is stamped over
-  // every node of the single-support phase, so node 2 - the lift-off node -
-  // already holds it, and the double support that follows leaves it there, so
-  // node 5 holds it too. Only nodes 0 and 1 hold the stance the foot leaves.
+  // every node of the single-support phase, so node 2 (the lift-off node)
+  // already stores it, and the double support that follows leaves it there, so
+  // node 5 stores it too. Only nodes 0 and 1 store the stance the foot leaves.
   // Measuring the step between nodes 2 and 5 therefore returned zero; measuring
   // it between node 1 and node 5 returns the step the planner chose.
   plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
@@ -475,7 +475,7 @@ TEST(ContactPlanDescribe,
 
 TEST(ContactPlanDescribe,
      ASwingAlreadyInFlightAtTheStartOfThePlanPrintsNoStepAtAll) {
-  // A plan that begins mid-swing holds no pre-lift-off foothold for that foot:
+  // A plan that begins mid-swing has no pre-lift-off foothold for that foot:
   // the lift-off happened before node 0. There is no step to report, and
   // reporting a zero would be the very thing this pins - a displacement of zero
   // read as "the planner is stepping in place" when it means "this line cannot
@@ -593,11 +593,11 @@ TEST(ContactPlanMerge,
 
 /**
  * The merge tests plan from the input production builds (makeInput above,
- * through fillPlannerInputFromSchedule): it carries the foot the executed
+ * through fillPlannerInputFromSchedule): it includes the foot the executed
  * schedule swung last, and the plan merged at the commit boundary lifts the
- * other one first. The hand-built input these tests used before carried no last
- * swung foot (-1), which production never hands the planner once the robot has
- * stepped.
+ * other one first. The hand-built input these tests used before had no last
+ * swung foot (-1), which production never passes to the planner once the robot
+ * has stepped.
  */
 TEST(ContactPlanMerge,
      TheInputCarriesTheLastSwungFootAndTheMergedPlanAlternatesFromIt) {
@@ -640,10 +640,10 @@ TEST(ContactPlanMerge, GridAlignedTouchDownIsUnchanged) {
 }
 
 /**
- * With the live commit time of three whole nodes the boundary of a plan made at
+ * With the live commit time of three full nodes the boundary of a plan made at
  * 0.7 s lies on the node grid at 1.0 s whenever no swing extends it. A
  * touch-down inside the last committed node but after its midpoint (0.97 s)
- * used to be handed to the planner as "still swinging"; a plan that then kept
+ * used to be passed to the planner as "still swinging"; a plan that then kept
  * the foot up over the first free node made the merge lift the foot again 0.03
  * s after it had landed. The touch-down must stay where it is and the foot must
  * stay down.
@@ -726,7 +726,7 @@ TEST(ContactPlanMerge, PhaseStartingExactlyAtTheLowerBoundSurvivesTheMerge) {
 }
 
 /**
- * A plan that carries its gait in continuous time (the H-LIP planner's) is
+ * A plan that stores its gait in continuous time (the H-LIP planner's) is
  * scheduled at those times, not at the node times its sampled contacts change
  * on: the executed single and double supports then last what the planner
  * decided, where the node grid rounded every one of them to within half a node

@@ -33,7 +33,7 @@
 It runs through Bazel because launch files are textprotos, read with the module Bazel generates from
 proto/launch_file.proto.
 
-See README.md for the launch file format and launch_cli.py for the options. The command line lives in launch_cli.py
+See README.md for the launch file format and launch_cli.py for the options. The command line is in launch_cli.py
 so that tests and other tools can import it by a name of its own: a generic top-level module named `launch` is
 shadowed by, or shadows, any installed package of the same name wherever both are on the path.
 """

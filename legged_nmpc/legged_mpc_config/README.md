@@ -28,7 +28,7 @@ use of yaml-cpp (`config-yaml`, `yaml-cpp`, AGENTS.md).
 
 ## Schema map
 
-Every `.proto` file holds one message, named after the file. The task file's blocks, by the field that holds them:
+Every `.proto` file defines one message, named after the file. The task file's blocks, by field name:
 
 | Field of `TaskFile` | Message (file) | What it sets |
 |---|---|---|
@@ -64,7 +64,7 @@ The task file's scalars and lists set the formulation (`costs`, `soft_constraint
 - `joint_pd_gains_file.proto`: the gains every joint starts from and those of named joints.
 - `contact_planning_file.proto`: the planner, its shared and H-LIP blocks, the term lists and a block per term
   (legged_nmpc/docs/README.md, section 2.10; legged_nmpc/docs/contact_planner_terms/README.md).
-- `mpc_parameter_update.proto`: the GUI's live update, a whole `TaskFile` and, for a robot that has one, a whole
+- `mpc_parameter_update.proto`: the GUI's live update, a complete `TaskFile` and, for a robot that has one, a complete
   `ContactPlanningFile`.
 - `xyz.proto`, `yaw_pitch_roll.proto`, `joint_value.proto`: the shared primitives of the weights and values.
 - `tuning_options.proto`, `tuning_group_options.proto`, `config_options.proto`: the GUI metadata ([below](#gui-metadata)).
@@ -77,29 +77,29 @@ The task file's scalars and lists set the formulation (`costs`, `soft_constraint
   after the options (tools/hooks/proto_file_layout.py, proto_next_id.py). A block used by one file only is nested in
   it; a block used in several places has its file. `config_options.proto` is the one options-only file.
 - **Names** are snake_case (`state_weights`, `abs_tol_ode`, `ssp_duration`); a control of the GUI is labeled by them.
-- For **defaults**, a scalar whose absence means "the default" carries `[default = X]`, the default of the domain struct it
+- For **defaults**, a scalar whose absence means "the default" has `[default = X]`, the default of the domain struct it
   converts to, and is a plain struct member. A scalar whose absence has its own meaning (unset, the controller's
   default, derived from the robot model as a `nom_pos_com_rt_feetmean_ewrt_world_z` left out is, or required by the formulation that reads it)
   has no default and is a `std::optional`, never a sentinel value such as 0; so is a message field
-  marked `[(nproto.optional_message) = true]`. Strings carry `[default = ""]` unless absence means something.
+  marked `[(nproto.optional_message) = true]`. Strings have `[default = ""]` unless absence means something.
 - For **ranges**, a field's comment states its range, and its conversion refuses a value outside it (NaN included) with an
   InvalidArgument that names the field, at start-up and on a reload alike, so that a refused reload keeps the running
   value: a time step, a tolerance, a rate, a horizon, a radius, a barrier's `mu` and `delta` positive; the factors of
   the line search in (0, 1); a weight, a weight's `scaling` and `terminal_cost_scaling` at least 0 (a negative one makes
-  the quadratic cost and its Gauss-Newton Hessian indefinite). A block whose numbers are all at least 0 carries
+  the quadratic cost and its Gauss-Newton Hessian indefinite). A block whose numbers are all at least 0 sets
   `minimum: 0` in its tuning options, which every number below it inherits and the GUI enforces (typed, dragged and set
   values); the checks in C++ do not rely on it.
 - An **absent list is empty**: a repeated field has no presence, so a file that leaves out `telemetry_sinks`,
   `sim_visualizations` or a term list has none, and the shipped files write every list out.
 - **Weights and states by name**, never by index: `{x y z}` blocks, the base orientation as Euler `{yaw pitch roll}`
-  (though the MPC's state holds it as a unit quaternion), and joints as `joint_positions { joint: "back_bkz" value: 5 }`.
+  (though the MPC's state stores it as a unit quaternion), and joints as `joint_positions { joint: "back_bkz" value: 5 }`.
   The conversions place each name at the index of the MPC's tuning layout (`StateInputLayout`, `tuningLayoutOf()`),
-  require every joint of the model exactly once and refuse an unknown or a fixed one, naming it. One layer maps the
+  require every joint of the model exactly once and refuse an unknown or a fixed one, reporting it. One layer maps the
   Euler rows onto the quaternion state and its residuals, at start-up and on a live update alike
   (legged_nmpc/docs/quaternion_base_orientation/README.md, sections 2.10 and 3.5).
 - **Named components are strings** that a registry resolves (costs, constraints, estimators, sinks, visualizations,
   parameterizations, the centroidal model, the stance constraint's rows, the foot cost's phases, the planner's
-  threading, its terms and its terminal DCM target, heuristics), never booleans or int codes. Each such field names its registry in its tuning
+  threading, its terms and its terminal DCM target, heuristics), never booleans or int codes. Each such field specifies its registry in its tuning
   options (`registry: "contact_estimator"`) and is tied to the registry's name list with `LINT.IfChange` /
   `LINT.ThenChange`.
 
@@ -107,14 +107,14 @@ The task file's scalars and lists set the formulation (`costs`, `soft_constraint
 
 `nproto::LoadTextprotoFile<mpc_config::TaskFile, legged_mpc_config::TaskFile>(path)` parses a file strictly into its
 struct; `legged_common_mpc/config/ConfigFiles.h` wraps it per file kind (`loadTaskFile()`, `loadReferenceFile()`,
-...), with the file named in every error. A file whose header names another message is refused before it is parsed. A
+...), with the file named in every error. A file whose header specifies another message is refused before it is parsed. A
 retired key is refused with what replaced it ([below](#retiring-a-hyperparameter)). Python reads the same files with
 `nproto_textproto.load_textproto(path, task_file_pb2.TaskFile)`, which refuses what the C++ parser refuses, at the
 same position.
 
 The structs are the API. The conversions, `legged_<pkg>/include/.../config/<area>/*FromConfig.h`
 (`stateWeightsFromConfig()`, `toSqpSettings()`, `swingTrajectorySettingsFromConfig()`, ...), take a block's struct and
-return the domain struct or an `InvalidArgument` naming the field path. Only the entry points of a process take a path: the MPC interfaces'
+return the domain struct or an `InvalidArgument` reporting the field path. Only the entry points of a process take a path: the MPC interfaces'
 `Create`, `ModelSettings::Create`, the target trajectories calculators' `Create`, `ProceduralMpcMotionManager::Create`,
 `GaitSchedule::Create`, the MRT joint controllers' `Create`, the parameter updater, `loadRobotProcessSettings`,
 `loadVisualizationConfig`, `loadKeyboardCommandLimits` and the task-file watcher. Each loads the file and calls its
@@ -122,11 +122,11 @@ typed overload. `bazel run //tools/config_dump -- --robot=<robot>` prints everyt
 
 ## Live updates
 
-The tuning GUI publishes typed messages, never text: the whole edited task file (and contact planner's file) as an
-`MpcParameterUpdate` on `operator/mpc_parameters`, and the whole PD gains file as a `JointPdGainsFile` on
+The tuning GUI publishes typed messages rather than text: the full edited task file (and contact planner's file) as an
+`MpcParameterUpdate` on `operator/mpc_parameters`, and the full PD gains file as a `JointPdGainsFile` on
 `operator/pd_gains`. The file watches of the running stack parse the edited file the same way.
 
-**A reload is the file.** A running stack applies an update, or an edited file, as that whole file: a block it leaves
+**A reload is the file.** A running stack applies an update, or an edited file, as a complete file: a block it leaves
 out is the block's defaults, exactly as at start-up, not the value it ran with. The fields applied while running are
 the ones the schema marks `RELOAD_HOT`. A block that does not convert is logged by its field path and keeps its running
 values; the rest of the file still applies.
@@ -134,7 +134,7 @@ values; the rest of the file still applies.
 **Both formulations tune live.** The MPC node of each formulation registers one `MpcParameterUpdaterModule`
 (`legged_common_mpc/parameter_update/`), a synchronized module of the SQP solver that runs on the MPC's machine
 before each solve, never on the robot's realtime thread. It takes the latest update from the bus and the edits of the
-task file and the reference file it watches, and hands the reloaded task file to the formulation's appliers, each of
+task file and the reference file it watches, and passes the reloaded task file to the formulation's appliers, each of
 which writes its fields into every worker's copy of the running problem: the centroidal MPC's
 (`centroidalHotFieldAppliers()`, `legged_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h`) and the whole-body
 MPC's (`wholeBodyHotFieldAppliers()`, `legged_wb_mpc/parameter_update/WholeBodyHotFieldAppliers.h`). A weight the CppAD code generation tapes enters
@@ -144,7 +144,7 @@ formulation's) and that differs from the file the MPC started with, as taking ef
 robot process's `RELOAD_START_UP` fields are logged apart, as read at the robot's next start from its own copy, and the
 GUI's fields and the other formulation's are not reported. An entry added to, removed from or renamed in
 `task_space_costs`, or a changed `link_name`, is such a field: a reload applies the weights of the link costs the
-running problem carries and names the others. The joints of `left_leg_torque_cost` and `right_leg_torque_cost` are
+running problem has and logs the others. The joints of `left_leg_torque_cost` and `right_leg_torque_cost` are
 taped into their CppAD library the same way: a reload maps the weights by joint name onto the running joints, and an
 added, removed or renamed joint takes effect at the next start. A field the schema marks for one formulation only
 (`formulations`, [GUI metadata](#gui-metadata)) is not applied by the other one, which never read it.
@@ -159,17 +159,17 @@ same update and from its own copy of the task file.
 ## Version skew
 
 A GUI and a robot or an MPC node built from different versions of these schemas cannot exchange the payloads: a
-receiver refuses, logs and counts every `MpcParameterUpdate`, `JointPdGainsUpdate` and `DodgeballThrow` that carries a
-field its schema does not know (`nproto::UnknownFieldPaths()`), and every `MpcParameterUpdate` and `JointPdGainsUpdate`
+receiver refuses, logs and counts every `MpcParameterUpdate`, `JointPdGainsUpdate` and `DodgeballThrow` that contains a
+field its schema does not recognize (`nproto::UnknownFieldPaths()`), and every `MpcParameterUpdate` and `JointPdGainsUpdate`
 whose `schema_fingerprint` is not its own (`nproto::SchemaFingerprint()`, which the GUI stamps with
 `nproto_schema.schema_fingerprint()`): nothing of it is applied
 (`legged_common_mpc/config/OperatorPayloadChecks.h`). A payload under the same type name used to be applied in
-part, the fields one side lacked silently dropped or defaulted. An `MpcParameterUpdate` whose task file names another
+part, the fields one side lacked silently dropped or defaulted. An `MpcParameterUpdate` whose task file specifies another
 robot (`model_settings.robot_name`) is refused the same way, and so is an `MpcParameterUpdate` or `JointPdGainsUpdate`
 whose `config_path` - the file's path from `robot_models/` on - is not the configuration the receiver runs: the
 centroidal and the whole-body G1 share the robot name `g1` and the same joints, and the path keeps a GUI opened on one
 from retuning the other. The GUI's Save sends the robot its copy of the files it reads as a `legged_mpc_msgs.ConfigFileSave`
-(`operator/config_save`), carrying the file's kind, robot name, `config_path`, the schema fingerprint of the file's message
+(`operator/config_save`), containing the file's kind, robot name, `config_path`, the schema fingerprint of the file's message
 and the exact saved text; the robot refuses one of another robot, configuration or schema, or one its strict parser
 refuses, and keeps its copy. Rebuild both sides from one commit.
 
@@ -200,7 +200,7 @@ that differs from the struct's (T3).
 ## Retiring a hyperparameter
 
 Delete the field, keep its number out with `reserved N;` (never `reserved "name";`, which the C++ text parser silently
-skips: `make lint` refuses it), and name the old key in its message's options:
+skips: `make lint` refuses it), and list the old key in its message's options:
 
 ```proto
 option (nproto.retired_field) = { name: "use_dcm_terminal_cost" replacement: "list dcm_terminal_cost under costs" };
@@ -208,8 +208,8 @@ option (nproto.retired_field) = { name: "use_dcm_terminal_cost" replacement: "li
 
 A file that still sets it is refused, in C++ and in Python, with `task.textproto:12:1: 'use_dcm_terminal_cost' is
 retired: list dcm_terminal_cost under costs`; the name matches its camelCase and snake_case spellings. A retired name
-must not be a live field of the message (the generator refuses it). A key whose block moved can be answered for the
-whole message with `option (nproto.retired_layout_hint) = "..."` (tools/nproto/README.md, "Retired fields").
+must not be a live field of the message (the generator refuses it). A key whose block moved can be answered at the
+message level with `option (nproto.retired_layout_hint) = "..."` (tools/nproto/README.md, "Retired fields").
 
 ## GUI metadata
 
@@ -231,12 +231,12 @@ them, so a new hyperparameter needs a schema field and its conversion, and no GU
   `config_registries.textproto` lists. `bazel run //tools/config_registries:print_config_registries` writes it from
   the linked registries, and `//tools/config_registries:config_registries_test` fails when it and the registries
   differ (tools/config_registries/README.md).
-- For **Base Controller drop-downs**, a choice whose options name a `base_controller_label` (`contact_estimator`: "Contact
+- For **Base Controller drop-downs**, a choice whose options set a `base_controller_label` (`contact_estimator`: "Contact
   estimator") is also a drop-down on the GUI's Base Controller tab, with that label, built from the schema and showing
-  the value the MPC Parameters tab holds, the default included; no field is special-cased in the GUI.
+  the value the MPC Parameters tab has, the default included; no field is special-cased in the GUI.
 - The **`consumer` option** says who reads a field when it is not the MPC (`robot`, `gui`); the consumption test (T4)
   exempts a field the C++ stack does not read only with what reads it.
-- The **`formulations` option** names the MPC formulations that read a field (`"centroidal"`, `"whole_body"`; empty:
+- The **`formulations` option** specifies the MPC formulations that read a field (`"centroidal"`, `"whole_body"`; empty:
   every one), inherited like `reload`: `com_weights`, the capture-point costs, the link and leg torque costs,
   `contact_implicit`, `locomotion_heuristics`, the basis-vector blocks of `contacts` and `stance_constraint` are the
   centroidal MPC's; `joint_torque_weights` and the acceleration gains of `foot_constraint` the whole-body MPC's. The GUI
@@ -247,19 +247,19 @@ The GUI's side is legged_nmpc/remote_control/README.md, "Tuning the configuratio
 
 ## Tests
 
-The permanent tests hold properties of the schemas, the conversions and the files, never tuned values: a test that
+The permanent tests verify properties of the schemas, the conversions and the files, never tuned values: a test that
 pinned a value would fail on every tuning edit.
 
 | # | Property | Where |
 |---|---|---|
-| T1 | Every shipped file parses strictly into the message its header names, and builds its MPC's typed stack | `//legged_nmpc/legged_mpc_config/python:test_textproto_save` (every robot's files, by their headers), `legged_common_mpc/test/config/testConfigRoots.cpp` (every robot's files through every entry point), `legged_common_mpc/test/testJointPdGains.cpp`, the interface tests |
+| T1 | Every shipped file parses strictly into the message its header specifies, and builds its MPC's typed stack | `//legged_nmpc/legged_mpc_config/python:test_textproto_save` (every robot's files, by their headers), `legged_common_mpc/test/config/testConfigRoots.cpp` (every robot's files through every entry point), `legged_common_mpc/test/testJointPdGains.cpp`, the interface tests |
 | T2 | Every message round-trips through its struct; the struct headers need no protobuf | `:config_nproto_test`, `//tools/nproto/test:test_generated_code` |
 | T3 | The schema defaults are the domain structs' defaults | the `*FromConfig` tests of each area (`legged_*/test/config/<area>/`): "TheSchemaDefaultsAre...", "AnEmptyBlockIs..." |
 | T4 | Every field of the task, reference, PD gains and gait schemas reaches what the conversions make; the contact planner's file the same | `//tools/config_dump:every_field_is_consumed_test`, `legged_common_mpc/test/config/contact_planning/` |
-| T5 | A retired key is refused naming its replacement, in C++ and Python; no retired name is a live field; `reserved "name"` is refused | `:config_nproto_test`, `:config_py_test`, the area tests, `//tools/nproto/test`, `tools/hooks/test_proto_file_layout.py` |
+| T5 | A retired key is refused with its replacement, in C++ and Python; no retired name is a live field; `reserved "name"` is refused | `:config_nproto_test`, `:config_py_test`, the area tests, `//tools/nproto/test`, `tools/hooks/test_proto_file_layout.py` |
 | T6 | The term blocks of the contact planner and of the locomotion heuristics are named as their registries' terms | `testContactPlanningFromConfig.cpp`, `testLocomotionHeuristicsFromConfig.cpp` |
 | T7 | The editor keeps every byte of a file it does not edit, and a save that would parse differently is refused | `//legged_nmpc/legged_mpc_config/python:test_textproto_document`, `:test_textproto_save` |
-| T8 | Every field renders or says why not and says who applies it; for each formulation, the `RELOAD_HOT` fields it reads are exactly the ones its updater applies, a field another formulation reads is not, and the robot's are neither's; every registry the schemas name is listed, with names its registry accepts and the shipped files use | `//legged_nmpc/remote_control:test_gui_parameter_coverage`, `//legged_nmpc/remote_control:test_config_registries`, `legged_mpc_validation/test/testHotFieldCoverage.cpp` (static field lists, no MPC), the node tests (the built updater applies those lists), `//tools/config_registries:config_registries_test` |
+| T8 | Every field renders or says why not and says who applies it; for each formulation, the `RELOAD_HOT` fields it reads are exactly the ones its updater applies, a field another formulation reads is not, and the robot's are neither's; every registry the schemas reference is listed, with names its registry accepts and the shipped files use | `//legged_nmpc/remote_control:test_gui_parameter_coverage`, `//legged_nmpc/remote_control:test_config_registries`, `legged_mpc_validation/test/testHotFieldCoverage.cpp` (static field lists, no MPC), the node tests (the built updater applies those lists), `//tools/config_registries:config_registries_test` |
 | T9 | The live payloads cross the bus typed, the dodgeball golden is shared by C++ and Python, and receiving PD gains allocates nothing on the realtime thread | `legged_common_mpc_app/robot/test/testOperatorCommandMailbox.cpp`, `testRobotRealtimeAllocations.cpp`, `remote_control/test/test_dodgeball.py` |
 | T10 | No `.yaml` under `robot_models/` or `legged_nmpc/`, no yaml-cpp, a header on every textproto | `make lint` (`config-yaml`, `yaml-cpp`, `textproto-header`) |
 | T11 | A shipped feature that must stay off is off (heuristic lists empty, contact-implicit off, ...) | `legged_common_mpc/test/testShippedLocomotionHeuristicBlocks.cpp`, `legged_common_mpc/test/testMpcFormulationConfig.cpp` |
@@ -277,4 +277,4 @@ pinned a value would fail on every tuning edit.
 | `//legged_nmpc/legged_mpc_config/python:textproto_document` | the lossless textproto editor (standard library only): every byte of a file kept, values read, set, inserted and removed by path |
 | `//legged_nmpc/legged_mpc_config/python:textproto_save` | typed edits of a file through the editor, re-parsed strictly and compared with the edited message before an atomic write |
 
-The generated code is held to the C++ lint by `//tools/nproto/test:test_generated_code`.
+The generated code is checked against the C++ lint by `//tools/nproto/test:test_generated_code`.

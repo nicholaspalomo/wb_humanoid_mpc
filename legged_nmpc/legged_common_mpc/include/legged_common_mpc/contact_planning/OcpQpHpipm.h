@@ -77,15 +77,15 @@ struct OcpQpStage {
 
   // The variable-independent part of the stage cost, i.e. the sum of the
   // squared residual offsets the cost terms of this node contribute
-  // (StageAccumulator::addQuadraticResidual). It is deliberately NOT handed to
+  // (StageAccumulator::addQuadraticResidual). It is deliberately NOT passed to
   // HPIPM, which has no place for it and whose own objective value this wrapper
   // does not read back: the solver's argmin, its KKT residuals and every
   // comparison between two solutions of ONE assembled problem are invariant
   // under a common constant. It exists because evaluateOcpQpObjective is also
-  // used to compare solutions of problems assembled on DIFFERENT node grids -
-  // CadenceStretchStage scores a candidate re-assembled at s * dt against an
-  // incumbent assembled at dt - and there the constant differs between the two
-  // problems and must be carried, or the comparison is between two differently
+  // used to compare solutions of problems assembled on DIFFERENT node grids
+  // (CadenceStretchStage scores a candidate re-assembled at s * dt against an
+  // incumbent assembled at dt), and there the constant differs between the two
+  // problems and must be included, or the comparison is between two differently
   // shifted functionals.
   scalar_t constant = 0.0;
 
@@ -208,9 +208,9 @@ class OcpQpHpipmSolver {
 
   /**
    * Solves the problem. Inconsistent problem data (sizes, indices) is an
-   * InvalidArgument naming the stage, and memory HPIPM could not be given is a
-   * ResourceExhausted; a solve HPIPM did not finish is a solution whose status
-   * says why.
+   * InvalidArgument identifying the stage, and memory HPIPM could not be given
+   * is a ResourceExhausted; a solve HPIPM did not finish is a solution whose
+   * status says why.
    */
   absl::StatusOr<OcpQpSolution> solve(const OcpQpProblem& problem);
 

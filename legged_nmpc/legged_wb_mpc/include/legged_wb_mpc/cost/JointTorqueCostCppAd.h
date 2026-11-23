@@ -67,7 +67,7 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
   /**
    * The cost name WBMpcInterface builds its CppAD library name from
    * (libraryName(kLibraryCostName)). It is spelled apart from kTermName so that
-   * renaming the term never renames - and so regenerates - the library.
+   * renaming the term never renames (and so regenerates) the library.
    */
   static constexpr char kLibraryCostName[] = "jointTorqueCost";
   // LINT.ThenChange(//legged_nmpc/legged_wb_mpc/test/testJointTorqueCostLibraryName.cpp:term_and_library_names)
@@ -104,9 +104,9 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
 
   /**
    * The name the CppAD library of the cost called `costName` is compiled and
-   * cached under. It carries the version of the taped inverse dynamics, so that
-   * a library taped from an earlier computeJointTorques - the one that left out
-   * the base coupling of the mass matrix - is never loaded from the cache in
+   * cached under. It includes the version of the taped inverse dynamics, so
+   * that a library taped from an earlier computeJointTorques (the one that left
+   * out the base coupling of the mass matrix) is never loaded from the cache in
    * its place (the robots ship model_settings.recompile_libraries_cpp_ad:
    * false).
    */

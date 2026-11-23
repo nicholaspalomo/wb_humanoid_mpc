@@ -29,7 +29,7 @@
 
 The MPC runs on the laptop and reads the laptop's files; the robot process reads its own copies, from its persistent
 configuration store (legged_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). A tuning tab's
-Save therefore writes the laptop's file first (tuned_file.TunedFile.save()) and then hands the exact text it wrote to
+Save therefore writes the laptop's file first (tuned_file.TunedFile.save()) and then passes the exact text it wrote to
 RobotConfigSaver.send(), which publishes it as a legged_mpc_msgs.ConfigFileSave:
 
     saver = robot_config_save.RobotConfigSaver(bus.config_save, bus.config_save_statuses)

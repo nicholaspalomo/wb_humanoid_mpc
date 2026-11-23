@@ -535,7 +535,7 @@ cc_test(
     deps = WEB_VIEWER_TEST_DEPS,
 )
 
-# Every thread the web viewer starts - render, listen, request pool, llvmpipe - on its cores under SCHED_IDLE. A process
+# Every thread the web viewer starts (render, listen, request pool, llvmpipe) on its cores under SCHED_IDLE. A process
 # of its own, so that it is the first to initialize EGL and llvmpipe's threads are its own.
 cc_test(
     name = "test_web_mujoco_viewer_placement",

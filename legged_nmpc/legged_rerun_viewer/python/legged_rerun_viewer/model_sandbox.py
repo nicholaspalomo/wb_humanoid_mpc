@@ -38,7 +38,7 @@ Rerun bridge draws them unchanged. It publishes as the bus node of `--ipc_node` 
 runs) whenever a joint moves and again every `--republish_period`, so that a bridge started later draws the model
 too.
 
-The joint positions come from a source chosen by name (`--joint_source`, JOINT_SOURCES): `nominal` holds every joint
+The joint positions come from a source chosen by name (`--joint_source`, JOINT_SOURCES): `nominal` sets every joint
 at 0, clamped to its limits; `sliders` opens a Tk window with a slider per joint (its limits, or one turn for a joint
 without limits) and a button that puts them back. Ctrl-C, SIGTERM or closing the window stops it. Exit status: 0, or 2
 for a usage or configuration error.
@@ -180,7 +180,7 @@ class SandboxScene:
             # The sandbox's base is the world frame (identity), so a pose relative to the base is one relative to the
             # world.
             pose_link_rt_world = robot.pose_links_rt_world.add()
-            # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
+            # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field specifies the frames
             (
                 pose_link_rt_world.position.x,
                 pose_link_rt_world.position.y,

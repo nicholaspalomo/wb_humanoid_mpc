@@ -93,7 +93,7 @@ enum class PlanRepetition {
  * changes, and the contact phases of every MPC contact with their patch
  * frames. Times are the plan's own (its first knot's time is its start).
  * A periodic motion (PlanRepetition::kPeriodic) answers every lookup of plan
- * time - its modes, phases, swings, targets and wrenches - at any plan time,
+ * time (its modes, phases, swings, targets, and wrenches) at any plan time,
  * before its start or periods past its end, through the period.
  *
  * A value type, immutable after Create(): every method is const and safe to

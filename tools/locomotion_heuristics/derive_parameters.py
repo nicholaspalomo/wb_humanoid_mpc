@@ -41,8 +41,8 @@ every number is visible next to the number. It prints the blocks as textproto, r
     python3 tools/locomotion_heuristics/derive_parameters.py --robot drc_atlas --check
 
 WHAT IT DOES NOT DO. It does not write the task file. Every number it prints is a STARTING POINT to sweep in
-simulation, not a tuned value - the dissertation's own procedure is to add one heuristic at a time and measure the
-viable operating region after each (section 4.3, figure 4-13) - and pasting a generated block over a tuned one would
+simulation, not a tuned value (the dissertation's own procedure is to add one heuristic at a time and measure the
+viable operating region after each, section 4.3, figure 4-13), and pasting a generated block over a tuned one would
 throw that work away. `--check` compares the shipped block against the derivation and reports the differences, which
 is the way to notice that a gait or a geometry has moved out from under a coefficient.
 
@@ -159,7 +159,7 @@ COM_AND_ACOM_TRACKING_COST = "com_and_acom_tracking_cost"
 RETIRED_ACOM_KEY = "use_com_and_acom_tracking"
 # LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/common/MpcFormulationConfig.cpp:com_and_acom_tracking_cost_name)
 
-# The top-level key that names the contact input parameterization, the name whose contact input lives in the local
+# The top-level key that specifies the contact input parameterization, the name whose contact input is in the local
 # contact frame, and the retired boolean it replaced (which the MPC refuses at start-up, whatever its value).
 # LINT.IfChange(contact_input_parameterization_name)
 CONTACT_INPUT_PARAMETERIZATION_KEY = "contact_input_parameterization"
@@ -194,7 +194,7 @@ RETIRED_DCM_TERMINAL_COST_KEY = "use_dcm_terminal_cost"
 #: [rad] How far the base pitches into the command at the maximum forward stick,
 #: cmd_max_linvel_base_rt_world_ewrt_heading_x. A few degrees carries the center of mass towards the leading edge of
 #: the support (dissertation section 4.3) and keeps the body close to level, which on Bledt's model was also what kept
-#: its small-roll-and-pitch approximation valid; the control model here carries the full base rotation as a quaternion
+#: its small-roll-and-pitch approximation valid; the control model here uses the full base rotation as a quaternion
 #: and makes no such approximation.
 DES_ERR_EULERZYX_BASE_RT_WORLD_PITCH = math.radians(2.8)
 
@@ -378,7 +378,7 @@ def derive_geometry(
     Args:
       urdf_path: The robot's URDF.
       task: The task file.
-      model_settings: The task file's `model_settings`, which names the locked joints and the contact parent joints.
+      model_settings: The task file's `model_settings`, which specifies the locked joints and the contact parent joints.
 
     Returns:
       The geometry at the nominal posture; raises SystemExit when no contact parent joint exists in the URDF.
@@ -397,7 +397,7 @@ def derive_geometry(
     data = model.createData()
 
     # The nominal posture: the base pose and the joints of `initial_state`, by name. Its joints are the crouch the
-    # robot stands in - not the URDF's neutral, where the legs are straight - and a joint it does not name is at 0.
+    # robot stands in (not the URDF's neutral, where the legs are straight), and a joint it does not name is at 0.
     # names[0] is "universe" and names[1] the floating base, so the MPC joints start at 2.
     mpc_joints: list[str] = list(model.names[2:])
     initial_state = task.get("initial_state", {}) or {}
@@ -1262,7 +1262,7 @@ def _normalized_cost_name(name: str) -> str:
 
 
 def lists_com_and_acom_tracking(task: dict) -> bool:
-    """Whether the task file's `costs` list names the CoM + ACoM tracking cost (which zeroes the base-pose weights)."""
+    """Whether the task file's `costs` list specifies the CoM + ACoM tracking cost (which zeroes the base-pose weights)."""
     costs = as_list(task.get("costs"))
     wanted = _normalized_cost_name(COM_AND_ACOM_TRACKING_COST)
     return any(
@@ -1277,7 +1277,7 @@ def _snake_case(name: str) -> str:
 
 
 def carries(task: dict, retired: str) -> bool:
-    """Whether the task file carries the retired field `retired`, in either spelling (the MPC refuses both)."""
+    """Whether the task file has the retired field `retired`, in either spelling (the MPC refuses both)."""
     return any(_snake_case(name) == retired for name in task)
 
 
@@ -1375,7 +1375,7 @@ def formulation_warnings(task: dict) -> list[str]:
 
 
 # LINT.IfChange(parameter_block_names)
-#: The heuristics whose parameter block is not named after them alone: their names hold a frame-dependent quantity
+#: The heuristics whose parameter block is not named after them alone: their names contain a frame-dependent quantity
 #: word (legged_nmpc/docs/frame_naming/README.md), so their blocks take `_parameters`.
 _SUFFIXED_PARAMETER_BLOCKS = frozenset(
     {
@@ -1388,13 +1388,13 @@ _SUFFIXED_PARAMETER_BLOCKS = frozenset(
 
 
 def parameter_block_name(name: str) -> str:
-    """The `locomotion_heuristics` field that holds the parameters of the heuristic `name`, as parameterBlockName() in C++.
+    """The `locomotion_heuristics` field that stores the parameters of the heuristic `name`, as parameterBlockName() in C++.
 
     Args:
       name: A heuristic's registry name.
 
     Returns:
-      The name, with `_parameters` where it holds a quantity word.
+      The name, with `_parameters` where it contains a quantity word.
     """
     return f"{name}_parameters" if name in _SUFFIXED_PARAMETER_BLOCKS else name
 

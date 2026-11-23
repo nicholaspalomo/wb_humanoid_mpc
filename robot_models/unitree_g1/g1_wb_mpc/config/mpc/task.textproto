@@ -60,7 +60,7 @@ contact_schedule_source: "gait_schedule"
 # LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
 
 # The ball the GUI's Dodgeball tab throws, by name (robot_runtime/mujoco_sim_interface/.../Projectile.h). MuJoCo
-# compiles its model once at load and bodies cannot be added afterwards, so naming one here appends a free-floating
+# compiles its model once at load and bodies cannot be added afterwards, so specifying one here appends a free-floating
 # sphere to the scene BEFORE it is compiled. Until a throw arms it, it is parked 100 m above the scene with its
 # collisions off and its weight held by gravity compensation; it is parked again once it has come to rest, after ten
 # seconds in play at most, and whenever the robot is caught on the gantry.
@@ -72,7 +72,7 @@ contact_schedule_source: "gait_schedule"
 #
 # Remove the key, or set it empty, to compile the scene exactly as it is on disk. The Throw button then still works:
 # with no ball to fly, the simulator applies the momentum the ball would have ARRIVED with as a one-step force on the
-# base - a lower bound on the push, since a real ball that bounces off hands over more.
+# base - a lower bound on the push, since a real ball that bounces off transfers more.
 #
 # Simulation only. It changes nothing about the MPC, and a contact with the ball is excluded from the ground-truth
 # contact mask and from the ZMP marker, so a ball against a swing foot is never mistaken for the ground.
@@ -135,9 +135,9 @@ costs: "task_space_foot_cost"
 #
 # They are built and installed by CentroidalMpcInterface::setupLocomotionHeuristics(), and WBMpcInterface has no
 # counterpart, so nothing in the whole-body path ever reads a `locomotion_heuristics` block. A block in this file
-# would be silently inert - exactly the failure the layer refuses to allow elsewhere - so it is deliberately absent
-# rather than present and dead. The centroidal task file of this same robot
-# (robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto) carries the real one.
+# would be silently inert (the failure the layer refuses to allow elsewhere), so it is omitted rather than present and
+# dead. The centroidal task file of this same robot
+# (robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto) contains the real one.
 #
 # One thing stands between here and supporting it. The reference manager, the base-pose seam and the parameter
 # updater (MpcParameterUpdaterModule, shared by both formulations) would work unchanged, but the commanded yaw rate the
@@ -238,7 +238,7 @@ rollout {
 
 mpc {
   time_horizon: 1.1  # [s]
-  # solution_time_window is absent: every policy carries the whole horizon.
+  # solution_time_window is absent: every policy covers the full horizon.
   cold_start: false
 
   debug_print: false

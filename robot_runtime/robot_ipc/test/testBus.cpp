@@ -845,7 +845,7 @@ TEST(BusDeliveryTest,
   ASSERT_EQ(writeEnvelope(writer, kWireProtocolVersion, ++sequence, eventType,
                           event.SerializeAsString()),
             DDS_RETCODE_OK);
-  // A length-delimited field (text) that claims five bytes and carries two.
+  // A length-delimited field (text) that claims five bytes and has two.
   ASSERT_EQ(writeEnvelope(writer, kWireProtocolVersion, ++sequence, sampleType,
                           std::string("\x12\x05"
                                       "ab")),

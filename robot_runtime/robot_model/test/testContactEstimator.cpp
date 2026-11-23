@@ -106,7 +106,7 @@ TEST_F(RobotStateContactEstimatorTest, reportsTheFlagsOfTheRobotState) {
       std::make_unique<RobotStateContactEstimator>();
   EXPECT_EQ(estimateContactFlags(*base, state), state.getContactFlags());
 
-  // Into a vector that holds the flags already: resized, not grown, and
+  // Into a vector that stores the flags already: resized, not grown, and
   // rewritten in place.
   std::vector<bool> flags = {true, true, true, true, true};
   base->estimateContactFlags(state, flags);

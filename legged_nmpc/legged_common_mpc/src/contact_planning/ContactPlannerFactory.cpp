@@ -52,7 +52,7 @@ namespace ocs2::legged {
 namespace {
 
 /** Lower case, without the separators, so that `lip_miqp`, `lipMiqp` and
- * `LIP-MIQP` all name the same planner. */
+ * `LIP-MIQP` all select the same planner. */
 std::string normalize(absl::string_view name) {
   std::string normalized;
   normalized.reserve(name.size());
@@ -70,7 +70,7 @@ absl::Status unknownPlanner(absl::string_view name) {
                    "'; supported: ", absl::StrJoin(knownPlannerNames(), ", ")));
 }
 
-/** OK on the biped's contact set; otherwise the InvalidArgument naming the
+/** OK on the biped's contact set; otherwise the InvalidArgument reporting the
  * planner `name` and the contact count. */
 absl::Status checkBipedContactSet(absl::string_view name,
                                   ContactSetSummary contactSet) {
@@ -112,9 +112,9 @@ absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(
   if (name.empty()) return unknownPlanner(config.planner.type);
   RETURN_IF_ERROR(checkBipedContactSet(name, contactSet));
   // An invalid configuration is returned as the Status of
-  // ContactPlanningConfig::validateStatus(), which names the key. Both planners
-  // validate in their Create() factory, so the same bad key is refused the same
-  // way by either.
+  // ContactPlanningConfig::validateStatus(), which identifies the key. Both
+  // planners validate in their Create() factory, so the same bad key is refused
+  // the same way by either.
   if (name == planner::kLipMiqp) {
     ASSIGN_OR_RETURN(std::unique_ptr<LipContactPlanner> lip,
                      LipContactPlanner::Create(config));

@@ -42,20 +42,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::model {
 
 /**
- * How a controller and a robot hand the state and the joint action to each
+ * How a controller and a robot pass the state and the joint action to each
  * other.
  *
  * THE CONTROLLER'S SIDE, one thread (the robot process's realtime loop):
  * updateInterfaceStateFromRobot() takes the newest state the robot published
- * into getRobotState(); the controller fills getRobotJointAction() and hands it
- * over with applyJointAction().
+ * into getRobotState(); the controller fills getRobotJointAction() and passes
+ * it with applyJointAction().
  *
  * THE ROBOT'S SIDE, one thread (a simulator's physics thread, a hardware
- * driver): publishRobotState() hands a new state over and takeJointAction()
+ * driver): publishRobotState() passes a new state and takeJointAction()
  * takes the newest action.
  *
  * Both directions go through a robot::TripleBuffer: lock-free, wait-free and,
- * once the slots hold a state and an action of the robot's size, free of
+ * once the slots store a state and an action of the robot's size, free of
  * allocation, so that neither side ever waits for the other. The controller's
  * thread runs SCHED_FIFO; the robot's may not, and a mutex shared between the
  * two lets a preempted robot thread hold the control loop up for a scheduler
@@ -65,7 +65,7 @@ namespace robot::model {
  * as not to be executed: until the next applyJointAction(), takeJointAction()
  * reports the action it copies as stale. A robot switches its torques back on
  * this way (MujocoSimInterface::enableTorques()), so that the action latched
- * from before they went off - possibly long before, in another mode - never
+ * from before they went off (possibly long before, in another mode) never
  * reaches the actuators.
  */
 class RobotHWInterfaceBase {
@@ -122,7 +122,7 @@ class RobotHWInterfaceBase {
   // robot's thread
 
   /**
-   * Hands a new state to the controller. `state` is a state of
+   * Passes a new state to the controller. `state` is a state of
    * getRobotDescription(), as every state and action this interface copies: the
    * copies are unchecked and allocation-free (IDMapBase::operator=).
    */

@@ -54,7 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The foot constraints of the whole-body MPC on the G1 reference manager:
  * ZeroAccelerationConstraintCppAd::Create() and
- * SwingLegVerticalConstraintCppAd::Create() hand back the refusal of the
+ * SwingLegVerticalConstraintCppAd::Create() return the refusal of the
  * single-end-effector constraint they are built on, where their constructors
  * used to throw it, and make the constraint on one end effector, active in
  * stance and in swing respectively; the stance constraint with the shipped

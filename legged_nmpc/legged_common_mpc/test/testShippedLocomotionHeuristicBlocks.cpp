@@ -94,7 +94,7 @@ void PrintTo(const ShippedTaskFile& file, std::ostream* absl_nonnull os) {
 // to list the same packages: a robot here but not there fails in SetUp, and one
 // there but not here fails
 // TheCentroidalTaskFilesInTheRunfilesAreExactlyTheList. Every robot's block
-// carries every parameter of the schema, and the parameter deriver knows every
+// includes every parameter of the schema, and the parameter deriver knows every
 // robot it can derive for.
 // LINT.IfChange(shipped_centroidal_task_files)
 constexpr ShippedTaskFile kShippedTaskFiles[] = {
@@ -360,7 +360,7 @@ std::string robotName(const ::testing::TestParamInfo<ShippedTaskFile>& info) {
 
 // The cases stay in the anonymous namespace with their parameter type, which
 // GCC otherwise warns about
-// (-Wsubobject-linkage): gtest's generated factory would hold an
+// (-Wsubobject-linkage): gtest's generated factory would store an
 // internal-linkage type in an external-linkage class.
 
 TEST_P(ShippedLocomotionHeuristicBlockTest, LoadsValidatesAndListsNoHeuristic) {
@@ -548,13 +548,13 @@ TEST(ShippedTaskFileScanTest,
 
 TEST(ShippedTaskFileScanTest,
      TheCentroidalTaskFilesInTheRunfilesAreExactlyTheList) {
-  // kShippedTaskFiles and the BUILD target's `data` name the same robots, and
+  // kShippedTaskFiles and the BUILD target's `data` list the same robots, and
   // SetUp enforces only one direction: a robot in the list but not in `data`
-  // fails there. A robot in `data` but not in the list - the likely
-  // half-finished onboarding, since `data` is what makes the file reachable -
-  // would never be tested and nothing would say so. The runfiles hold exactly
-  // what `data` pulls in, so walking them for centroidal task files closes that
-  // direction.
+  // fails there. A robot in `data` but not in the list (the likely
+  // half-finished onboarding, since `data` is what makes the file reachable)
+  // would never be tested and nothing would say so. The runfiles contain
+  // exactly what `data` pulls in, so walking them for centroidal task files
+  // closes that direction.
   const std::vector<std::string> found =
       taskFilesInRunfiles(kCentroidalPackageSuffix);
   // Positive control: the walk finds at least the files the list names, so it

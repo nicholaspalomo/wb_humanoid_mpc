@@ -114,7 +114,7 @@ class ResetCountingModule final : public SolverSynchronizedModule {
 };
 
 /**
- * Records, in one sequence, the observations handed to the solver observation
+ * Records, in one sequence, the observations passed to the solver observation
  * observer and the initial times and states the synchronized modules are run
  * with, so that the order of the two shows.
  */
@@ -602,7 +602,7 @@ TEST_F(InProcessMpcLinkTest, TheReportingFactoryHandsTheCallerTheLinkItMade) {
 TEST_F(InProcessMpcLinkTest,
        EverySolveHandsItsObservationToTheObserverRightBeforeTheModulesRun) {
   // The motion manager's exact base twist needs the observation's input, which
-  // MPC_BASE::run() does not take: the link hands the solver's own copy over
+  // MPC_BASE::run() does not take: the link passes the solver's own copy
   // before the solve (ProceduralMpcMotionManager::observe()).
   const std::shared_ptr<ObservationOrderRecorder> recorder =
       std::make_shared<ObservationOrderRecorder>();
@@ -650,8 +650,8 @@ vector4_t turnAboutZ(scalar_t angle) {
 }
 
 /**
- * A solver whose problem carries the state manifold of a state that is one unit
- * quaternion, as the MPCs' problems carry the quaternion state's
+ * A solver whose problem uses the state manifold of a state that is one unit
+ * quaternion, as the MPCs' problems use the quaternion state's
  * (stateManifoldOf()), and which plans a turn about z of kTurnPerNode between
  * each of its three nodes over the horizon. Not thread-safe: the tests run it
  * on their own thread only (Execution::kCaller).

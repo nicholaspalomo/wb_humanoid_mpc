@@ -108,7 +108,7 @@ inline constexpr char kCentripetalAccelerationName[] =
  * foothold offsets once per swing from the last measurement, contact-force
  * offsets per node from the contact flags. A single list would make
  * `orientation_compensation` in the foothold position a run-time surprise
- * instead of a load-time error naming the three foothold heuristics that would
+ * instead of a load-time error listing the three foothold heuristics that would
  * have been valid there.
  */
 enum class HeuristicKind { kBasePose, kFoothold, kWrench };
@@ -126,9 +126,9 @@ absl::string_view heuristicKindName(HeuristicKind kind);
 absl::string_view heuristicListName(HeuristicKind kind);
 
 /**
- * Returns the field of the task file's locomotion_heuristics block that holds
+ * Returns the field of the task file's locomotion_heuristics block that stores
  * the parameters of the heuristic `name`, a registry name: the name itself, or
- * the name with `_parameters` where it holds a frame-dependent quantity word
+ * the name with `_parameters` where it contains a frame-dependent quantity word
  * (orientation_compensation_parameters, periodic_orientation_parameters,
  * centripetal_acceleration_parameters; legged_nmpc/docs/frame_naming).
  */
@@ -160,8 +160,8 @@ std::optional<HeuristicKind> heuristicKindOf(absl::string_view name);
  * The three name lists of the layer's formulation: which heuristics shape which
  * reference channel.
  *
- * EVERY LIST IS EMPTY BY DEFAULT, and that is the whole safety story of this
- * subsystem. Each of these changes the closed loop, none has been validated in
+ * EVERY LIST IS EMPTY BY DEFAULT, which is how this subsystem stays safe out
+ * of the box. Each of these changes the closed loop, none has been validated in
  * simulation on hardware-like conditions on these robots, and Bledt's own
  * coefficients were fitted to a 9 kg quadruped rather than to a humanoid. So
  * the layer ships inert and every name is turned on one at a time, which is

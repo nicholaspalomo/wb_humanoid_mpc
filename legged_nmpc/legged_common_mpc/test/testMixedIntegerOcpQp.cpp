@@ -224,8 +224,8 @@ scalar_t bruteForceOptimumWithAssignmentCost(
  * The binary column of B is zero, so the binaries do not move the state at all,
  * and their only QP cost is the linear `kIdleTemptation` per stage. The
  * relaxation therefore drives every binary to its lower bound and is INTEGRAL
- * at the root, which is precisely the node shape that used to fence off its own
- * subtree. Everything that distinguishes the completions then lives in the
+ * at the root, which is precisely the node case that used to fence off its own
+ * subtree. Everything that distinguishes the completions is in the
  * assignment cost, where the QP cannot see it.
  */
 OcpQpProblem makeDecoupledBinaryProblem(scalar_t target) {
@@ -395,7 +395,7 @@ void expectBinaryLayoutAgreesWithContactBinaryIndex(
       << "the branching list must hold exactly the contact binaries "
          "contactBinaryIndex addresses";
 
-  // Forward: the index contactBinaryIndex hands out is the position of that
+  // Forward: the index contactBinaryIndex returns is the position of that
   // node's and that foot's contact input.
   for (int k = 0; k < numNodes; ++k) {
     for (size_t foot = 0; foot < kNumFeet; ++foot) {
@@ -422,7 +422,7 @@ void expectBinaryLayoutAgreesWithContactBinaryIndex(
         << foot;
   }
 
-  // Every listed binary must also carry an input box constraint at its stage,
+  // Every listed binary must also have an input box constraint at its stage,
   // which is what MixedIntegerOcpQp needs to fix it (locateBinaries returns an
   // InvalidArgument otherwise, and the plan is then lost for that frame).
   const ContactPlannerInput input = makeStandingInput();
@@ -472,7 +472,7 @@ TEST(MixedIntegerOcpQpTest, FindsBruteForceOptimum) {
 TEST(MixedIntegerOcpQpTest, RespectsInitialFixingsAndPropagation) {
   OcpQpProblem problem = makeProblem(1.3);
   // Propagation rule: no two consecutive steps (b_k = 1 implies b_{k+1} = 0),
-  // and b_0 is fixed to 1 for the whole search.
+  // and b_0 is fixed to 1 throughout the search.
   const MiqpPropagateFn noConsecutive = [](MiqpAssignment& a) {
     for (size_t k = 0; k + 1 < a.size(); ++k) {
       if (a[k] == 1) {
@@ -508,7 +508,7 @@ TEST(MixedIntegerOcpQpTest, RespectsInitialFixingsAndPropagation) {
 TEST(MixedIntegerOcpQpTest, WarmStartProvidesIncumbentEvenWithZeroNodeBudget) {
   OcpQpProblem problem = makeProblem(1.3);
   MiqpSettings settings;
-  settings.maxNodes = 1;  // the warm-start solve consumes the whole budget
+  settings.maxNodes = 1;  // the warm-start solve consumes the full budget
   MixedIntegerOcpQp miqp{OcpQpHpipmSolver::Settings{}, settings};
   const MiqpAssignment initial(kNumStages, kMiqpFree);
   const MiqpAssignment warm = {1, 0, 1, 0};
@@ -556,10 +556,10 @@ TEST(MixedIntegerOcpQpTest, FailedRelaxationsAreNotReportedOptimal) {
  * is in play.
  *
  * With R(1,1) = 1e-6 the binaries enter the relaxation almost linearly, so the
- * relaxation sits on a vertex of the box and is integral at the root itself.
+ * relaxation lies on a vertex of the box and is integral at the root itself.
  * The search used to take that rounding as an incumbent and `break`, closing
- * the whole tree. That is sound only when the completion attains the node's
- * lower bound - and the node's bound carries logicalCost(PARTIAL), which the
+ * the search tree. That is sound only when the completion attains the node's
+ * lower bound - and the node's bound includes logicalCost(PARTIAL), which the
  * contract makes a lower bound on logicalCost(complete). A sibling with a worse
  * QP objective and a smaller idle price is then strictly better and was never
  * looked at, while the result still claimed to be optimal.
@@ -576,7 +576,7 @@ TEST(MixedIntegerOcpQpTest,
     ASSERT_TRUE(std::isfinite(bruteForce)) << "target " << target;
     // The idle price dwarfs the QP's own price for a one, so the optimum is
     // every binary ON - the exact opposite of what the integral relaxation
-    // hands the search.
+    // gives the search.
     for (int k = 0; k < kNumStages; ++k) {
       ASSERT_EQ(bruteForceAssignment[k], 1)
           << "target " << target << ", stage " << k;
@@ -694,7 +694,7 @@ TEST(MixedIntegerOcpQpSolveFixedTest,
   // The QP never sees the assignment cost, so the continuous part of the two
   // solves must be identical...
   EXPECT_NEAR(costedSolution.objective, plainSolution.objective, 1.0e-6);
-  // ...and the whole difference between the two reported objectives is the
+  // ...and the only difference between the two reported objectives is the
   // logical cost.
   const scalar_t logicalCost = idlePricePerStage(assignment);
   ASSERT_GT(logicalCost, 0.0) << "the fixture has to charge something, or the "
@@ -725,7 +725,7 @@ TEST(MixedIntegerOcpQpSolveFixedTest,
  * next to the call and only look at it after a true return, so today they are
  * safe by construction; but zero is the most natural value to initialize it
  * with and it is smaller than any real objective of these problems, so a
- * failure path that left the out-parameter untouched would hand a caller who
+ * failure path that left the out-parameter untouched would give a caller who
  * forgot the return value a candidate that beats every incumbent. Stating it
  * here is what makes the out-parameter safe to read unconditionally, which is
  * the only reason a bool-plus-out-parameter signature is tolerable at all.
@@ -752,7 +752,7 @@ TEST(MixedIntegerOcpQpSolveFixedTest,
 
   // (2) The assignment is still incomplete after the propagation. `solveFixed`
   // fixes every binary's box bounds to its assigned value, so a free entry
-  // would be solved as a relaxation - a fractional contact - and priced as if
+  // would be solved as a relaxation (a fractional contact) and priced as if
   // it were a schedule. Refusing it is the only correct answer.
   {
     MixedIntegerOcpQp miqp{OcpQpHpipmSolver::Settings{}, MiqpSettings{}};
@@ -813,8 +813,8 @@ TEST(MixedIntegerOcpQpSolveFixedTest,
  * build candidates by copying an incumbent whose length came from
  * `binaryVariables()`, so a mismatch means the problem and the assignment were
  * built for different horizons, and every index from `contactBinaryIndex`
- * onwards points at the wrong node. The InvalidArgument is what turns that into
- * a failed search stage, which LipContactPlanner::plan logs, instead of a
+ * onwards references the wrong node. The InvalidArgument is what turns that
+ * into a failed search stage, which LipContactPlanner::plan logs, instead of a
  * schedule that silently belongs to another horizon; a `false` would read as
  * "this candidate is infeasible" and hide it.
  */
@@ -912,11 +912,11 @@ TEST(MixedIntegerOcpQpTest, ReturnsTheErrorOfAProblemTheQpSolverRejects) {
  * A partial assignment the propagation completes is accepted, and it is the
  * COMPLETED assignment that is solved and priced.
  *
- * The event-shift local search hands `solveFixed` a candidate it has already
+ * The event-shift local search passes `solveFixed` a candidate it has already
  * propagated, so the two agree there; the cadence stretch and the heading
- * re-linearization hand it the incumbent, which is complete. The contract is
- * nevertheless the wider one - `solveFixed` runs the propagation itself and
- * only then demands completeness - and the distinction is not academic: the
+ * re-linearization pass it the incumbent, which is complete. The contract is
+ * nevertheless the wider one (`solveFixed` runs the propagation itself and
+ * only then demands completeness), and the distinction is not academic: the
  * assignment cost of a partial assignment is only a lower bound
  * (MixedIntegerOcpQp.h), so pricing the caller's partial assignment instead of
  * the propagated one would under-charge every candidate whose logical cost the
@@ -1006,10 +1006,10 @@ TEST(MixedIntegerOcpQpSolveFixedTest,
  * The assignment is indexed by the POSITION in the caller's branching list, not
  * by the stage.
  *
- * The list is the caller's to order - the contact planner builds it in time
- * order so that early contact decisions are settled first - and
+ * The list is the caller's to order (the contact planner builds it in time
+ * order so that early contact decisions are decided first), and
  * `MiqpAssignment` is a bare vector of bytes with nothing in it that says which
- * variable an entry belongs to. The whole contact planner rests on that
+ * variable an entry belongs to. The contact planner depends on that
  * pairing: `contactBinaryIndex` computes a position in this list and nothing
  * checks the result. A list deliberately in the reverse of the natural order is
  * the cheapest way to state that entry i belongs to `binaries[i]` and not to
@@ -1050,7 +1050,7 @@ TEST(MixedIntegerOcpQpSolveFixedTest,
 
 /**
  * The branching list the solver indexes and the index the rest of the planner
- * computes must name the same variable.
+ * computes must refer to the same variable.
  *
  * `binaryVariables()` walks the nodes and, inside a node, the model blocks,
  * appending whatever each block declares as a binary input;
@@ -1080,11 +1080,11 @@ TEST(ContactPlannerBinaryLayoutTest,
  * The committed prefix lands on the binaries of its own node and foot.
  *
  * `initialAssignment` writes the executed schedule into the assignment through
- * `contactBinaryIndex`, and those entries are the fixings that hold for the
- * whole search. Getting the mapping wrong here is the worst version of the
+ * `contactBinaryIndex`, and those entries are the fixings that apply throughout
+ * the search. Getting the mapping wrong here is the worst version of the
  * disagreement above, because the committed window is precisely the part of the
  * plan the robot is already executing: the planner would fix the wrong foot's
- * contact for the next quarter second and then hand the result to the reference
+ * contact for the next quarter second and then pass the result to the reference
  * manager as the schedule it promised to honor. The foot each entry belongs to
  * is read back out of the layout rather than assumed, so this test still says
  * something if the feet's order in the layout ever changes.

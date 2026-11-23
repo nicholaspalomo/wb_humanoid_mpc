@@ -33,9 +33,9 @@ bazel run //legged_nmpc/legged_centroidal_mpc_app:legged_centroidal_mpc_dummy_si
 - under `contact_schedule_source: "contact_planner"`, the contact planner module;
 - the MPC parameter updater (`makeCentroidalMpcParameterUpdater()`: the live-tuning machinery both formulations share,
   `legged_common_mpc/parameter_update/`, with the centroidal formulation's appliers; `makeCommandLimitsReloaders()`
-  hands the command limits of a reloaded reference file to the calculator and the motion manager), fed from
+  passes the command limits of a reloaded reference file to the calculator and the motion manager), fed from
   `operator/mpc_parameters` and applied before the next solve (see "The configuration files" below);
-- resets served from `centroidalMpcResetTargetTrajectories()`, the reset target the MRT joint controller hands its
+- resets served from `centroidalMpcResetTargetTrajectories()`, the reset target the MRT joint controller passes to its
   in-process link (`legged_centroidal_mpc/mrt/CentroidalMpcResetTarget.h`), at the counters of the robot's
   observations (MpcServer);
 - with every policy, the planner's target contact poses and the scaled velocity command (`MpcPolicy.annotations`).
@@ -51,7 +51,7 @@ the MPC's `mpc.mpc_desired_frequency` (`node::DummySimLoop`), and publishes `rob
 `robot`. Start the node and the dummy in either order.
 
 <!-- LINT.IfChange(node_flags) -->
-The node's own flag: `--ipc_node` (default `mpc`). The task file holds the rest: `multiple_shooting.thread_priority`
+The node's own flag: `--ipc_node` (default `mpc`). The task file contains the rest: `multiple_shooting.thread_priority`
 is the SCHED_FIFO priority of every solver thread, the node's and the SQP solver's workers alike (0 keeps them on the
 time-sharing scheduler), and `interface.walking_command_timeout` the seconds a walking command stays in force without a
 newer one, after which the robot is commanded to stop at its pelvis height (positive; 0.5 by default).
@@ -75,12 +75,12 @@ Both take the shared flags of [`legged_common_mpc_app/node`](../legged_common_mp
 SQP solver against a scripted robot and operator over loopback buses (observation in and policy out, a solver and a
 full reset through the observation counters, the velocity command reaching the motion manager and the next policy, a
 task file sent on `operator/mpc_parameters` applied in the next solve and not before), checks that it resets to
-the target the controller hands its in-process link, and runs the dummy simulator against it for four seconds: it
+the target the controller passes to its in-process link, and runs the dummy simulator against it for four seconds: it
 stands, one policy per MPC update, and no reset after the start-up one. Its last case runs the hardware topology end to
 end: `:legged_centroidal_mpc_node` and `:legged_centroidal_mpc_robot` (MuJoCo, no viewer) as two processes on a
 network file of the test, and a scripted operator that takes the robot through JOINT_PD into WB_MPC, releases the
 gantry, and commands it to stand, walk forward at 0.3 m/s and stop: the robot stays up and travels forward, the loop
-holds its period, the policy in use stays fresh, `viz/scene` reaches the bus, and both processes end cleanly on
+holds its period, the policy in use stays fresh, `viz/scene` reaches the bus, and both processes exit normally on
 SIGTERM. The node's policy is the SQP's `ManifoldLinearController` on the quaternion state (the DRC Atlas runs a
 feedback policy), `CONTROLLER_TYPE_MANIFOLD_LINEAR` on the wire, which the robot side decodes on its state manifold
 (`RemoteMpcLink::Config::stateManifold`, from `stateManifoldOf()` of its model in the robot binary and the dummy
@@ -107,7 +107,7 @@ task-file fields it reads. It reaches its MPC, the MPC node, over the bus only, 
 `:test_centroidal_mpc_robot_end_to_end` starts the binary as a process (MuJoCo with `--viewer=none`, the DRC Atlas files) against an
 `MpcServer` around a scripted MPC and an operator, on a loopback network file of its own: the robot comes up in
 ZERO_TORQUE, reaches WB_MPC through JOINT_PD, applies the MPC's policy, keeps its 100 Hz period, holds the JOINT_PD
-action when the MPC side goes away (link loss, `mpc_healthy` false in `robot/fsm_state`), and ends cleanly on SIGTERM;
+action when the MPC side goes away (link loss, `mpc_healthy` false in `robot/fsm_state`), and exits normally on SIGTERM;
 a viewer list the registry refuses (`--viewer=vnc`, `--viewer=glfw,none`, or without `--viewer` a `--plot_config` whose
 `mujoco_viewer` is `vnc`) ends the binary at start-up with a failure.
 
@@ -134,13 +134,13 @@ configuration without writing a file.
 MPC) applies a changed
 configuration before the next solve, without a restart, from two sources: the files on disk, which it polls about
 once a second (the task file, the contact planner's file beside it, and the reference file, whose command limits it
-converts once and hands to the target calculator and the motion manager), and the whole task file and contact
-planner's file the tuning GUI publishes on `operator/mpc_parameters`. A reload is a whole file: a block it leaves out
+converts once and passes to the target calculator and the motion manager), and the full task file and contact
+planner's file the tuning GUI publishes on `operator/mpc_parameters`. A reload applies a complete file: a block it leaves out
 means the block's defaults, as at start-up. It applies the fields the schema marks `RELOAD_HOT`
 for the centroidal formulation (`centroidalHotFieldNames()`, the fields of the appliers `centroidalHotFieldAppliers()`
 builds; `appliedFields()` of the running updater); a `RELOAD_START_UP` field that differs is logged once and takes
 effect at the next start. An update of another configuration than the node's task file (its `config_path`) is refused
-and counted. A file that does not parse or convert is logged, naming the file and the field, and the
+and counted. A file that does not parse or convert is logged with the file and field names, and the
 running values are kept. The robot process watches the task file for its controller-side settings (the contact
 estimator, the contact wrench gate) and the PD gains file for the joint gains.
 

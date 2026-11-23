@@ -76,7 +76,7 @@ struct SwingFootReference {
  * mode schedule, the swing trajectories, the terrain, the arm swing and the
  * per-solve references the costs read.
  *
- * Shared, not cloned, by every solver worker (OCS2 holds a
+ * Shared, not cloned, by every solver worker (OCS2 stores a
  * ReferenceManagerInterface by std::shared_ptr). Its const accessors read state
  * that preSolverRun() latches on the solver thread before the workers of a
  * solve start, so they are safe to call concurrently during a solve; the
@@ -189,14 +189,14 @@ class SwitchedModelReferenceManager : public ReferenceManager {
 
   /**
    * Configures the procedural arm swing from the task file's arm_swing block,
-   * and - on a robot that names its arm joints - derives which way each of them
+   * and (on a robot with configured arm joints) derives which way each of them
    * turns from the model at `nominalState`, the nominal standing posture
    * (deriveArmSwingDirections()). The MPC interfaces call it once at start-up;
    * a refused block or joint leaves the configuration as it was and is
    * returned. The procedural generator swings the arms against the biped's
    * gait phase (getPhaseVariable()): while the swing is active
    * (setArmSwingReferenceActive()) it is refused on any other contact set with
-   * an InvalidArgument naming arm_swing.generator and the contact count.
+   * an InvalidArgument reporting arm_swing.generator and the contact count.
    */
   absl::Status configureArmSwing(const mpc_config::ArmSwingConfig& config,
                                  const vector_t& nominalState);
@@ -285,8 +285,8 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * Returns the phase of leg `legIndex`'s swing (ModelSettings::legs) at
    * `time`: (time - liftOff) / (touchDown - liftOff) over a swing in which
    * every contact of the leg is out of contact (legSwingPhaseVariable()), in
-   * [0, 1]; 0 in stance, for a schedule that holds no lift-off or touch-down of
-   * the swing, and for a leg index the settings do not have. Thread-safe.
+   * [0, 1]; 0 in stance, for a schedule with no lift-off or touch-down of the
+   * swing, and for a leg index the settings do not have. Thread-safe.
    */
   scalar_t getSwingPhaseVariable(size_t legIndex, scalar_t time) const;
 
@@ -367,10 +367,10 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /**
    * Where a foot touching down at `time` should land, or empty when nothing has
    * an opinion. A LANDMARK: it does not move while the foot swings, however
-   * many times the solver re-evaluates it - which it does at every solve, with
-   * the latest measurement - because a target that slides through the swing is
+   * many times the solver re-evaluates it (which it does at every solve, with
+   * the latest measurement), because a target that slides through the swing is
    * a target the foot never reaches.  With no foothold heuristic listed, the
-   * nominal step: a whole step width to this foot's side of the **other,
+   * nominal step: a full step width to this foot's side of the **other,
    * stance** foot, carried forward at the commanded velocity over one step,
    * from the stance foot's own touch-down to this one. Measured from the stance
    * foot because it is the one landmark that holds still while this foot
@@ -381,14 +381,14 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * later in the horizon (anchorPosFootRtWorldEwrtWorldXy()), so every step of
    * the horizon chains from the one before.  With foothold heuristics listed,
    * Bledt's H_r: the hip at touch-down, plus the heuristics' offsets. The
-   * anchor is the base PREDICTED at touch-down - measured at the solve and
-   * carried forward by the command - at the heading predicted for then, plus
+   * anchor is the base PREDICTED at touch-down (measured at the solve and
+   * propagated forward by the command) at the heading predicted for then, plus
    * half the step width to this foot's side across that heading
    * (computePosHipRtWorldEwrtWorldXy(); a nomPosLfootRtRfootEwrtHeadingY of
    * zero is rejected at start-up unless hip_centered_stepping is listed, which
    * supplies the separation from the hips instead). With hip_centered_stepping
    * listed the anchor is the predicted base itself. Either way the heuristics'
-   * leads - translational_stepping's a1 v above all - are measured from the hip
+   * leads (translational_stepping's a1 v above all) are measured from the hip
    * at the moment of landing, as in the dissertation, and mean the same thing
    * on both paths.  All of the above is the `step_width` anchor
    * (nominal_foothold.anchor, the default), written for a biped's left and
@@ -468,7 +468,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * [rad/s] The world angular velocity the offset rates
    * `offsetRateEulerzyxBaseRtWorld` (yaw, pitch, roll) add at the shaped
    * attitude `shapedEulerzyxBaseRtWorld`: R(Theta_s) T_B(Theta_s) d delta/dt,
-   * the whole difference between the shaped and the nominal world rate when the
+   * the full difference between the shaped and the nominal world rate when the
    * nominal's roll rate is zero. Exposed for the unit test.
    */
   static vector3_t computeOffsetAngvelBaseRtWorldEwrtWorld(
@@ -520,9 +520,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * used", and both InputQuadraticCost and StateInputQuadraticCost ignore it
    * and build their own nominal input from weightCompensatingInput() instead.
    * That nominal input is contact-flag dependent and the stance set changes
-   * several times inside one horizon, which is why it cannot live in a
-   * three-knot trajectory and why this manager - the only object that knows the
-   * contact flags at an arbitrary node time - is where it belongs.
+   * several times inside one horizon, which is why it cannot be stored in a
+   * three-knot trajectory and why this manager (the only object that knows the
+   * contact flags at an arbitrary node time) is where it belongs.
    *
    * With no wrench heuristic listed this returns exactly the vector those two
    * costs built for themselves before, computed by the same call, so routing
@@ -618,7 +618,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * alongside the other measurements rather than being a constant. Zero without
    * a target, and on the centroidal state before the first latch.
    *
-   * The target's base YAW is not usable for this. It carries the commanded
+   * The target's base YAW is not usable for this. It stores the commanded
    * heading, which the reference blends from the measured one over the first
    * stretch of the horizon and which the planned-heading override rewrites
    * outright, so differentiating it would recover the reference's own smoothing
@@ -766,8 +766,8 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /// [m] The ground the target in use stands on: the task file's until the
   /// first run, the applied ground after it. It used to start at 0 whatever the
   /// task file said, so the first run lifted a target that was already a world
-  /// pose - the initial and the reset targets, taken from the measured state -
-  /// by the whole terrain height.
+  /// pose (the initial and reset targets, taken from the measured state)
+  /// by the full terrain height.
   scalar_t refPosSurfaceRtWorldEwrtWorldZ_ = 0.0;
   /// [m] The ground, as set (setPosSurfaceRtWorldEwrtWorldZ) and as applied by
   /// the last preSolverRun(); both start at the task file's.
@@ -981,7 +981,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * swing on its swing reference (getSwingFootReference(); without one at its
    * nominal place under the base, moving with it) at the swing planner's height
    * above the ground. Its velocity is its world velocity minus that of the
-   * point of the base it is at; `legs` holds the contact's nominal place.
+   * point of the base it is at; `legs` stores the contact's nominal place.
    */
   FootMotionRtBase computeFootMotionRtBase(const FootMotionLegReference& legs,
                                            size_t contactIndex,
@@ -1039,7 +1039,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /**
    * Returns the nominal step [m] of foot `contactIndex` touching down at
    * `time`, the branch of getNomPosFootRtWorldEwrtWorldXy() with no foothold
-   * heuristic: a whole step width, `nomPosLfootRtRfootEwrtHeadingY` [m], to
+   * heuristic: a full step width, `nomPosLfootRtRfootEwrtHeadingY` [m], to
    * this foot's side `side` (+1 left, -1 right) of the stance foot
    * `stanceIndex`, carried forward at the commanded velocity over one step,
    * from the stance foot's own touch-down to this one. Both ends are fixed
@@ -1048,8 +1048,8 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * ends and pull the target back onto the stance foot.
    *
    * Measured from the stance foot, not from the base: in single support the
-   * base sits roughly over the stance foot, so half a step width from the base
-   * is half a step width from the stance foot - half the separation intended -
+   * base is roughly over the stance foot, so half a step width from the base
+   * is half a step width from the stance foot (half the intended separation)
    * and the base moves further over the stance foot with every step, so the
    * feet converge.
    *

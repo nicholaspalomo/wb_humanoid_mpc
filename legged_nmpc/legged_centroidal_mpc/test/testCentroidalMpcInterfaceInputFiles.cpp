@@ -48,11 +48,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /**
  * CentroidalMpcInterface::Create() on input files it cannot use. A missing file
- * is NotFound naming its path, checked before anything reads the files; a file
- * that does not parse strictly is an InvalidArgument naming the file, the line
- * and the column; a YAML file is refused naming it; and a configuration that
- * does not convert is an InvalidArgument naming the field. None of these builds
- * a CppAD model: every case returns before the problem is set up.
+ * is NotFound reporting its path, checked before anything reads the files; a
+ * file that does not parse strictly is an InvalidArgument reporting the file,
+ * line and column; a YAML file is refused with its path in the error; and a
+ * configuration that does not convert is an InvalidArgument identifying the
+ * field. None of these builds a CppAD model: every case returns before the
+ * problem is set up.
  */
 namespace ocs2::legged {
 namespace {
@@ -73,7 +74,7 @@ class CentroidalMpcInterfaceInputFilesTest : public ::testing::Test {
     ASSERT_FALSE(std::filesystem::exists(missing_));
   }
 
-  /** Create() must return, not throw, and return NotFound naming the missing
+  /** Create() must return, not throw, and return NotFound reporting the missing
    * path. */
   void expectNotFoundNamingTheMissingFile(
       const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>& created,
@@ -135,8 +136,8 @@ TEST_F(CentroidalMpcInterfaceInputFilesTest,
 TEST_F(CentroidalMpcInterfaceInputFilesTest,
        ATaskFileThatDoesNotParseIsRefusedWithItsPosition) {
   // Positive control of the existence check: with all three files present
-  // Create() reads the task file, whose value is made unreadable here - the
-  // refusal is then the parser's, naming the file, the line and the column.
+  // Create() reads the task file, whose value is made unreadable here; the
+  // refusal is then the parser's, reporting the file, line and column.
   const std::string text = taskFileText(shipped_.task);
   const std::string broken =
       absl::StrReplaceAll(text, {{"verbose: true", "verbose: sometimes"}});
@@ -160,8 +161,8 @@ TEST_F(CentroidalMpcInterfaceInputFilesTest,
 }
 
 TEST_F(CentroidalMpcInterfaceInputFilesTest, AYamlTaskFileIsRefusedNamingIt) {
-  // A task file in YAML: the MPC reads textprotos only, and refuses it as a
-  // whole, naming the file, rather than reading a part of it.
+  // A task file in YAML: the MPC reads textprotos only, and rejects the file
+  // outright (reporting its path) rather than reading part of it.
   const std::string yaml =
       (std::filesystem::path(testing::TempDir()) / "input_files_task.yaml")
           .string();

@@ -28,7 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // The shipped scenarios (design section 8.1): every file parses, references
-// existing contacts and primitives and carries the design's static margin, and
+// existing contacts and primitives and uses the design's static margin, and
 // its initial and goal stances pass the stability certifier.
 
 #include <memory>

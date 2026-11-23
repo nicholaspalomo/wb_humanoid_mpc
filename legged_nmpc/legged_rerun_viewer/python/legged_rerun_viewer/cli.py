@@ -34,7 +34,7 @@
     ... --rerun_sink save --rrd_path /tmp/walk.rrd --duration 30
 
 Relative paths are looked up in the directory the bridge was started from (BUILD_WORKING_DIRECTORY under `bazel run`)
-and then in the repository root. Ctrl-C (or SIGTERM) stops it cleanly: the bus is closed, what is queued is drawn, the
+and then in the repository root. Ctrl-C (or SIGTERM) stops it: the bus is closed, what is queued is drawn, the
 buffered plots are sent and the recording is flushed, within a bounded time even when the viewer takes no data.
 
 The viewer of spawn and connect may go away. The bridge probes it (ViewerWatch): a spawned viewer that is gone (closed,
@@ -107,13 +107,13 @@ WRITER_STALL_S = 3.0
 
 
 def resolve_input_path(path: str) -> str:
-    """Finds a path named on the command line: as is when absolute, else in the start directory, else in the repository.
+    """Finds a path specified on the command line: as is when absolute, else in the start directory, else in the repository.
 
     Args:
         path: the path as the user wrote it.
 
     Returns:
-        The first existing candidate, or the first candidate when none exists, so that the error names the path the
+        The first existing candidate, or the first candidate when none exists, so that the error reports the path the
         user meant.
     """
     if os.path.isabs(path):

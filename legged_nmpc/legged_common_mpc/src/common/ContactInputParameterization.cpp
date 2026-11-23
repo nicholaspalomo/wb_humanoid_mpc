@@ -44,7 +44,7 @@ namespace ocs2::legged {
 namespace {
 
 struct ParameterizationEntry {
-  // NOLINTNEXTLINE(totw-view-member): every entry is a string literal of a constexpr registry, alive for the whole program.
+  // NOLINTNEXTLINE(totw-view-member): every entry is a string literal of a constexpr registry, alive for the lifetime of the program.
   absl::string_view name;
   ContactInputParameterization parameterization;
 };

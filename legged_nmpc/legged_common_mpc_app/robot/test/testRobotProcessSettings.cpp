@@ -55,7 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The robot process's settings of the task file through
  * loadRobotProcessSettings(), which reads the typed task file strictly and
- * names the file in its errors: a file that says nothing gets the defaults of
+ * reports the file in its errors: a file that says nothing gets the defaults of
  * RobotProcessSettings, except the lists; every field is read; a value of the
  * wrong type is refused where it is written and a value the robot process
  * cannot run with by its field; the retired booleans are refused with the name
@@ -90,8 +90,8 @@ constexpr absl::string_view kShippedTaskFiles[] = {
 };
 // LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/BUILD.bazel:shipped_task_files)
 
-/** The task file `content`, on the line below the header that names its schema,
- * written to `name` in the test's temporary directory; its path. */
+/** The task file `content`, on the line below the header that specifies its
+ * schema, written to `name` in the test's temporary directory; its path. */
 std::string writeTemporaryFile(absl::string_view name,
                                absl::string_view content) {
   const std::string file =

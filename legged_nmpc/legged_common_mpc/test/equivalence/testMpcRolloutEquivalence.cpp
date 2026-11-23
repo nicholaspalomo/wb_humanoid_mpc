@@ -308,7 +308,7 @@ EulerSamplingBounds rolloutBounds(scalar_t maxAbsTilt) {
 /**
  * Sets the base velocity of the Euler state `eulerState` of `oracle` to
  * `baseGeneralizedVelocity` = [pd_W; dTheta/dt] with the joint rates
- * `jointRates`: the whole body's state holds it; the centroidal state holds the
+ * `jointRates`: the whole-body state stores it; the centroidal state stores the
  * momentum hbar = A_G,e [v_b; qd_j] / m whose base velocity it is (O2).
  */
 void setBaseGeneralizedVelocity(const EulerMpcOracle& oracle,

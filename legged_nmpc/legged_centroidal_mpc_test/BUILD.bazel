@@ -114,7 +114,7 @@ cc_test(
     ],
 )
 # The controller's observation, passive modes, WB_MPC hold, weight compensation and policy execution allocate nothing;
-# a binary of its own, because the allocation counter replaces malloc for the whole binary.
+# a binary of its own, because the allocation counter replaces malloc process-wide.
 cc_test(
     name = "test_centroidal_mpc_mrt_joint_controller_allocations",
     size = "small",

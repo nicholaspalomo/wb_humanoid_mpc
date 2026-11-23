@@ -89,7 +89,7 @@ void ViewerFrameMailbox::publish(EncodedFrame frame) {
     std::swap(frame_, frame);
     frameCondition_.SignalAll();
   }
-  // `frame` now holds the previous frame, freed here, outside the mutex.
+  // `frame` now stores the previous frame, freed here, outside the mutex.
 }
 
 std::optional<EncodedFrame> ViewerFrameMailbox::copyNewer(
@@ -125,7 +125,7 @@ void ViewerFrameMailbox::publishStatus(ViewerStatus status) {
     absl::MutexLock lock(&statusMutex_);
     std::swap(status_, status);
   }
-  // `status` now holds the previous status, freed here, outside the mutex.
+  // `status` now stores the previous status, freed here, outside the mutex.
 }
 
 ViewerStatus ViewerFrameMailbox::status() const {

@@ -4,7 +4,7 @@ load(":copts.bzl", "FIRST_PARTY_COPTS")
 # This package contains Bazel build infrastructure (macros, rules, extensions).
 
 # The system library repositories; //tools/hooks:test_boost_usage checks that the @pinocchio target is the only one that
-# depends on Boost or carries its defines.
+# depends on Boost or includes its defines.
 exports_files(["system_libs.bzl"])
 
 # The first-party warning flags; //tools/hooks:test_agents_style_sections checks that AGENTS.md names only these.
@@ -13,7 +13,7 @@ exports_files(["copts.bzl"])
 # Proves in every build of //... that FIRST_PARTY_COPTS (copts.bzl) is clean on every third-party header family that
 # first-party code includes: they are system headers (-isystem, copts.bzl says how), and -Werror makes every warning one
 # of them would still trip, the -Wall / -Wextra / -Wpedantic ones included, a failure here. A flag that fails on this
-# target is dropped from copts.bzl, with a comment naming the header. Nothing links it.
+# target is dropped from copts.bzl, with a comment identifying the header. Nothing links it.
 cc_library(
     name = "first_party_copts_probe",
     srcs = ["first_party_copts_probe.cpp"],

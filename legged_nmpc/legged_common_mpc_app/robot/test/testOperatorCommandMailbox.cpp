@@ -77,7 +77,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * order and once each, the newest posture with every joint target merged into
  * it, the newest dodgeball throw, the gantry height, and controller settings
  * whose estimator is built and kept alive. The GUI's tuning payloads are typed:
- * the whole task file on operator/mpc_parameters, the whole gains file on
+ * the full task file on operator/mpc_parameters, the full gains file on
  * operator/pd_gains, a DodgeballThrow on operator/dodgeball_throw.
  */
 
@@ -340,7 +340,7 @@ TEST_F(OperatorCommandMailboxTest,
   EXPECT_TRUE(updates[2].hasContactEstimator);
   EXPECT_EQ(updates[2].contactEstimatorName, "robot_state");
   EXPECT_FALSE(updates[2].hasContactWrenchGate);
-  // The payload is the whole file: a file without a contact_wrench_gate block
+  // The payload is the full file: a file without a contact_wrench_gate block
   // is the instantaneous gate.
   EXPECT_TRUE(updates[3].hasContactWrenchGate);
   EXPECT_EQ(updates[3].contactWrenchGate.debounceTime,

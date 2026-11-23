@@ -287,7 +287,7 @@ def build_blueprint(
     config: plot_config_module.PlotConfig | None = None,
     allowed_instances: Sequence[str] | None = None,
 ) -> rrb.Blueprint:
-    """The whole layout; `tracked_link` is the measured robot's link the 3D view follows (None: a fixed eye)."""
+    """The full layout; `tracked_link` is the measured robot's link the 3D view follows (None: a fixed eye)."""
     if plots:
         if config is not None:
             tabs = build_configured_tabs(config)

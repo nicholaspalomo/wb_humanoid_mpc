@@ -31,9 +31,9 @@ There are no lists of parameter names in the tabs: config_schema walks a file's 
 registry name the schema does not exclude, with its stated reason, gets a row. This test holds that from the outside,
 in two halves:
 
-- headless, on the descriptors of the five file schemas: every scalar renders or carries its exclusion reason, every
+- headless, on the descriptors of the five file schemas: every scalar renders or has its exclusion reason, every
   rendered one says whether the running stack applies it (RELOAD_HOT) or the next start (RELOAD_START_UP), every
-  registry name is a choice, and every condition names a field the file has;
+  registry name is a choice, and every condition specifies a field the file has;
 - with a display, on every robot's files: each tab shows a row for exactly the parameters the walk renders.
 
 A row is labeled by its field names (the user's decision for the tuning GUI): no option of a schema renames a field, and
@@ -41,7 +41,7 @@ no comment of a file is part of a label, which the shipped files are walked head
 
 The RELOAD_HOT set is the half of test T8 (legged_mpc_config/README.md) that the C++ side compares with what each
 formulation's parameter updater declares it applies (legged_mpc_validation, testHotFieldCoverage); here it is held to
-its own rules, and every formulation a field names is one the GUI knows.
+its own rules, and every formulation a field specifies is one the GUI knows.
 """
 
 from collections.abc import Iterator
@@ -93,7 +93,7 @@ ROBOT_FILE_SCHEMAS = (
     ),
 )
 RELOAD_CLASSES = (config_schema.RELOAD_HOT, config_schema.RELOAD_START_UP)
-# The text fields that name an entity of the robot model (a robot, a joint, a link, a frame) or a term: there is
+# The text fields that specify an entity of the robot model (a robot, a joint, a link, a frame) or a term: there is
 # nothing to choose them from, so they get no widget and need no stated reason. Any other text field without a
 # registry must say why it gets no widget, so that a new string hyperparameter cannot pass unrendered unnoticed.
 ENTITY_NAME_FIELDS = frozenset(
@@ -209,7 +209,7 @@ class TestTheSchemasSayHowEveryFieldIsTuned(unittest.TestCase):
                         set(field.tuning.formulations),
                         set(config_schema.FORMULATIONS),
                     )
-        # The task file names both, so the rule above was exercised.
+        # The task file specifies both, so the rule above was exercised.
         self.assertEqual(named, set(config_schema.FORMULATIONS))
 
     def test_the_hot_fields_are_a_proper_part_of_each_file_the_mpc_reloads(
@@ -250,7 +250,7 @@ class TestTheSchemasSayHowEveryFieldIsTuned(unittest.TestCase):
     def test_the_parameter_update_resolves_the_task_files_conditions_inside_it(
         self,
     ):
-        # A condition names a field of the file; inside the bus message the file is `task`.
+        # A condition specifies a field of the file; inside the bus message the file is `task`.
         self.assertIn(
             "task.contact_input_parameterization",
             _condition_paths(mpc_parameter_update_pb2.MpcParameterUpdate),

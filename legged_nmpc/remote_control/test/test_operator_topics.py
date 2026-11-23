@@ -117,7 +117,7 @@ class TestTheReadmeTable(unittest.TestCase):
                 self.assertEqual(row.delivery.value, readme.delivery)
 
     def test_the_tuning_topics_carry_their_files_typed(self):
-        # The payload is the file: the whole task and contact-planning file, the whole PD gains file. A save carries
+        # The payload is the file: the full task and contact-planning file, the full PD gains file. A save contains
         # the saved file's text, which the robot parses as it parses the file at start-up, and the robot answers it.
         expected = {
             topics.OPERATOR_MPC_PARAMETERS: (

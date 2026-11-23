@@ -321,7 +321,7 @@ TEST(CentroidalRobotModelBoundary, TheTuningLayoutAgreesWithTheIndexAccessors) {
       const absl::StatusOr<size_t> tuningStart =
           tuningSegmentStart(layout, segment.name);
       ASSERT_TRUE(tuningStart.ok()) << tuningStart.status();
-      // The blocks before the quaternion sit at the same offset in the state
+      // The blocks before the quaternion are at the same offset in the state
       // and the tuning vector, the ones after it one row further in the state:
       // the quaternion has four state rows for its three tuning rows.
       const bool afterTheAttitude = i > 3;
@@ -517,7 +517,7 @@ TEST(CentroidalRobotModelBoundary, InterpolationSlerpsTheAttitudeAcrossPi) {
         model.getYawBaseRtWorld(model.getDesiredState(targets, /*time=*/0.25)),
         wrapped(3.125), 1.0e-12);
     // The orientation block is the manifold's slerp bit for bit, every other
-    // row LinearInterpolation's bit for bit. The whole vector is not the
+    // row LinearInterpolation's bit for bit. The full vector is not the
     // manifold's interpolate(): its (1 - a) x0 + a x1 differs from alpha x0 +
     // (1 - alpha) x1 in the last bit where fl(1 - fl(1 - a)) != a, as at t =
     // 0.3 here and on the second, non-unit interval below.
@@ -585,7 +585,7 @@ TEST(CentroidalRobotModelBoundary, TuningValuesMapOntoTheQuaternionState) {
     EXPECT_NEAR(initialState->segment<4>(orientationStart).norm(), 1.0,
                 1.0e-15);
 
-    // A vector of another size is refused, naming the layout.
+    // A vector of another size is refused, reporting the layout.
     const absl::StatusOr<vector_t> tooLong = model.stateFromTuning(
         vector_t::Zero(static_cast<Eigen::Index>(model.getStateDim())));
     ASSERT_FALSE(tooLong.ok());
@@ -794,7 +794,7 @@ TEST(CentroidalRobotModelBoundary,
     vector_t v =
         vector_t::Zero(static_cast<Eigen::Index>(model.getVelocityDim()));
     for (int sample = 0; sample < 16; ++sample) {
-      // Any measured attitude, gimbal lock included: the quaternion carries no
+      // Any measured attitude, gimbal lock included: the quaternion has no
       // singularity.
       const quaternion_t quatBaseRtWorld(
           vector4_t(uniform(generator), uniform(generator), uniform(generator),

@@ -63,7 +63,7 @@ contact_estimator: "cheater_sim"
 #
 # Remove the key, or set it empty, to compile the scene exactly as it is on disk. The Throw button then still works:
 # with no ball to fly, the simulator applies the momentum the ball would have ARRIVED with as a one-step force on the
-# base - a lower bound on the push, since a real ball that bounces off hands over more.
+# base (a lower bound on the push, since a real ball that bounces off transfers more).
 #
 # Simulation only. It changes nothing about the MPC, and a contact with the ball is excluded from the ground-truth
 # contact mask and from the ZMP marker, so a ball against a swing foot is never mistaken for the ground.
@@ -113,7 +113,7 @@ contact_input_parameterization: "basis_vectors"
 #   contact_planner  plan the contact sequence, timing and footholds online with the contact planner that planner.type
 #                    in contact_planning.textproto names (hlip, the closed-form H-LIP planner, as shipped); it replaces the
 #                    gait schedule. Raise task_space_foot_cost.weights.pos_x / pos_y first: at 0, as shipped, the
-#                    planned footholds carry no weight in the MPC (CentroidalMpcInterface warns at start-up).
+#                    planned footholds have no weight in the MPC (CentroidalMpcInterface warns at start-up).
 # It replaced the useContactPlanning key, which start-up now refuses, and takes effect at start-up only. The planner's
 # parameters are contact_planning.textproto next to this file (hot-reloaded and edited by the
 # tuning GUI like this file). See legged_nmpc/docs/README.md, section 2.
@@ -130,14 +130,14 @@ contact_schedule_source: "gait_schedule"
 # terminal_cost_scaling times these; under the DCM terminal cost (dcm_terminal_cost, as
 # shipped) there is none, and the DCM cost is what the horizon ends on.
 #
-# Tuning note: the aCOM coordinate is essentially an integral of the centroidal
+# Tuning note: the aCOM coordinate is an integral of the centroidal
 # angular momentum that state_weights.mnorm_angmom_com_rt_world_ewrt_world x and y already penalize, so the two
 # terms compete. If torso rotation feels over-damped, lower L_x / L_y before
 # lowering acom_weights. Expect acom_weights to need reducing relative to the base pose
-# weights it replaces, because the learned coordinate carries roughly 17% model
+# weights it replaces, because the learned coordinate has roughly 17% model
 # error that the directly measured base pose did not.
 # Every entry here is multiplied by `scaling`, so the effective weights are 2125, 2125 and 1275. The x and y entries
-# carried the word "unpenalized" while sitting at 2125 - they were 0 until the tuning pass in 4a94058 raised them, and
+# had the word "unpenalized" while at 2125 - they were 0 until the tuning pass in 4a94058 raised them, and
 # the comment was not updated. They are NOT unpenalized: the horizontal CoM is regulated hard against p_com(q_ref),
 # which for a walking robot is a moving target the gait is meant to be free to lead or lag. If stepping feels like it
 # is fighting a horizontal spring, this is the first place to look.
@@ -243,7 +243,7 @@ nominal_foothold {
 # terms read their own `contact_implicit.terrain_height`. They agreed only because both were pinned to the same
 # constant. A flat ground is correct here because every layer of this stack assumes one, the reduced-order contact
 # planner most of all; a measured estimator would belong here as a named selection, not as a second constant.
-# Hot-reloadable: the parameter updater hands a new value to the reference manager, which owns the ground and rebuilds
+# Hot-reloadable: the parameter updater passes a new value to the reference manager, which owns the ground and rebuilds
 # the swing trajectories and the landing targets on it at the next solve, and the contact-implicit terms follow it in
 # that same solve - so the two never see different grounds. The base-height reference follows it: nom_pos_base_rt_surface_ewrt_world_z and
 # the commanded pelvis height are heights above this ground (TargetTrajectoriesCalculatorBase::computeRefPosBaseRtWorldEwrtWorldZ,
@@ -275,7 +275,7 @@ contact_implicit {
   # condition whose solution lies ON the boundary: a log barrier never reaches zero, so its derivative was
   # -2*mu/delta = -20 at h = 0 and upward at every height. The only term pulling a foot back down was the
   # complementarity penalty, and balancing the two left a fully loaded foot 2.3 mm off the ground and a foot at half
-  # body weight - i.e. both feet, throughout double support - 6.8 mm off it, carrying a permanent complementarity
+  # body weight - i.e. both feet, throughout double support - 6.8 mm off it, having a permanent complementarity
   # residual that no weight could tune away. The hinge is zero in value AND gradient at h = 0, so it simply does nothing
   # until the foot is actually below ground.
   #
@@ -330,7 +330,7 @@ costs: "external_torque_cost"
 #   base_pose  the roll, pitch and height of the base-pose reference that the state_weights of eulerzyx_base_rt_world (roll,
 #              pitch) and pos_base_rt_world_ewrt_world (z) track - and
 #              final_state_weights and the torso task-space cost with them - shaped per shooting node in
-#              SwitchedModelReferenceManager::shapePoseBaseRtWorld(). Without a heuristic that reference carries a HARD ZERO
+#              SwitchedModelReferenceManager::shapePoseBaseRtWorld(). Without a heuristic that reference has a HARD ZERO
 #              for roll and pitch - the target calculator zeroes the pitch and roll of finalPoseeulerzyxBaseRtWorld on every call - so
 #              anything listed here is the first opinion this MPC has about how the base is carried. It is a function
 #              of the operator's COMMANDED velocity. Inert while costs lists com_and_acom_tracking_cost, because
@@ -357,7 +357,7 @@ costs: "external_torque_cost"
 # block in MuJoCo, and only then move to the next, which is how the dissertation itself proceeds (section 4.3,
 # figure 4-13: one heuristic per panel, the viable operating region measured after each).
 #
-# The list is the switch and the block is the tuning. The blocks below carry DERIVED, non-zero coefficients, so on this
+# The list is the switch and the block is the tuning. The blocks below have DERIVED, non-zero coefficients, so on this
 # robot uncommenting a name IS the closed-loop change: the number is live the moment the name is listed. To check that
 # listing a name changes nothing by itself - a useful first experiment - zero its block before uncommenting it. The
 # analytic heuristics of Table C.1 (hip_centered_stepping, capture_point, impulse_scaling, centripetal_acceleration)
@@ -411,7 +411,7 @@ locomotion_heuristics {
     # POSITIVE is nose-down here (ZYX Euler angles about a z-up world). Sized from the stick rather than scaled from Bledt's
     # +0.0725, which was fitted to a 9 kg quadruped: pitching a few degrees into the command carries the CoM towards the
     # leading edge of the support and, per section 4.3, keeps the body closer to level (on Bledt's model also what kept
-    # its small-roll-and-pitch approximation valid; this control model carries the full rotation as a quaternion).
+    # its small-roll-and-pitch approximation valid; this control model stores the full rotation as a quaternion).
     pitch_per_forward_velocity_gain: 0.0407  # a1 [rad s/m] pitch per commanded forward speed
     offset_eulerzyx_base_rt_world_pitch: 0.0  # a0 [rad] standing pitch trim
     # 0.15 rad = 8.6 deg, tighter than the 0.35 generic default: three times the lean at full stick, so the clamp stays
@@ -444,7 +444,7 @@ locomotion_heuristics {
   }
 
   # H_z(v) = a2*v^2 + a1*v + a0  (Table C.2) in the MAGNITUDE of the commanded horizontal velocity, applied as an
-  # OFFSET to the reference height and never as an absolute height - the same channel carries the terrain that
+  # OFFSET to the reference height and never as an absolute height - the same channel stores the terrain that
   # applyPosSurfaceRtWorldEwrtWorldZ() writes, and an absolute value would silently become a terrain override.
   # Crouching with speed buys the swing leg vertical room within the same joint range; it costs knee torque headroom.
   height_compensation {
@@ -470,7 +470,7 @@ locomotion_heuristics {
   # are summed on top of (figure 4-8), and alone it walks a few slow steps and falls as soon as it has speed. The
   # layer prints a warning when it is listed alone, and another when the others are listed without it.
   hip_centered_stepping {
-    # Atlas's hip yaw joints sit at y = +/-0.089 m, so an unscaled hip-centered stance is 0.178 m wide - against the
+    # Atlas's hip yaw joints are at y = +/-0.089 m, so an unscaled hip-centered stance is 0.178 m wide - against the
     # 0.45 m of nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y that this heuristic REPLACES. Listing it at scale 1.0 would therefore cut
     # the robot's stance to two fifths the moment it is switched on, which is not a correction but a different gait.
     # 2.528 is 0.45 / (2 * 0.089): it reproduces the stance the robot already walks with, so the heuristic changes the
@@ -478,7 +478,7 @@ locomotion_heuristics {
     # the legs naturally splay to at the nominal posture, and 1.40 the 0.25 m orbit the contact planner would place
     # (contact_planning.textproto hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y).
     lateral_scale: 2.528  # multiplies the model's hip lateral offset; 0 removes the lateral part
-    longitudinal_scale: 1.0  # inert on Atlas: both hip joints sit at x = 0, so the fore-aft offset is zero
+    longitudinal_scale: 1.0  # inert on Atlas: both hip joints are at x = 0, so the fore-aft offset is zero
   }
 
   # H_r(pdot, Phi) = gain * sqrt(p_z / g) * (pdot - pdot_d)  (Table C.1): the capture-point offset of the VELOCITY
@@ -600,7 +600,7 @@ locomotion_heuristics {
   #
   # TWO THINGS TO KNOW BEFORE LISTING IT. First, it is the only heuristic of the ten whose force is HORIZONTAL, so under
   # contact_input_parameterization: basis_vectors the reference has to be rotated into the local contact frame and the
-  # whole contact-force reference starts paying a forward-kinematics pass per shooting node per SQP iteration. The layer
+  # full contact-force reference starts paying a forward-kinematics pass per shooting node per SQP iteration. The layer
   # switches to that path by itself and warns; watch the solve time. Second, and more important: this may be the wrong
   # thing to want HERE. Bledt's control model is a single rigid body whose force reference is the only thing telling the
   # QP how hard to push, whereas these dynamics are full centroidal and the state cost already tracks the commanded
@@ -641,7 +641,7 @@ safety_decay_time_constant: 0.5
 # (a bounce across the detection threshold restarts it). ramp_time: the wrench then rises linearly from zero to the
 # planned value over this time. Lift-off is never shaped. Hot-reloadable (GUI: Solver & Horizon). The 10 ms debounce
 # rides out a heel or toe bounce across the 5 N detection threshold (sim_min_force_mjcontact_ewrt_mjcontact_x), and the 40 ms ramp brings
-# the wrench in over the first half of the 0.1 s double support, when the other foot still carries the weight; the whole
+# the wrench in over the first half of the 0.1 s double support, when the other foot still carries the weight; the
 # onset stays well inside the phase_resetting debounce of the schedule (early_touchdown_min_contact_duration) plus one node.
 contact_wrench_gate {
   debounce_time: 0.01  # [s]
@@ -666,8 +666,8 @@ model_settings {
     # Lowered from 5. This gain is proportional feedback injected straight into the
     # swing foot's commanded vertical velocity by a HARD equality constraint:
     #   v_z = zdot_ref + position_error_gain_z * (z_ref - z)
-    # With touchdown_linvel_foot_rt_world_ewrt_world_z restored below, zdot_ref carries the descent and this
-    # term only trims the residual. At 5 with zdot_ref = 0 the entire touch-down
+    # With touchdown_linvel_foot_rt_world_ewrt_world_z restored below, zdot_ref provides the descent and this
+    # term only trims the residual. At 5 with zdot_ref = 0 the touch-down
     # velocity was 5x the tracking lag, so the foot kicked into the ground and the
     # zero_velocity constraint then had to absorb that velocity in one 0.02 s
     # shooting interval, which threw the body upward once per step.
@@ -681,7 +681,7 @@ model_settings {
     angular_acceleration_error_gain: 0
     soft_constraint_weight: 250
     # Weight of the SOFT `normal_velocity` term, when it is listed in soft_constraints. The residual is the same row
-    # the hard constraint imposes - v_z - zdot_ref - position_error_gain_z * (z_ref - z) - so this one number buys the
+    # the hard constraint imposes (v_z - zdot_ref - position_error_gain_z * (z_ref - z)), so this one number buys the
     # swing-foot vertical servo as a cost the solver can trade off, instead of an equality it cannot.
     #
     # Why one weight rather than two task-space weights: the hard row combines a velocity feedforward and a position
@@ -689,7 +689,7 @@ model_settings {
     # only its velocity rows are faded by the impact-proximity factor while its position rows are not. Splitting the
     # servo across two differently-faded channels gives a different controller at every point of the swing.
     #
-    # Sizing: the residual is in m/s and is essentially affine in the input (the joint velocities ARE inputs of the
+    # Sizing: the residual is in m/s and is affine in the input (the joint velocities ARE inputs of the
     # centroidal model), so a large Gauss-Newton weight here is well conditioned even with a single SQP iteration per solve. A foot stuck
     # on the ground at mid-swing has a residual of -position_error_gain_z * apex_pos_foot_rt_swingend_ewrt_world_z = -0.16 m/s. The term has to
     # outbid the leg-joint entries of Q, which regularize the swing leg towards the standing crouch - a posture whose
@@ -786,7 +786,7 @@ swing_trajectory_config {
   # Toe-up pitch of the swing foot reference, tilting the plane that task_space_foot_cost.weights.rotvec_x / _y
   # track. It raises the toe by 0.12 * sin(angle) without lowering the sole center: 0.10 rad buys ~12 mm at the peak.
   # The profile is flat at lift-off, ramps up over swing_pitch_rise_fraction of the swing, holds, and is back to flat at
-  # touch-down so that contact is still made with the whole sole, as the contact model assumes.
+  # touch-down so that contact is still made with the full sole, as the contact model assumes.
   #
   # DISABLED BY DEFAULT (0.0 reproduces the previous flat-foot reference exactly). The gains and the trajectory shape
   # above should be validated in MuJoCo on their own first; enable this only if the toe still catches, and start around
@@ -825,7 +825,7 @@ rollout {
 
 mpc {
   time_horizon: 1  # [s]
-  # solution_time_window is absent: every policy carries the whole horizon.
+  # solution_time_window is absent: every policy covers the full horizon.
   cold_start: false
 
   debug_print: false
@@ -1148,7 +1148,7 @@ task_space_foot_cost {
     # which without a planner means following the reference base as it advances; without any target the foot tracks the
     # commanded base velocity instead, weighed by swing_velocity_reference_weight above.
     #
-    # Both ship at 0 (the tuning commit 50d7022 took them there from 30), so as shipped a planned foothold carries no
+    # Both ship at 0 (the tuning commit 50d7022 took them there from 30), so as shipped a planned foothold has no
     # weight at all: with contact_schedule_source: contact_planner the planner's landing targets reach the MPC through
     # nothing but the linvel_y ramp below, and CentroidalMpcInterface warns at start-up. Raise them before switching
     # the planner on; when last tried at 0 with a target supplied, the swing foot had no longitudinal guidance,
@@ -1247,7 +1247,7 @@ contacts {
   }
   contact_rectangle {
     # ; length specified in contact frame ;;
-    # Matched to the actual sole contact geometry in atlas.xml: the four contact spheres sit at ankle-frame
+    # Matched to the actual sole contact geometry in atlas.xml: the four contact spheres are at ankle-frame
     # x = -0.08 / +0.16, y = +-0.055, and the contact frame is 0.04 ahead of the ankle, so the real support polygon is
     # +-0.12 x +-0.055 in this frame. The previous +-0.13 / +-0.065 gave the MPC about a centimeter of CoP range fore,
     # aft and to each side that the foot does not have.
@@ -1314,7 +1314,7 @@ contacts {
   #                  here, so those entries of R barely act.
   #   null_space     S = I - B^+ B: only the lambda that produce no wrench are penalized, and R acts unchanged on the
   #                  wrench. Not validated in closed loop yet.
-  # Both are hot-reloaded; a reload naming an unknown shape, or leaving the lambda block indefinite, is refused and the
+  # Both are hot-reloaded; a reload specifying an unknown shape, or leaving the lambda block indefinite, is refused and the
   # running R kept. See legged_nmpc/docs/contact_basis_vectors/README.md, section 5.
   basis_scaling_regularization: 0.0001
   # LINT.IfChange(basis_regularization_config)

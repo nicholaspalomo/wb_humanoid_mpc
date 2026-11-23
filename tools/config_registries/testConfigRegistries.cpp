@@ -90,7 +90,8 @@ constexpr char kWriteIt[] =
     "write it with `bazel run "
     "//tools/config_registries:print_config_registries`";
 
-/** Whether some list of the contact planner holds the term `name`, spelled so.
+/** Whether some list of the contact planner contains the term `name`, spelled
+ * so.
  */
 bool isContactPlanningTerm(absl::string_view name) {
   const std::vector<TermKind>& kinds = allTermKinds();

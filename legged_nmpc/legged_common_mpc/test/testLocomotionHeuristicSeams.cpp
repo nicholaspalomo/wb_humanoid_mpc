@@ -212,7 +212,7 @@ TEST(LocomotionHeuristicSeams, TheFeetStayWithTheBodyUnderASustainedSidestep) {
       }
       // And the constant is what Raibert's rule predicts: the foot just landed
       // leads its hip by k T_st v, the other one landed a step earlier and has
-      // since fallen T_step v behind the base, so the midpoint sits k T_st v -
+      // since fallen T_step v behind the base, so the midpoint is k T_st v -
       // T_step v / 2 from the base - zero for a half-stance lead on a gait
       // whose stance is one step. The feet are not left behind and not thrown
       // ahead.

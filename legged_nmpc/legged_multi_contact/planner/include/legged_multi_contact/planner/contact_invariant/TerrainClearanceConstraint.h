@@ -79,7 +79,7 @@ absl::StatusOr<std::vector<ClearanceSphere>> clearanceSpheresOf(
  * one row per sphere, with c_k the sphere's center at the configuration of
  * the centroidal state x. With a margin of 0 a sphere may touch, as the
  * spheres of a resting pad's link do, so no sphere is exempt. The terrain is
- * recorded on the tape as constants: the library's name must carry the
+ * recorded on the tape as constants: the library's name must include the
  * scene's hash. Wrapped in a relaxed barrier (StateSoftConstraint) it is a
  * soft constraint of planner A's solves; the certifier fails a knot whose
  * spheres outside the active pads' neighborhood go more than 5 mm in.

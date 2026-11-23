@@ -405,7 +405,7 @@ class EntrypointTest(unittest.TestCase):
                 },
                 "viewer=",
             ),
-            # robot-sim names no viewer of its own: the launch file's plot configuration chooses.
+            # robot-sim specifies no viewer of its own: the launch file's plot configuration chooses.
             ({"WB_ROBOT_DEFAULT_VIEWER": ""}, "viewer="),
         )
         for environment, expected in cases:
@@ -613,7 +613,7 @@ class ComposeTest(unittest.TestCase):
         # LINT.ThenChange(//docker-compose.robot.sim.yaml:sim_models_mount)
         # LINT.IfChange(sim_plot_config_mount)
         # The checkout's plot configuration (the Makefile's PLOT_CONFIG, by default the shipped one), read-only, whose
-        # mujoco_viewer names the MuJoCo viewer unless WB_ROBOT_VIEWER does.
+        # mujoco_viewer specifies the MuJoCo viewer unless WB_ROBOT_VIEWER does.
         mount = mounts[SIM_PLOT_CONFIG_TARGET]
         self.assertEqual(mount["type"], "bind")
         self.assertIs(mount["read_only"], True)
@@ -673,7 +673,7 @@ class SystemdUnitTest(unittest.TestCase):
     def test_an_instance_of_another_robot_than_the_deployed_one_refuses_to_start(
         self,
     ) -> None:
-        # The deployment directory holds one robot's .env; a unit of another robot left enabled must not run the
+        # The deployment directory contains one robot's .env; a unit of another robot left enabled must not run the
         # container under its own name (they share the compose project). systemd expands %i and turns $$ into $.
         unit = read_unit()
         guard = unit["Service"]["ExecStartPre"]
@@ -1954,7 +1954,7 @@ class SessionTest(unittest.TestCase):
         self,
     ) -> None:
         # Compose resolves its default network file relative to where it runs: in a dev container, a path the host's
-        # Docker does not have. The session names the host's path of the checkout's file.
+        # Docker does not have. The session specifies the host's path of the checkout's file.
         checkout = self.fake_checkout({})
         result, recorded = self.run_sim(checkout)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1969,7 +1969,7 @@ class SessionTest(unittest.TestCase):
     def test_in_a_container_on_the_hosts_network_the_checkout_is_found_by_the_containers_id(
         self,
     ) -> None:
-        # On the host's network a container's hostname is the host's, which names no container: the session reads its
+        # On the host's network a container's hostname is the host's, which identifies no container: the session reads its
         # own container's id from the mount of /etc/hostname, and asks Docker for that container's mounts.
         checkout = self.fake_checkout({})
         container_id = "abc0123456789def"
@@ -2029,7 +2029,7 @@ class SessionTest(unittest.TestCase):
             self.robot_container(recorded),
             ("", f"{HOST_CHECKOUT}/plots/mine.textproto"),
         )
-        # The robot's errors name the file by the path the container sees: the session says which file that is.
+        # The robot's errors reference the file by the path the container sees: the session says which file that is.
         self.assertIn(
             "the robot reads its MuJoCo viewer from plots/mine.textproto,"
             f" which it sees as {SIM_PLOT_CONFIG_TARGET}",
@@ -2040,7 +2040,7 @@ class SessionTest(unittest.TestCase):
     def test_a_plot_configuration_saved_before_the_rename_is_read(
         self,
     ) -> None:
-        # A plot configuration saved before the humanoid -> legged rename names the message's former package
+        # A plot configuration saved before the humanoid -> legged rename uses the message's former package
         # (nproto.former_package of plot_config.proto), which the robot's parser accepts: so does the session.
         old_header = PLOT_CONFIG_HEADER.replace(
             "legged_rerun_viewer_proto.PlotConfig",

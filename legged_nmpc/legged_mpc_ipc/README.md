@@ -11,7 +11,7 @@ supervisor (`legged_common_mpc:mpc_reset_supervisor`). No Pinocchio and no robot
 | `python/legged_mpc_ipc/topics.py` | `:topics_py` | the same names for the Python tools: `from legged_mpc_ipc import topics` |
 | `include/legged_mpc_ipc/MpcMessageConversions.h` | `:legged_mpc_ipc` | OCS2 types <-> messages |
 | `include/legged_mpc_ipc/SolutionTimeWindow.h` | `:legged_mpc_ipc` | cuts a solution to `mpc.solution_time_window` |
-| `include/legged_mpc_ipc/PolicyControllers.h` | `:legged_mpc_ipc` | a policy's controller as the `FeedforwardController`, `LinearController` or `ManifoldLinearController` the link carries, by its exact type |
+| `include/legged_mpc_ipc/PolicyControllers.h` | `:legged_mpc_ipc` | a policy's controller as the `FeedforwardController`, `LinearController` or `ManifoldLinearController` supported by the link, by its exact type |
 | `include/legged_mpc_ipc/RemoteMpcLink.h` | `:remote_mpc_link` | the robot side of the network MPC link, an `ocs2::MRT_BASE` |
 | `include/legged_mpc_ipc/RealtimePolicyEvaluator.h` | `:realtime_policy_evaluator` | evaluates the policy in use on the realtime thread, without allocating or logging |
 | `include/legged_mpc_ipc/MpcServer.h` | `:mpc_server` | the MPC side: the solve loop, driven by the bus |
@@ -21,7 +21,7 @@ The C++ and Python topic names are tied together, and to the topic table of the 
 Every topic is a DDS topic of the same name, and `config/ipc/network.textproto` gives each one its QoS profile and
 publishers (`:test_topics` checks that it lists exactly these topics: `mpc/policy` is `reliable_latest`,
 `robot/mpc_observation` `latest`, the operator's one-off commands `reliable_events`). Besides
-the MPC link's streams and the operator's commands, the topics carry the GUI's two-copy Save: `operator/config_save`
+the MPC link's streams and the operator's commands, the topics include the GUI's two-copy Save: `operator/config_save`
 (`ConfigFileSave`, the saved file's text for the robot's persistent copy) and its answer `robot/config_save_status`
 (`ConfigFileSaveStatus`).
 
@@ -45,7 +45,7 @@ absl::Status checkDimensions(const legged_mpc_msgs::MpcPolicy&, const ModelDimen
 was made from at any time and state.
 
 **The controller is rebuilt.** `policyFromProto()` builds a `FeedforwardController`, a `LinearController` or a
-`ManifoldLinearController` on the time trajectory, so that the received policy always carries a controller.
+`ManifoldLinearController` on the time trajectory, so that the received policy always contains a controller.
 
 **The controllers.** Each travels as one `Vector` per node of `time_trajectory`, tagged by `controller_type`
 (`legged_mpc_msgs/controller_type.proto`; the codes are the wire's own, not `ocs2::ControllerType`'s):
@@ -65,8 +65,8 @@ gain of the node before it, and the last node those of the one before. It is sen
 encoder needs no manifold; the receiver decodes on its own (`policyFromProto(message, stateManifold, ...)`,
 `RemoteMpcLink::Config::stateManifold`), whose ambient dimension must be the states' and whose tangent dimension gives
 `ndx`. A receiver on a manifold refuses `CONTROLLER_TYPE_LINEAR`, whose gains would act on the stored state; a flat
-receiver refuses `CONTROLLER_TYPE_MANIFOLD_LINEAR`. A robot and an MPC node that disagree on the state therefore surface
-as an invalid policy, not as a wrong input.
+receiver refuses `CONTROLLER_TYPE_MANIFOLD_LINEAR`. A state mismatch between the robot and the MPC node therefore causes
+the policy to be rejected as invalid rather than producing a wrong input.
 
 **Events.** OCS2's multiple-shooting solvers give the pre- and post-event nodes of an event the same time, and build the
 controller on that time trajectory. `ControllerBase::flatten()` at the time trajectory samples the pre-event node for
@@ -75,9 +75,9 @@ both, so the received policy would have applied the pre-event input after every 
 `unFlatten()` reads (`:test_mpc_message_conversions` checks both). Only a controller on other time stamps is sampled with
 `flatten()`.
 
-**Validation.** The `fromProto()` functions check the whole message before they write anything, so the output is
+**Validation.** The `fromProto()` functions check all fields of the message before writing anything, so the output is
 unchanged on error: finite values, sorted times, matching array lengths, post-event indices in range, a known controller
-type, and controller data of the size the node dimensions imply. The `absl::InvalidArgumentError` names the field, e.g.
+type, and controller data of the size the node dimensions imply. The `absl::InvalidArgumentError` identifies the field, e.g.
 `MpcPolicy.state_trajectory[3].data[2] is nan; every value must be finite`. Whether the dimensions are the robot
 model's is for `checkDimensions()`, given the dimensions of the model the receiver evaluates the policy with: the
 state and input sizes, and `numModes`, which every mode of the message (the observation's, each of the mode schedule)
@@ -87,7 +87,7 @@ biped has 4, the contact combinations of its two feet. The controller reads the 
 
 **Model layout.** Equal dimensions do not make equal models: an MPC node restarted with another `fixed_joint_names`
 of the same count, or a robot image whose URDF orders the joints differently, exchanges states whose joints are
-permuted. Every observation and policy therefore carries `model_fingerprint`, `modelLayoutFingerprint()` of the
+permuted. Every observation and policy therefore includes `model_fingerprint`, `modelLayoutFingerprint()` of the
 sender's `ModelSettings` (the state layout tag, the robot name, the MPC model's joint and contact names in order). The
 MPC node refuses an observation of another layout, an unstamped one included, counts it in `observationsRejected` and
 does not solve it (`MpcServer::Config::modelFingerprint`); the robot refuses such a policy as one of other dimensions
@@ -98,8 +98,8 @@ configuration checks nothing (the tests' links).
 messages, so a caller that keeps one message object allocates only while the message grows
 (`:test_mpc_message_conversions_allocations` proves the steady state allocation-free, serialization into a reused
 buffer included). Decoding a policy allocates its arrays and a new controller; decoding an observation or target
-trajectories into objects of the right sizes does not allocate. None of this belongs on a realtime thread: the robot's
-communication thread decodes the policy and hands it over with `MRT_BASE::moveToBuffer()`.
+trajectories into objects of matching sizes does not allocate. None of this belongs on a realtime thread: the robot's
+communication thread decodes the policy and transfers it with `MRT_BASE::moveToBuffer()`.
 
 ## The network MPC link
 
@@ -141,7 +141,7 @@ bus.start();
   `resets_served` / `full_resets_served` are below the ticket is dropped (counted as stale); the first that serves it is
   moved to the buffer and completes the ticket. `resetMpcNode()` requests a full reset and returns at once.
 - Health (`MpcResetSupervisor::setRemoteHealth()`): the MPC node's `MpcSolverStatus`, from every policy and from
-  `mpc/status` (subscribed after `mpc/policy`, so that a drain hands a status over after a policy of the same drain; a
+  `mpc/status` (subscribed after `mpc/policy`, so that a drain delivers a status after a policy of the same drain; a
   status of an attempt no newer than the newest policy of the same MPC server is ignored; `server_instance` tells a
   restarted MPC node, which counts its solves from zero again, from the one before, so that its statuses are mirrored
   before its first policy), and the link's own: lost when the newest policy was
@@ -152,8 +152,8 @@ bus.start();
   (`MpcResetSupervisor::setRemotePolicyExpired()`) at the first cycle past it. A stalled or starved IO thread therefore
   cannot leave the controller on a plan past its end; when it runs again it finds the same loss.
 - A lost link requests a full reset, as the in-process supervisor does once it declares a failing solver unhealthy:
-  the hold ends on a policy solved after it, from the robot as it is then, not on one that resumes the gait schedule
-  the MPC kept running through the loss. Only that policy ends the loss; a clock that runs backwards (by more than the
+  the hold ends only on a policy solved after the reset from the robot's current state, rather than resuming the gait
+  schedule the MPC kept running through the loss. Only that policy ends the loss; a clock that runs backwards (by more than the
   supervisor's `clockRewindTolerance`, as `observeTime()` counts it) restarts the timeout but does not.
 - Dropped: policies solved from an observation this robot did not send (`foreign`), policies older than the timeout on
   arrival or whose horizon has ended by then (`late`), undecodable or misdimensioned ones and ones with a mode outside
@@ -164,8 +164,8 @@ bus.start();
 
 **Viewer annotations.** When the link accepts a policy, it copies the policy's `annotations` (the contact planner's
 target contact patches and the scaled walking command) into a `robot::TripleBuffer<msgs::ViewerAnnotations>`;
-`takeAnnotations()` hands the newest to one consumer - the robot process's communication thread, which draws them in the
-MuJoCo viewer - once each, lock-free, and without allocating once its output holds as many patches.
+`takeAnnotations()` delivers the newest annotations to one consumer (the robot process's communication thread, which
+draws them in the MuJoCo viewer) once each, lock-free, and without allocating once the output buffer has enough capacity.
 
 **`MpcServer`** (MPC side) owns the solve loop of the MRT joint controllers' `solverWorker()`:
 
@@ -180,7 +180,7 @@ MpcServer::Hooks hooks;
 hooks.annotationsProvider = ...;  // fills MpcPolicy.annotations
 hooks.postSolveObserver = ...;    // the visualization publisher
 hooks.preSolveObserver = ...;     // the observation of each solve, before it: the motion manager's observe()
-// The formulation's reset target, the one its MRT joint controller hands the in-process link
+// The formulation's reset target, the one its MRT joint controller passes to the in-process link
 // (centroidalMpcResetTargetTrajectories(), wbMpcResetTargetTrajectories()).
 const MpcServer::ResetTargetTrajectoriesFunction resetTargets = [&](const SystemObservation& observation) {
   return centroidalMpcResetTargetTrajectories(observation, info, effectiveModel, pinocchioInterface);
@@ -213,7 +213,7 @@ bazel test //legged_nmpc/legged_mpc_ipc/...
 | `:test_topics`, `:test_topics_py` | the topic names in C++ and Python |
 | `:test_mpc_message_conversions`, `:test_mpc_message_conversions_allocations` | lossless conversions, of the SQP's manifold policy with an event too (anchors, inputs and gains bitwise, the same input on both sides of the event; wrong strides, a missing manifold and a linear policy on a manifold refused); encoding into a kept message does not allocate |
 | `:test_solution_time_window` | upstream OCS2 GaussNewtonDDP's window rule on trajectories, events and the three controllers |
-| `:test_policy_controllers` | the three controllers are told apart by their exact type, not by `getType()`: a controller of another class that reports `LINEAR` is refused by the conversions and the evaluator and left alone by the window |
+| `:test_policy_controllers` | the three controllers are distinguished by their exact type rather than `getType()`: a controller of another class that reports `LINEAR` is refused by the conversions and the evaluator and left alone by the window |
 | `:test_remote_mpc_link_protocol` | the robot side against a scripted MPC node: which policies are taken, the handshake, health, link loss (the full reset it requests, the realtime thread's watchdog with the IO thread stalled, rewinds), lifetime |
 | `:test_mpc_server` | the MPC side against a scripted robot: resets and stamps, restarts, statuses, window, hooks, pacing, back-off |
 | `:test_remote_mpc_link` | both ends over loopback with OCS2's `ScriptedMpc`: a reset with a policy in flight, lost observations, solver failures, the policy timeout |

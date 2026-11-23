@@ -66,7 +66,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * leaves |xi| within 1e-15 of 1, from any state and step; the slerped targets
  * the solver reads are unit to 1e-15; the interface's rollout projects every
  * state it returns onto the unit sphere, to 1e-15, starting off it; and a 60 s
- * lockstep loop of the shipped EngineAI SA01 - standing, walking, turning -
+ * lockstep loop of the shipped EngineAI SA01 (standing, walking, turning)
  * keeps every planned and rolled-out quaternion within 1e-12 of 1
  * (support/CentroidalMpcLoop.h). Generates the SA01's CppAD libraries on a cold
  * cache.

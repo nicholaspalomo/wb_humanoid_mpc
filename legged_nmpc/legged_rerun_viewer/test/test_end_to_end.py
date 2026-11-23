@@ -83,7 +83,7 @@ def wait_for(condition: Callable[[], bool], timeout: float = TIMEOUT_S) -> bool:
 def reserve_unused_port(test: unittest.TestCase) -> int:
     """A loopback port nothing listens on and nothing else can bind until `test` ends: a connect to it is refused.
 
-    The socket stays bound without listening. Binding the port number and closing the socket instead would hand the
+    The socket stays bound without listening. Binding the port number and closing the socket instead would return the
     number back to the kernel, which may give it to another test, or to an outgoing connection, before it is used.
     """
     reservation = socket.socket()

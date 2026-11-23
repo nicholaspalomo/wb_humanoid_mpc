@@ -48,13 +48,13 @@ namespace ocs2::legged {
  *
  * WHICH delta is written into a cone depends on the penalty that is actually
  * installed, not on the file, and the factory's own
- * contactConePenaltyParameters() - the function it built the penalty with -
+ * contactConePenaltyParameters() (the function it built the penalty with)
  * decides it. A schedule-gated cone is wrapped in a RelaxedBarrierPenalty,
  * whose `delta` is the width of its quadratic relaxation and is read straight
- * from the file. An UN-gated cone - the contact-implicit formulation - is
+ * from the file. An UN-gated cone (the contact-implicit formulation) is
  * wrapped in a SquaredHingePenalty built with delta = 0, because a hinge's
  * delta is the OFFSET of its zero, and the hinge is used there so
- * that its zero sits exactly on the cone that a foot at zero wrench lies on.
+ * that its zero lies exactly on the cone that a foot at zero wrench lies on.
  * Writing the barrier's delta into it would move that zero into the interior
  * and reinstate the very force floor that dropping
  * `min_force_contact_ewrt_contact_z` and the friction cone's parabolic margin

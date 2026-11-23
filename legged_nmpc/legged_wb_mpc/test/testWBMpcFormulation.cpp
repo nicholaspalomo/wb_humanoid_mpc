@@ -175,8 +175,8 @@ TEST_F(WBMpcFormulationTest, theCoMAndAcomTrackingCostIsRefusedByName) {
       << refused;
 }
 
-/** The retired boolean is refused by the strict parser, naming the cost that
- * replaced it and the file. */
+/** The retired boolean is refused by the strict parser, identifying the cost
+ * that replaced it and the file. */
 TEST_F(WBMpcFormulationTest, theRetiredBooleanIsRefusedNamingItsReplacement) {
   const absl::Status refused =
       createdWithLine("retired", "useComAndAcomTracking: true");
@@ -241,8 +241,8 @@ TEST_F(WBMpcFormulationTest,
 
 TEST_F(WBMpcFormulationTest,
        theRetiredContactPlanningBooleanIsRefusedNamingItsReplacement) {
-  // Positive control: the shipped whole-body file names the gait schedule, so
-  // the refusal is the retired key's.
+  // Positive control: the shipped whole-body file specifies the gait schedule,
+  // so the refusal is the retired key's.
   ASSERT_EQ(task_.contact_schedule_source, "gait_schedule");
   const absl::Status refused =
       createdWithLine("contactPlanning", "useContactPlanning: true");

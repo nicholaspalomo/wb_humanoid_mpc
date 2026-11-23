@@ -45,8 +45,8 @@ Exempt:
 
 The check reads first-party C++ and the OCS2 fork in lib/ocs2 (not lib/ocs2/thirdparty), and leaves out what is not
 production code: tests and their support code (lint_files.is_test_path()), `benchmark` directories, the test-only
-libraries that live outside them (TEST_ONLY_SOURCES), the generated ACoM weight headers and the clang-tidy fixtures. A
-literal that has to stay, such as a published algorithm's table that is not a constexpr array, carries
+libraries that are outside them (TEST_ONLY_SOURCES), the generated ACoM weight headers and the clang-tidy fixtures. A
+literal that has to stay, such as a published algorithm's table that is not a constexpr array, has
 `// NOLINT(magic-number): <reason>`.
 
     python3 -m tools.hooks.lint_code --only magic-number
@@ -290,7 +290,7 @@ def _is_declarator_name(
 
     Returns:
       True for a `kName` after a type, `*`, `&`, `::` or the comma of a declarator list, and before its initializer, an
-      array bound, another declarator or the end; a variable template's specialization (`kSize<Foo> = 3`) names its
+      array bound, another declarator or the end; a variable template's specialization (`kSize<Foo> = 3`) specifies its
       template arguments in between.
     """
     token = tokens[k]

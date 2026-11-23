@@ -279,7 +279,7 @@ TEST(PlannedMotionReferenceManager, theForceReferenceIsThePlansWrenches) {
 TEST(PlannedMotionReferenceManager, readsTheLandingAlignmentOfTheSwings) {
   std::unique_ptr<CentroidalMpcInterface> models = multiContactModels();
   const PlannedMotionSettings settings = settingsOf(*models);
-  // The multi-contact task file's: soles swing flat, over the whole swing.
+  // The multi-contact task file's: soles swing flat throughout the swing.
   EXPECT_GT(settings.landingAlignmentWeight, 0.0);
   EXPECT_NEAR(settings.landingWindow, 3.0, kTolerance);
   // Off by default, and refused when negative or with an empty window.

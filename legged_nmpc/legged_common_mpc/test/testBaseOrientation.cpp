@@ -65,7 +65,7 @@ namespace {
 // A function of the stored quaternion coefficients, called only while a
 // finite difference of it is taken.
 using QuaternionFunction = absl::FunctionRef<vector3_t(const vector4_t&)>;
-// A local residual handed to the finite differences.
+// A local residual passed to the finite differences.
 using QuaternionResidual =
     absl::AnyInvocable<vector3_t(const vector4_t&) const>;
 

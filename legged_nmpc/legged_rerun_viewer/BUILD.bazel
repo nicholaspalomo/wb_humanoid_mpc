@@ -60,7 +60,7 @@ py_library(
         requirement("protobuf"),
         # Arrow record batches of the plots (scalar_batcher.FrameBatcher); rerun-sdk's own dependency.
         requirement("pyarrow"),
-        # Not requirement("rerun-sdk"): see the rerun_sdk whl_mods in MODULE.bazel. It carries the native viewer too
+        # Not requirement("rerun-sdk"): see the rerun_sdk whl_mods in MODULE.bazel. It includes the native viewer too
         # (rerun_cli/rerun), which the spawn sink starts.
         "@operator_deps//rerun_sdk:rerun",
     ],

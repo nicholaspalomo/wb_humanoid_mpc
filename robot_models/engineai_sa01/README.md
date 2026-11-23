@@ -3,7 +3,7 @@
 A 12-DoF, 33.1 kg bipedal robot: two six-joint legs on a floating base, with no arms, no waist and no head. It is the
 smallest and simplest robot in this repository, and the only legs-only one.
 
-This directory holds the two Bazel packages the stack needs:
+This directory contains the two Bazel packages for SA01:
 
 | Package | Contents |
 | --- | --- |
@@ -32,7 +32,7 @@ first; see `.devcontainer/README.md`. The launch files are `engineai_sa01_centro
 ## Kinematics
 
 Joints are declared left leg first, and that declaration order is the order of the MPC state vector. The configuration
-files name every joint instead (`joint_positions { joint: "leg_l1_joint" value: 0.0 }`), in any order.
+files specify joints by name (`joint_positions { joint: "leg_l1_joint" value: 0.0 }`), in any order.
 
 | Joint | Function | Axis | Origin (from parent) | Range [rad] | Torque [N·m] |
 | --- | --- | --- | --- | --- | --- |
@@ -43,14 +43,14 @@ files name every joint instead (`joint_positions { joint: "leg_l1_joint" value: 
 | `leg_?5_joint` | ankle pitch | y | `0 0 -0.37` | −1.0 … 0.6 | 24 |
 | `leg_?6_joint` | ankle roll | x | coincident with ankle pitch | ±0.600 | 24 |
 
-`?` is `l` or `r`; the right leg mirrors the left about y. The floating base link is `base_link` - there is no
-`pelvis` and no `torso`, which is why `telemetry_frames` names `base_link` and why `task_space_torso_cost` is absent
+`?` is `l` or `r`; the right leg mirrors the left about y. The floating base link is `base_link` (there is no
+`pelvis` or `torso`), so `telemetry_frames` uses `base_link` and `task_space_torso_cost` is omitted
 from the cost list.
 
 ## Derived constants
 
 Everything below was measured with MuJoCo on `zq_sa01.xml` rather than estimated, and the same numbers appear in the
-config files with a comment pointing back here. `make test-pinocchio-model-sa01` reprints them from the Pinocchio
+config files with a comment referencing this table. `make test-pinocchio-model-sa01` reprints them from the Pinocchio
 model, which is the check that the URDF and the MJCF still agree.
 
 | Quantity | Value | Where it is used |
@@ -76,7 +76,7 @@ polygon instead of 28 mm.
 
 Each sole is four corner spheres of radius 10 mm, the same scheme Atlas and the Unitree G1 use - point contacts
 rather than a box, which keeps the contact set small and the normals clean. Their centers are inset one radius from
-the sole rectangle and sit 45 mm below the ankle, so the contact plane is at exactly −0.055 m and the support polygon
+the sole rectangle and are 45 mm below the ankle, so the contact plane is at exactly −0.055 m and the support polygon
 is `x ∈ [−0.125, 0.125]`, `y ∈ [±0.035]` in the contact frame.
 
 The MPC's `contacts.contact_rectangle` matches that polygon except for `max_pos_corners_rt_contact_ewrt_contact_x`, which is capped - see below.
@@ -86,18 +86,18 @@ The MPC's `contacts.contact_rectangle` matches that polygon except for `max_pos_
 **The ankle is the weakest link on this robot, and the MPC does not know it.** The ankle pitch actuator is 24 N·m
 against 324.8 N of body weight, so in single support the ankle can only hold the center of pressure within 74 mm of
 itself; in double support, carrying half the weight each, within 148 mm. The sole is 270 mm long and its toe is
-185 mm ahead of the ankle. Nothing in the formulation bounds ankle torque - the wrench cone bounds the center of
-pressure geometrically only - so the solver would happily plan a forward CoP the ankle cannot hold and the robot
+185 mm ahead of the ankle. Nothing in the formulation bounds ankle torque (the wrench cone only bounds the center of
+pressure geometrically), so the solver can plan a forward CoP the ankle cannot hold and the robot
 would pitch over its toes. `contact_rectangle.max_pos_corners_rt_contact_ewrt_contact_x` is therefore set to the double-support budget of 0.09 m rather
 than the geometric 0.125 m, and `task.textproto`'s external-torque cost weights the ankle joints five times higher than
 R1's. Turn the `zmp` viewer marker on (`z`) and watch whether the ZMP runs to the toe. If the 24 N·m in the URDF
 turns out to be a motor-side figure ahead of a gear reduction, raise `max_pos_corners_rt_contact_ewrt_contact_x` to 0.125 and drop the extra weighting.
 
-For the same reason `joint_pd_gains.textproto` carries an explicit `max_joint_torque` on every joint, which G1 and R1 both
+For the same reason `joint_pd_gains.textproto` sets an explicit `max_joint_torque` on every joint, which G1 and R1 both
 omit. `CentroidalMpcMrtJointController` clamps the commanded joint torque against that field and falls back to a
 hard-coded 500 N·m when it is missing - twenty times what SA01's ankle can deliver. The values there are the URDF
 effort limits and match the `actuatorfrcrange` of `zq_sa01.xml` joint for joint. A gains file the controller refuses
-at start-up (a mistyped, negative or non-finite entry) stops it from starting, with a message naming the entry, rather
+at start-up (a mistyped, negative or non-finite entry) stops it from starting, with a message identifying the entry, rather
 than leaving every joint on that fallback; a refused edit while it runs leaves the gains in use as they are.
 
 **SA01 has proportionally the longest foot here** - 0.27 m of sole on a 0.725 m leg, where Atlas manages 0.24 m on
@@ -110,10 +110,9 @@ number in `contact_planning.textproto` is scaled down rather than copied.
 
 ## What is configured, and what is deliberately off
 
-SA01 ships the baseline formulation the Unitree R1 runs and is tuned against - base-pose tracking and the gait
-schedule - with two of the newer formulations switched on: basis-vector contact inputs and the DCM terminal cost. The
-weights are R1's, remapped to SA01's joint order - R1 is the closest robot by mass (28.8 kg against 33.1 kg). They are a
-starting point, not a tuned set.
+SA01 uses the baseline Unitree R1 formulation (base-pose tracking and the gait schedule) with basis-vector contact
+inputs and the DCM terminal cost enabled. The weights are remapped from R1 (the closest robot by mass at 28.8 kg vs.
+33.1 kg) to SA01's joint order as an untuned starting point.
 
 The formulation choices in `task.textproto`, as shipped - a named contact input parameterization, a named contact schedule
 source, and two entries of the `costs` list:
@@ -136,7 +135,7 @@ SA01 has a trained ACoM network, `AcomSirenWeightsSa01.h`, registered in `Angula
 `model_settings.robot_name` `engineai_sa01`, so `com_and_acom_tracking_cost` no longer fails for want of a network. It is
 nevertheless **NOT VALIDATED, and must stay off**: its joint rate map J_l(Δθ)·J_Δθ is 44 % off the centroidal
 connection on average (Atlas's is 16 %), at its worst configurations it is further from the target than no network at
-all, and at the nominal crouch it is 55 % off and predicts the dominant walking coupling - hip pitch into yaw - at
+all, and at the nominal crouch it is 55 % off and predicts the dominant walking coupling (hip pitch into yaw) at
 under a third of its true size (0.18 against 0.62).
 `testAcomAngularVelocityConsistency` grades the header against its own measured bounds, which only guard against it
 getting worse, and fails if `com_and_acom_tracking_cost` or `heading_double_integrator` is listed while SA01 is marked
@@ -154,6 +153,5 @@ dead; turning it on means writing them.
 
 Onboarding SA01 needed one change to the shared MPC: `model_settings.arm_joint_names` used to be mandatory, and
 `ModelSettings` aborted at load time if its four entries did not resolve to joints of the MPC model. A legs-only
-robot cannot satisfy that. The block is now optional - omitting it entirely leaves `hasArmSwingJoints` false and the
-procedural arm swing disabled - while naming only some of the four, or naming a joint that is not in the MPC model,
-still fails loudly as before.
+robot cannot satisfy that. The block is now optional: omitting it leaves `hasArmSwingJoints` false and disables
+procedural arm swing, while specifying only a subset of the four joints or an unknown joint still fails at load time.

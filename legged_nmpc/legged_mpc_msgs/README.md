@@ -9,13 +9,13 @@ the MPC process and the operator tools. Which process publishes which message on
 Both are checked by `tools/hooks/lint_code.py` and by the pre-commit hook (`tools/hooks/pre-commit`).
 
 - **One definition per file, named after it** (google3's 1-1-1 rule, `tools/hooks/proto_file_layout.py`): every file
-  defines exactly one top-level message or enum, and is named after it in snake_case: `MpcPolicy` lives in
+  defines exactly one top-level message or enum, and is named after it in snake_case: `MpcPolicy` is defined in
   `mpc_policy.proto`, `ControllerType` in `controller_type.proto`. A type that only makes sense inside its parent (such
   as `TargetContactPatch.Kind`) stays nested in it.
 - **The nproto struct** (`tools/hooks/proto_file_layout.py`, `tools/nproto/README.md`): the first statement of every
-  top-level message names the plain C++ struct nproto generates for it (enums: `nproto.generate_enum`), a fully
+  top-level message specifies the plain C++ struct nproto generates for it (enums: `nproto.generate_enum`), a fully
   qualified name ending in the definition's name, the file importing `"nproto/options.proto"`. Nested types become
-  nested C++ types of their parent's struct and carry no option:
+  nested C++ types of their parent's struct and have no option:
 
   ```proto
   // Next ID: 4
@@ -30,7 +30,7 @@ Both are checked by `tools/hooks/lint_code.py` and by the pre-commit hook (`tool
   }
   ```
 - **`// Next ID: N` and `reserved N to max;`** (`tools/hooks/proto_next_id.py`): the line directly above every
-  `message Name {` names the next free field number, and the message's first statement after its options reserves every
+  `message Name {` specifies the next free field number, and the message's first statement after its options reserves every
   number from it on, so protoc itself refuses a field that takes the number before both are raised. When you add a field, take that
   number and raise both. When you delete a field, reserve its number and leave both alone, because a deleted number
   must never come back. `--fix` adds missing ones and raises stale ones.
@@ -40,10 +40,10 @@ The package is `legged_mpc_msgs`. Files import each other as `legged_mpc_msgs/<f
 `from legged_mpc_msgs import <file>_pb2` (target `:messages_py_proto`). Every `.proto` file in this directory belongs
 to `:messages_proto` (a glob), so a new file needs no BUILD change.
 
-The package was `humanoid_mpc_msgs` until the packages were renamed to `legged_*`. The IPC envelope carries each message's
+The package was `humanoid_mpc_msgs` until the packages were renamed to `legged_*`. The IPC envelope includes each message's
 full name (`legged_mpc_msgs.MpcPolicy`), so a build from before the rename and one from after it cannot talk to each
 other: deploy the robot and the laptop together. The configuration files the robot stored before the rename load, and
-that deploy keeps them: a header that gives the former package (`humanoid_mpc_config.TaskFile`) names the same message
+that deploy keeps them: a header that gives the former package (`humanoid_mpc_config.TaskFile`) refers to the same message
 (tools/nproto/README.md, "Renamed packages"; tools/deploy/README.md, "The stored configuration").
 
 protoc is the prebuilt binary of the `protobuf` module in `MODULE.bazel`. The Python code links against the protobuf
@@ -51,13 +51,13 @@ wheel of the `@operator_deps` hub (`//tools/python:python_proto_toolchain`), who
 gencode of that protoc; the two are tied together with a `LINT.IfChange` directive. `:messages_cc_test` and
 `:messages_py_test` check that the generated code loads, round-trips an `MpcPolicy` and travels over the DDS bus (`robot_ipc`).
 
-`:messages_nproto` holds the plain C++ structs of the messages (`tools/nproto/README.md`): `#include
+`:messages_nproto` provides the plain C++ structs of the messages (`tools/nproto/README.md`): `#include
 "legged_mpc_msgs/<file>.nproto.h"` for the struct `ocs2::legged::msgs::<Name>`, with Eigen vectors for the
 `repeated double` fields and no protobuf include, and `"legged_mpc_msgs/<file>.nproto.pb.h"` for its `ToProto()` /
 `FromProto()`. `:messages_nproto_test` round-trips every message of the package through its struct both ways, and
 `:messages_nproto_allocations_test` checks that the messages of the realtime loop and the MPC link (`RobotStateSample`,
 `MpcObservation`, `SystemObservation`, `LoopTiming`, `FsmState`, `MpcPolicy`) convert without allocating once the
-objects they convert into have the value's shape.
+destination objects have matching sizes.
 
 ## The messages
 
@@ -74,7 +74,7 @@ no clock synchronization.
 | File | Message | Role |
 |---|---|---|
 | `system_observation.proto` | `SystemObservation` | `ocs2::SystemObservation` |
-| `reset_requests.proto` | `ResetRequests` | the robot's reset counters, carried by every observation |
+| `reset_requests.proto` | `ResetRequests` | the robot's reset counters, included in every observation |
 | `mpc_observation.proto` | `MpcObservation` | observation + reset counters |
 | `mode_schedule.proto` | `ModeSchedule` | `ocs2::ModeSchedule` |
 | `target_trajectories.proto` | `TargetTrajectories` | `ocs2::TargetTrajectories` |
@@ -99,17 +99,17 @@ no clock synchronization.
 | `config_file_save.proto` | `ConfigFileSave` | `operator/config_save` |
 | `config_file_save_status.proto` | `ConfigFileSaveStatus` | `robot/config_save_status` |
 
-`operator/mpc_parameters` and `operator/pd_gains` carry whole configuration files, `MpcParameterUpdate` and
+`operator/mpc_parameters` and `operator/pd_gains` transport complete configuration files, `MpcParameterUpdate` and
 `JointPdGainsFile` of `legged_nmpc/legged_mpc_config`, whose protos stay in their own package
 (legged_nmpc/docs/distributed_runtime/README.md, "Topics").
 
 `ConfigFileSave` is the GUI's Save of a file the robot process reads, for the robot's persistent copy
-(legged_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). It carries the file's text - exactly
-the bytes written into the laptop's copy - rather than a typed file, so the robot stores what the laptop has byte for
-byte; it names the file's kind, the robot (`robot_name`), the configuration (`config_path`, the path from
+(legged_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). It contains the file's text (exactly
+the bytes written into the laptop's copy) rather than a typed file, so the robot stores what the laptop has byte for
+byte; it specifies the file's kind, the robot (`robot_name`), the configuration (`config_path`, the path from
 `robot_models/` on) and the schema fingerprint of the kind's file message, which the robot checks before it parses
 the text as strictly as at start-up. The robot answers every save with a `ConfigFileSaveStatus` of the same
-`sequence`: `SAVED`, `UNCHANGED`, `NOT_STORED` (a robot process without a store; `stored_path` names the file it
+`sequence`: `SAVED`, `UNCHANGED`, `NOT_STORED` (a robot process without a store; `stored_path` identifies the file it
 reads in place, which the GUI compares with the laptop's), `REFUSED` or `FAILED`.
 
 ### Telemetry
@@ -146,4 +146,4 @@ and are the contract with the bridge's blueprint.
 ### Shared geometry
 
 `vector.proto` (`Vector`, a dense `vector_t`), `vector3.proto`, `quaternion.proto` (Hamilton, `Eigen::Quaterniond`),
-`pose.proto`, `wrench.proto` (force and torque, in that order; the field that holds one names its point and frame).
+`pose.proto`, `wrench.proto` (force and torque, in that order; each field using it specifies its reference point and frame).

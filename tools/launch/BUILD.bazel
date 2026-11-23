@@ -85,7 +85,7 @@ py_test(
 )
 
 # Exports the one process of a machine of a launch file as a POSIX sh script, for a machine that cannot run the
-# launcher (the robot-runtime image carries no Python): tools/deploy builds the robot's entry scripts with it.
+# launcher (the robot-runtime image has no Python): tools/deploy builds the robot's entry scripts with it.
 py_binary(
     name = "export_script",
     srcs = ["launch_script.py"],

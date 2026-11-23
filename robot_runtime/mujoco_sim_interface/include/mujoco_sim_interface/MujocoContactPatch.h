@@ -66,7 +66,7 @@ struct TargetContactPatch {
   // [rad] The ZYX yaw of the foot contact frame about the world z axis.
   double desEulerzyxFootRtWorldYaw = 0.0;
   bool yawPlanned = false;  // the yaw is planned (heading model); otherwise it
-                            // holds the measured foot yaw
+                            // stores the measured foot yaw
 };
 
 /**

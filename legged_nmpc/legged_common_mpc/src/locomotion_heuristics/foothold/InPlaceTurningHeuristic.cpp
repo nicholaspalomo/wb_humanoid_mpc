@@ -69,7 +69,7 @@ vector2_t InPlaceTurningHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
   // H_r(psidot) = a1 psidot + a0, Bledt Table C.2, in the base's yaw frame.
   //
   // WHICH WAY EACH FOOT GOES. A foot at position r relative to the base moves
-  // at omega x r, so with omega = psidot e_z the LEFT foot, which sits at r =
+  // at omega x r, so with omega = psidot e_z the LEFT foot, which is at r =
   // (0, +d, 0), moves at
   //
   //     (0, 0, psidot) x (0, d, 0) = (-psidot d, 0, 0),
@@ -81,15 +81,15 @@ vector2_t InPlaceTurningHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
   // equal and opposite, which is why this term is signed per foot and the
   // translational one is not.
   //
-  // The sign below carries the MINUS so that a POSITIVE forwardPerYawRate means
-  // "place each foot further along the direction its own hip is traveling",
-  // i.e. lead the hips into the turn - which is what the heuristic is for
-  // (figure 4-10: without it the feet trail the hips until they run out of
-  // workspace). Leaving the minus out would make a positive coefficient drive
-  // the feet to trail the hips by twice the intended amount, which is the very
-  // failure being fixed.
+  // The sign below includes the MINUS so that a POSITIVE forwardPerYawRate
+  // means "place each foot further along the direction its own hip is
+  // traveling", i.e. lead the hips into the turn - which is what the heuristic
+  // is for (figure 4-10: without it the feet trail the hips until they run out
+  // of workspace). Leaving the minus out would make a positive coefficient
+  // drive the feet to trail the hips by twice the intended amount, which is the
+  // very failure being fixed.
   //
-  // The lateral RATE term is not signed per foot: it moves the whole stance
+  // The lateral RATE term is not signed per foot: it shifts the stance
   // sideways, which is what a turn with a radius does. The lateral CONSTANT is
   // signed, and that one opens or closes the stance.
   //

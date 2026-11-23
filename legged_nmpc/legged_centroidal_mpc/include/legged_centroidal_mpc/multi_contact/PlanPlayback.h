@@ -55,8 +55,8 @@ inline constexpr std::array<absl::string_view, 2> kPlanPlaybackNames = {
     "once", "forward_and_reverse"};
 // LINT.ThenChange(//legged_nmpc/legged_mpc_config/multi_contact_plan_config.proto:plan_playback_names)
 
-/** The playback named `name`; InvalidArgument naming the field and the names
- * for any other. */
+/** The playback named `name`; InvalidArgument reporting the field and the
+ * valid names for any other. */
 absl::StatusOr<PlanPlayback> planPlaybackFromName(absl::string_view name);
 
 /**
@@ -75,13 +75,13 @@ absl::StatusOr<PlanPlayback> planPlaybackFromName(absl::string_view name);
  * knot, so in reverse time until the knot before, and the reversed mode
  * schedule is the exact mirror of the plan's. Reversing time keeps every
  * configuration q and negates every velocity, so the momentum rate is the
- * same at every mirrored instant - the linear one m c_ddot because c_ddot is
+ * same at every mirrored instant (the linear one m c_ddot because c_ddot is
  * even in time, the angular one A(q) q_ddot + A_dot q_dot because q_ddot is
- * even and both A_dot and q_dot are odd - and the same wrenches realize it.
+ * even and both A_dot and q_dot are odd), and the same wrenches realize it.
  * The contact wrench cone, the static margin, the joint position limits and
  * the clearances of the reversed half are therefore the plan's own (the
  * certifier's central differences of the momenta agree exactly). Each dwell
- * holds one knot at rest in its middle, with the wrenches of the knot it
+ * keeps one knot at rest in its middle, with the wrenches of the knot it
  * stands at, so that the momenta of a plan that does not end at rest return
  * to zero there and then to the negated end momenta.
  *
@@ -89,7 +89,7 @@ absl::StatusOr<PlanPlayback> planPlaybackFromName(absl::string_view name);
  * the reversed schedule has the contact down; a phase that lasts to tN merges
  * with its mirror through the top dwell, and the mirror of a phase from t0
  * lasts to t0 + T, through the bottom dwell. The scenario, hashes, joint names
- * and planner are the plan's; the cycle carries no certifier report.
+ * and planner are the plan's; the cycle has no certifier report.
  *
  * @return InvalidArgument for a plan without knots or a dwell that is not
  * finite and positive.

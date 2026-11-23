@@ -132,9 +132,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * MultidimensionalPenalty); and the second order the rule prescribes is the
  * Gauss-Newton model J' phi''(v) J of the inner Jacobian J, plus, for a soft
  * constraint of ConstraintOrder::Quadratic, sum_i p'(v_i) H_c,i of the
- * constraint's own reported second order, whose documented regularization -
- * FrictionForceConeConstraint's hessianDiagonalShift s, subtracted from the
- * diagonal of its state and input Hessians - is the friction cone's state shift
+ * constraint's own reported second order, whose documented regularization
+ * (FrictionForceConeConstraint's hessianDiagonalShift s, subtracted from the
+ * diagonal of its state and input Hessians) is the friction cone's state shift
  * c I, c = -s sum_i p'(v_i). A term of no known class fails the test by name,
  * and so does a term no point checks (coverageFindings()) and a term whose
  * reported Hessian is zero at every point that checks it, whose comparisons
@@ -152,8 +152,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * max(1, max |J|); one-sided where the central ones straddle a jump of v, as a
  * residual read from a quaternion has where the rotation-matrix-to-quaternion
  *       conversion switches branch and flips its sign, or a kink of a barrier;
- * and with the sample rows whose sign that branch leaves undetermined - at a
- * pitch of +-90 degrees round-off decides it - turned back to the point's,
+ * and with the sample rows whose sign that branch leaves undetermined (at a
+ * pitch of +-90 degrees round-off decides it) turned back to the point's,
  *       alignSigns()), and a penalty's p'(v_i) and p''(v_i) are the derivatives
  * of p and p' (a quadratic phi's W v and W are the term's own weights); (4) the
  * reported gradient is J' phi'(v), pulled back; (5) the reported Hessian,
@@ -168,15 +168,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * -s I_a in the ambient state, so the soft constraint's state Hessian is c I_a
  * with c >= 0, which the pull-back leaves as c E' E: c on every tangent row but
  * a quarter of it, c / 4, on the rotation's three rows; (7) the reported
- * Hessian is the term's exact Hessian - differences of its reported gradient,
- * verified first order (testQuaternionRootTermDerivatives) - minus the
+ * Hessian is the term's exact Hessian (differences of its reported gradient,
+ * verified first order in testQuaternionRootTermDerivatives) minus the
  * curvature its rule drops, sum_i phi'(v_i) d2v_i (differences of J' phi'(v)
  * with phi'(v) held at the point), plus the constraint curvature it keeps. Both
  * sides of the Gauss-Newton condition are exercised and counted: where the
- * dropped curvature is zero - a linear v (the input blocks of the quadratic
- * input costs, the joint limits, the Euclidean blocks of the tuning deviation)
- * or phi'(v) = 0 - the reported Hessian is the exact Hessian; where phi'(v) is
- * nonzero and v nonlinear it differs from it by exactly that curvature. Every
+ * dropped curvature is zero (for a linear v such as the input blocks of the
+ * quadratic input costs, the joint limits, or the Euclidean blocks of the
+ * tuning deviation, or when phi'(v) = 0), the reported Hessian is the exact
+ * Hessian; where phi'(v) is nonzero and v nonlinear it differs from it by
+ * exactly that curvature. Every
  * Hessian comparison of (3), (5), (6) and (7) is shown to fail with one entry,
  * the largest (and its mirror image in a symmetric block), moved by 1e-6: of
  * itself for the round-off comparisons of (5) and (6), whose bound is far below
@@ -321,7 +322,7 @@ struct TermUnderTest {
   absl::AnyInvocable<ScalarFunctionQuadraticApproximation(
       const vector_t&, const vector_t&) const>
       approximation;
-  /** NotFound naming the term when its class has no rule. */
+  /** NotFound identifying the term when its class has no rule. */
   absl::StatusOr<SecondOrderRule> rule;
 };
 
@@ -1452,7 +1453,7 @@ enum class Mutation {
   /**
    * The largest entry off the diagonal alone, by kHessianMutation of the
    * matrix's largest entry: a symmetry check, whose bound is relative to the
-   * scale of the whole block.
+   * scale of the full block.
    */
   kOffDiagonalOfScale,
 };
@@ -2160,7 +2161,7 @@ TEST_P(QuaternionRootTermHessians,
   const EquivalenceReference reference = mpc.walkingReference();
   std::vector<TermProbePoint> points = termProbePoints(mpc, reference);
   const scalar_t finalTime = reference.initTime + mpc.timeHorizon();
-  // A copy of the problem, whose collections hand out mutable terms; its terms
+  // A copy of the problem, whose collections return mutable terms; its terms
   // share the interface's reference manager, on which the reference is
   // installed as an MPC solve installs it.
   OptimalControlProblem problem(mpc.problem());

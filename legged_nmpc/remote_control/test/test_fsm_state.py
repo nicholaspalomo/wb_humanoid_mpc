@@ -28,7 +28,7 @@
 """Tests of the robot/fsm_state message and of when the Base Controller tab re-centers its joysticks.
 
 The regression these pin: the sticks were released only when the gantry became locked. A controller reset the FSM
-published while the gantry was ALREADY locked - the simulator putting the robot back in its initial state in JOINT_PD -
+published while the gantry was ALREADY locked (the simulator putting the robot back in its initial state in JOINT_PD)
 changed neither the mode nor the gantry, so a stick left forward stayed forward and walked the robot as soon as WB_MPC
 was entered again. The robot now counts its controller resets in the message (FsmState.controller_resets), and every
 transition into a passive mode, every new gantry lock and every change of that count releases the sticks.
@@ -84,7 +84,7 @@ class TestFromMessage(unittest.TestCase):
                 self.assertEqual(state.mode, mode.value)
 
     def test_an_unknown_mode_is_no_state(self):
-        # A gantry command is not a mode, the names are case-sensitive, and an empty message carries no mode.
+        # A gantry command is not a mode, the names are case-sensitive, and an empty message has no mode.
         self.assertIsNone(
             fsm_state.from_message(message("LOCK_GANTRY", gantry_locked=True))
         )

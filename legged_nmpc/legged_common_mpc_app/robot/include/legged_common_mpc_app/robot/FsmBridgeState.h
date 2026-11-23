@@ -47,7 +47,7 @@ namespace ocs2::legged {
  * What every FsmBridge keeps, whatever it switches: the nominal posture of
  * JOINT_PD with the operator's joint targets merged in, the controller resets
  * counted so far and the MPC's health, and the FSM state it writes to the
- * FsmStateMailbox. The bridges hold one each (composition). Realtime thread;
+ * FsmStateMailbox. Each bridge owns one (composition). Realtime thread;
  * allocates nothing after construction.
  */
 class FsmBridgeState {

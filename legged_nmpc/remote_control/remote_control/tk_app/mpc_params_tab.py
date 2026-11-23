@@ -27,10 +27,10 @@
 
 """The MPC Parameters tab: a widget per parameter of the task file and the contact-planning file, published and saved.
 
-Nothing here names a parameter. The tab shows what the schemas of the two files hold (config_schema): every number,
+Nothing here hardcodes a parameter. The tab shows what the schemas of the two files contain (config_schema): every number,
 bool and registry name the schema does not exclude, labeled by its field names with what the schema adds (unit, reload
 class, applicability), in the blocks of the file. A slider moved is a change of a tuned_file.TunedFile;
-every change is published, debounced, as the whole of both files (legged_mpc_config.MpcParameterUpdate on
+every change is published, debounced, as both full files (legged_mpc_config.MpcParameterUpdate on
 operator/mpc_parameters, with the task file's identity) after a strict parse of the edited text, and written into the
 files only by "Save", which keeps every other byte of them. Save then sends the task file's saved text to the robot's
 store (robot_config_save.py); the contact-planning file is the MPC's alone and stays on the laptop.
@@ -262,7 +262,7 @@ class MpcParamsTab(ttk.Frame):
         """The choices of the task file the schema offers on the Base Controller tab, in schema order.
 
         Returns:
-          Every rendered choice whose tuning names a base_controller_label, whether the file sets it or leaves it at
+          Every rendered choice whose tuning specifies a base_controller_label, whether the file sets it or leaves it at
           its default; none without a task file.
         """
         if self.task is None:

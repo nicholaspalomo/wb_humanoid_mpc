@@ -256,7 +256,7 @@ void dumpProblem(ValueDump& dump,
     dump.addMatrix(joinPath(at, "desiredState"),
                    referenceManager.getDesiredState(*copy.targetTrajectoriesPtr,
                                                     state, time));
-    // The whole problem first: it requests every precomputation the terms read
+    // The full problem first: it requests every precomputation the terms read
     // at (t, x, u).
     const ModelData model = approximateIntermediateLQ(copy, time, state, input);
     dumpQuadratic(dump, joinPath(at, "lq.cost"), model.cost);

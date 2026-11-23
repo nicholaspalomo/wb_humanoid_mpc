@@ -50,7 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged::visualization {
 
 /**
- * Hands the visualization thread's messages (viz/telemetry, viz/scene) to the
+ * Passes the visualization thread's messages (viz/telemetry, viz/scene) to the
  * bus's IO thread, which publishes them with Bus::publishFromIoThread(). The
  * visualization thread runs under SCHED_IDLE; Bus::publish() would take the
  * bus's queue and counter mutexes, which the solver thread's own Bus::publish()
@@ -66,9 +66,10 @@ namespace ocs2::legged::visualization {
  *
  * THREADS. post() on one thread at a time (the visualization thread); drain()
  * on the bus's IO thread only (Attach() registers it). publishFailures() on any
- * thread. Shared: the bus's callback and the poster each hold it, so it lives
- * as long as the longer of the two (the reason for std::shared_ptr: the
- * callback that Bus::addPeriodicCallback() keeps and the poster both own it).
+ * thread. Shared: the bus's callback and the poster each own a reference, so it
+ * stays alive as long as the longer-lived of the two (the reason for
+ * std::shared_ptr: the callback that Bus::addPeriodicCallback() keeps and the
+ * poster both own it).
  */
 class IoThreadOutbox {
  public:

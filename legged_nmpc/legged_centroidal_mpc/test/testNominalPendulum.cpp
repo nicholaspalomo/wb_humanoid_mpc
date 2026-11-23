@@ -203,9 +203,9 @@ class NominalPendulum : public ::testing::TestWithParam<CentroidalRobot> {
   }
 
   /**
-   * The oracle, computed here from Pinocchio directly - forward kinematics, the
-   * frames looked up by name, the center of mass of the whole model - rather
-   * than through computeProxyPosComRtFeetmeanEwrtWorldZ(). A rolling contact's
+   * The oracle, computed here from Pinocchio directly (forward kinematics,
+   * frames looked up by name, and the full-model center of mass) rather than
+   * through computeProxyPosComRtFeetmeanEwrtWorldZ(). A rolling contact's
    * frame is its wheel center; its sole is the wheel's lowest point, a wheel
    * radius below on flat ground.
    */

@@ -1,6 +1,6 @@
 # 2026-11-11_g1_kalman
 
-The runs `unitree_g1_kalman` is held to and its own, on the G1 scene with joint damping (c877a515) and the simulator's
+The baseline `unitree_g1` runs and the `unitree_g1_kalman` runs on the G1 scene with joint damping (c877a515) and the simulator's
 accelerometer reading the mean over the control period (`MujocoSimConfig::accelerometerWindow`,
 [robot_runtime/mujoco_sim_interface](../../../../../robot_runtime/mujoco_sim_interface/README.md#the-accelerometer)).
 Recorded on commit a0c28bfb with the uncommitted accelerometer work. Each document's provenance gives the worktree state:
@@ -35,5 +35,5 @@ horizontal base position. Against the truth, the estimate of the base ended 0.01
 below 0.0001, 0.5 to 1.2 and 0.09 to 0.6 cm/s per axis. These come from a per-cycle log of a run of the same code with a
 temporary logger, not from the documents.
 
-Label `2026-11-07_kalman_variant` held this variant to bands of its own, a tilt of 0.04 rad and a slip of 0.2 m; with
-these runs it is held to the default bands and must survive `walk_0p5` like every configuration.
+Label `2026-11-07_kalman_variant` used custom bands for this variant (tilt 0.04 rad, slip 0.2 m); with
+these runs it uses the default bands and must survive `walk_0p5` like every configuration.

@@ -633,7 +633,7 @@ absl::Status KalmanFilter::getState(absl::string_view name,
 std::vector<KalmanFilterState> KalmanFilter::getStates() const {
   std::vector<KalmanFilterState> states(stateNames_.size());
   // Each channel into its place in stateNames_, so that the hash map's order
-  // does not matter.
+  // has no effect.
   for (const std::pair<const std::string, ChannelBlock>& channel :
        stateChannels_) {
     fillState(channel.first, channel.second, states[channel.second.index]);

@@ -70,7 +70,7 @@ class EndEffectorKinematicsQuadraticCost
    * `referenceManager`, when given, shapes the reference state's base pose with
    * the locomotion heuristics before the link's reference pose is computed from
    * it (SwitchedModelReferenceManager::shapePoseBaseRtWorld). Pass it for a
-   * link whose orientation follows the base - the torso - or its term
+   * link whose orientation follows the base (the torso), or its term
    * regularizes the tilt towards the unshaped target while the base-pose costs
    * regularize it towards the shaped one, and the stiffer of the two cancels
    * the heuristic. Null leaves the reference exactly as the target trajectory

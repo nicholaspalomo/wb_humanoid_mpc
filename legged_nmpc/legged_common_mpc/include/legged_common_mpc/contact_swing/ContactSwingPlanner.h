@@ -48,7 +48,7 @@ namespace ocs2::legged {
  * patch, and the reference of a contact at a time.
  *
  * A reference manager that plans swings owns one, rebuilds it before every
- * solve (setSwings()) and hands it out through
+ * solve (setSwings()) and exposes it through
  * SwitchedModelReferenceManager::getContactSwingPlanner(); the
  * pre-computation and the swing terms read it during the solve. Not
  * thread-safe for writes: setSwings() and clear() run on the solver thread

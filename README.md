@@ -61,10 +61,10 @@ The reference layer decides *when* and *where* the feet touch the ground, the NM
 
 | Selection | What it does |
 | --- | --- |
-| `dcm_terminal_cost` in `costs` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic terminal cost `terminal_cost` on `final_state_weights`; the two are alternatives, and start-up refuses a list that names both. Keeps the horizon end capturable for any gait cadence. |
+| `dcm_terminal_cost` in `costs` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic terminal cost `terminal_cost` on `final_state_weights`; the two are alternatives, and start-up refuses a list that includes both. Keeps the horizon end capturable for any gait cadence. |
 | `contact_schedule_source: "contact_planner"` | Replaces the periodic gait schedule (`gait_schedule`, the default, which every robot ships) with an online contact planner, selected by `planner.type` in `config/mpc/contact_planning.textproto`: the closed-form H-LIP stepper (`hlip`, both shipped robots; [legged_nmpc/docs/hlip_contact_planner/README.md](legged_nmpc/docs/hlip_contact_planner/README.md)) or the mixed-integer program (`lip_miqp`: LIP model, branch-and-bound over HPIPM relaxations). It chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Optional, off by default: the executed schedule can adapt to measured early / late touch-downs and the landing targets can follow the capture point (the `phase_resetting` and `dcm_step_adjustment` rules of the planner's `execution` list). The planner is assembled from named terms listed in `config/mpc/contact_planning.textproto`, like the NMPC from the task file's lists. |
 
-Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost` and `use_contact_planning`: a task file that still carries one is refused when it is read, with a message naming its replacement. The formulation and the math of both features are described in [legged_nmpc/docs/README.md](legged_nmpc/docs/README.md).
+Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost` and `use_contact_planning`: a task file that still contains one is refused when read, with an error reporting its replacement. The formulation and the math of both features are described in [legged_nmpc/docs/README.md](legged_nmpc/docs/README.md).
 
 ## Supported Robot Models
 

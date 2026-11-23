@@ -27,7 +27,7 @@
 
 """Token checks for the rules of the Google C++ Style Guide that cpplint and clang-tidy do not cover.
 
-Each check names the guide section it enforces:
+Each check cites the guide section it enforces:
 
 - `float-literal` (Floating-point literals): a floating literal has digits on both sides of its radix point - `1.0e-6`,
   `1.0f`, `0.5`, not `1e-6`, `1.f` or `.5`. Fixed by `make format`.

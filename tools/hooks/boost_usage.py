@@ -147,7 +147,7 @@ _INCLUDE_DIRECTIVE = re.compile(
     r"[ \t]*#[ \t]*(?:include_next|include|import)\b"
 )
 _BOOST_HEADER = re.compile(r'[ \t]*([<"]boost/[^>"\n]*[>"]?)')
-# The directives other than #include that can name a header: a macro an #include expands, and __has_include.
+# The directives other than #include that can specify a header: a macro an #include expands, and __has_include.
 _HEADER_NAMING_DIRECTIVE = re.compile(r"[ \t]*#[ \t]*(?:define|if|elif)\b")
 _BOOST_HEADER_ANYWHERE = re.compile(r'[<"]boost/[^>"\n]*[>"]?')
 # Whitespace, which the finding's text of an include directive drops (`# include` -> `#include`).

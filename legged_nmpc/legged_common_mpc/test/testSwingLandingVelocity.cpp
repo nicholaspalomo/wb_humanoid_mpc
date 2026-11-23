@@ -127,8 +127,8 @@ TEST(SwingLandingVelocity, ReferenceArrivesAtTheConfiguredDescentRate) {
 
 /**
  * With a real descent rate the foot lands at that rate however well it tracked;
- * with a zero rate the entire landing velocity is the feedback gain times the
- * tracking lag, so a foot that is late by a couple of centimeters is driven
+ * with a zero rate, landing velocity comes solely from the feedback gain times
+ * the tracking lag, so a foot that is late by a couple of centimeters is driven
  * into the floor at a speed set by nothing the operator chose.
  */
 TEST(SwingLandingVelocity,
@@ -149,7 +149,7 @@ TEST(SwingLandingVelocity,
 
   // A foot lagging 2 cm above its reference: the descending reference
   // contributes most of the landing speed, the flat one contributes nothing and
-  // the whole landing speed is feedback.
+  // all of the landing speed comes from feedback.
   const scalar_t errPosFootRtWorldEwrtWorldZ = 0.02;
   EXPECT_NEAR(computeConstrainedLinvelFootRtWorldEwrtWorldZ(
                   descending, kTouchDown, gain,

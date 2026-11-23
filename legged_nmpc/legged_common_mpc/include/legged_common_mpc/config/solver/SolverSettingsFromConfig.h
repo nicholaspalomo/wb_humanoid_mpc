@@ -86,9 +86,10 @@ std::vector<std::string> rolloutIntegratorNames();
  * keep theirs.
  *
  * @param config The block.
- * @return InvalidArgument naming the field (multiple_shooting.<field>) when
- * integrator_type names no sensitivity integrator (the message lists them),
- * when sqp_iteration, log_size or n_threads is negative, when thread_priority
+ * @return InvalidArgument identifying the field (multiple_shooting.<field>)
+ * when integrator_type is not a valid sensitivity integrator (the message lists
+ * them), when sqp_iteration, log_size or n_threads is negative, when
+ * thread_priority
  * is outside 0-99 (SCHED_FIFO's 1-99, or 0 for the time-sharing scheduler), or
  * when a real field is out of the range the SQP solver terminates with (NaN
  * included): dt, delta_tol, cost_tol and g_max positive, alpha_decay in (0, 1),
@@ -104,8 +105,8 @@ absl::StatusOr<sqp::Settings> toSqpSettings(
  * rollout::Settings for what it leaves out.
  *
  * @param config The block.
- * @return InvalidArgument naming the field (rollout.<field>) when
- * integrator_type names no integrator (the message lists them), when
+ * @return InvalidArgument identifying the field (rollout.<field>) when
+ * integrator_type is not a valid integrator (the message lists them), when
  * max_num_steps_per_second is negative, or when abs_tol_ode, rel_tol_ode or
  * time_step is not a finite positive number.
  */
@@ -115,12 +116,12 @@ absl::StatusOr<rollout::Settings> toRolloutSettings(
 /**
  * The MPC settings of a task file's mpc block, with the defaults of
  * mpc::Settings for what it leaves out. An absent solution_time_window or
- * mpc_desired_frequency becomes OCS2's negative sentinel (the whole horizon;
+ * mpc_desired_frequency becomes OCS2's negative sentinel (the full horizon;
  * one solve per new observation, as fast as they come).
  *
  * @param config The block.
- * @return InvalidArgument naming the field (mpc.<field>) when time_horizon,
- * mrt_desired_frequency, or a present solution_time_window or
+ * @return InvalidArgument identifying the field (mpc.<field>) when
+ * time_horizon, mrt_desired_frequency, or a present solution_time_window or
  * mpc_desired_frequency is not a finite positive number.
  */
 absl::StatusOr<mpc::Settings> toMpcSettings(
@@ -141,8 +142,8 @@ absl::StatusOr<SolverSettings> solverSettingsFromConfig(
  * which the SQP solver's worker threads run at too (toSqpSettings()), and
  * interface.walking_command_timeout.
  *
- * @return InvalidArgument naming the field when the priority is outside 0-99 or
- * the timeout is not a finite positive number of seconds.
+ * @return InvalidArgument identifying the field when the priority is outside
+ * 0-99 or the timeout is not a finite positive number of seconds.
  */
 absl::StatusOr<MpcNodeSettings> mpcNodeSettingsFromConfig(
     const mpc_config::TaskFile& task);

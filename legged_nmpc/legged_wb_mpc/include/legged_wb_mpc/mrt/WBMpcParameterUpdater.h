@@ -54,14 +54,14 @@ namespace ocs2::legged {
  * with; the whole-body coordinates and OCP input; the reference manager (the
  * ground, the swing trajectories); the whole-body appliers
  * (wholeBodyHotFieldAppliers()); and `referenceFileReloaders`, the consumers of
- * the reference file the node built (makeCommandLimitsReloaders()), each handed
+ * the reference file the node built (makeCommandLimitsReloaders()), each passed
  * the command limits of a reloaded file. It watches `taskFile` and
  * `referenceFile`; the whole-body MPC has no contact planner's file.
  * `interface` must outlive the updater.
  *
  * Every node and driver that runs the whole-body MPC builds its updater with
  * this one function, as the centroidal ones use
- * makeCentroidalMpcParameterUpdater(). The caller hands it the updates of
+ * makeCentroidalMpcParameterUpdater(). The caller passes it the updates of
  * operator/mpc_parameters (enqueueParameterUpdate()) and registers it with the
  * solver after the motion manager; OCS2's addSynchronizedModule() takes the
  * shared_ptr. Returns the errors of MpcParameterUpdaterModule::Create().

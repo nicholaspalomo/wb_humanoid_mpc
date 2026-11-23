@@ -167,8 +167,8 @@ class KinematicTree:
         source: the file, for error messages.
 
     Raises:
-        urdf_model.UrdfError: a joint names an unknown link, a link has two parents, the links are not one tree, or a
-            mimic joint follows a joint that is not movable.
+        urdf_model.UrdfError: a joint references an unknown link, a link has two parents, the links are not one tree, or
+            a mimic joint follows a joint that is not movable.
     """
 
     def __init__(

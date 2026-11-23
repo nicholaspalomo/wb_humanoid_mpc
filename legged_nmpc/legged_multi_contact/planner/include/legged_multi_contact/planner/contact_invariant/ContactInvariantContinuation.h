@@ -97,7 +97,7 @@ struct ContinuationProblem {
  * first from `guess` (augmented states and inputs, its first state the
  * initial state). Returns every stage's solution.
  *
- * augmentProblem()'s errors, and Internal naming the stage when the SQP
+ * augmentProblem()'s errors, and Internal identifying the stage when the SQP
  * fails (its QP has no solution).
  */
 absl::StatusOr<std::vector<StageSolution>> solveContinuation(

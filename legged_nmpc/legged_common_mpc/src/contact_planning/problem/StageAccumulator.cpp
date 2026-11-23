@@ -64,13 +64,13 @@ void StageAccumulator::addQuadraticResidual(const Coefficients& xCoefficients,
   // KKT residuals, and it cancels out of every comparison between two solutions
   // of ONE assembled problem - which covers the branch-and-bound bounds and
   // their absoluteGap test, EventShiftLocalSearchStage and
-  // HeadingRelinearizationStage, where both sides carry the same constant. What
+  // HeadingRelinearizationStage, where both sides have the same constant. What
   // the reasoning misses is that CadenceStretchStage::afterSearch compares
   // objectives across node grids: it re-assembles the problem at s * dt and
   // scores the result against the incumbent assembled at dt. The residual
-  // offsets of the shipped terms depend on dt - StepLengthCost's nominal
+  // offsets of the shipped terms depend on dt (StepLengthCost's nominal
   // displacement is v_cmd * dt * T_stride / T_swing and TerminalDcmCost's
-  // weight carries exp(2 omega dt) - so the dropped constant grows with the
+  // weight includes exp(2 omega dt)), so the dropped constant grows with the
   // stretch, every stretched candidate's reported objective was depressed by an
   // amount monotone in the stretch, and the stage accepted stretches whose true
   // cost was higher than the incumbent's, overshooting the cadence it is

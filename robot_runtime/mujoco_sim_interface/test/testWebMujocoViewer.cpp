@@ -405,7 +405,7 @@ TEST(WebMujocoViewer, TheGlPreflightRefusesMoreSamplesThanTheContextOffers) {
 }
 
 // While the render thread sets up EGL (up to startTimeout), /state already
-// names the configured markers, size and rate instead of an empty registry and
+// lists the configured markers, size and rate instead of an empty registry and
 // 0x0, which made the page say "No markers are configured for this robot".
 TEST(WebMujocoViewer, TheStateBeforeTheSetUpListsTheConfiguredMarkers) {
   const std::unique_ptr<MujocoSimInterface> sim = makeHingeSim(testOptions());

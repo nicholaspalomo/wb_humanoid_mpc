@@ -130,7 +130,7 @@ ModelSettings modelSettingsOf(const mpc_config::TaskFile& task) {
 }
 
 /**
- * The four-point interface, built once for the whole suite: it generates the
+ * The four-point interface, built once for the test suite: it generates the
  * CppAD libraries of the dynamics and of the four contact frames.
  */
 class PointContactSetTest : public ::testing::Test {

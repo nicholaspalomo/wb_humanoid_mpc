@@ -75,7 +75,7 @@ class RateStatistics:
         self.total_count += 1
 
     def snapshot(self) -> RateSnapshot | None:
-        """The statistics of the window, or None until it holds two messages that arrived at different times."""
+        """The statistics of the window, or None until it has two messages that arrived at different times."""
         if len(self._samples) < 2:
             return None
         times = [sample[0] for sample in self._samples]

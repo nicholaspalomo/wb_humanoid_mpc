@@ -67,7 +67,7 @@ _APT_INSTALL = re.compile(r"apt-get install([^\n]*)")
 def _installed_packages(relative_path: str) -> list[str]:
     """The package names a file installs: every line of dependencies.txt, or the arguments of each `apt-get install`.
 
-    Comment lines are dropped first, so that a comment may name a package it explains is NOT installed.
+    Comment lines are dropped first, so that a comment may mention a package it explains is NOT installed.
 
     Args:
         relative_path: dependencies.txt, or a Dockerfile or script that runs `apt-get install`.

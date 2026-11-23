@@ -212,8 +212,8 @@ TEST(ContactPlanningFormulation, HeadingModelIsAddedAndRemovedAsAWhole) {
 
 /**
  * "Which terms belong to the heading model" used to be written down three times
- * - requiredBlockOf()'s set, the add/remove lists of setHeadingModel() and each
- * term's requiredBlocks() - with nothing keeping them in step. The first two
+ * (requiredBlockOf()'s set, the add/remove lists of setHeadingModel() and each
+ * term's requiredBlocks()) with nothing keeping them in step. The first two
  * now read requiredModelBlock(); this holds the third to it, by building every
  * term the core can build.
  */
@@ -353,8 +353,8 @@ TEST(ContactPlanningFormulation, SummaryListsEveryCollection) {
 
 TEST(ContactPlanningConfigValidation,
      AnUnknownPlannerTypeIsRejectedNamingThePlannersThatExist) {
-  // The whole reload path - loadContactPlanningConfig,
-  // ContactPlanningReferenceManager::setConfig, the parameter updater - reads
+  // The reload path (loadContactPlanningConfig,
+  // ContactPlanningReferenceManager::setConfig, the parameter updater) reads
   // "validation passed" as "this configuration can be applied", so a name only
   // the factory rejects is caught after the new parameters have already been
   // stored and the background worker started or stopped.
@@ -382,8 +382,9 @@ TEST(ContactPlanningConfigValidation,
 }
 
 /**
- * Every rejection names the one key the operator has to change. Several used to
- * share one message across up to six keys ("cost weights must be non-negative",
+ * Every rejection identifies the key the operator has to change. Several used
+ * to share one message across up to six keys ("cost weights must be
+ * non-negative",
  * "invalid solver limits", "heading model weights must be >= 0", ...), so a
  * reload rejected over foothold_regularization.weight left the operator to
  * guess which of six weights was wrong.
@@ -673,8 +674,8 @@ TEST(ContactPlanningConfigWarnings,
  * It used to default to 0.85 m, the height the Atlas was once hand-set to, so a
  * robot file that omitted the key planned on a pendulum that belongs to no
  * robot while its DCM cost used its own. A configuration with no model to fill
- * it from is refused, naming the key, rather than planned on a height nobody
- * chose.
+ * it from is refused, identifying the key, rather than planned on a height
+ * nobody chose.
  */
 TEST(ContactPlanningConfigValidation,
      TheDefaultPendulumIsTheModelsAndIsRefusedWhereNoModelFillsItIn) {

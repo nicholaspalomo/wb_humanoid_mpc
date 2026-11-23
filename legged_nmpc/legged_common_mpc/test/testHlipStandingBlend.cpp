@@ -52,8 +52,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // therefore the difference between a robot that walks when the stick moves and
 // one that either marches in place at rest or refuses to start. The assertions
 // below are deliberately written against the CLAIMS IN THE DOCUMENTATION of
-// HlipStandingBlend.h and of HlipBlendParameters in ContactPlanningConfig.h -
-// each test quotes the sentence it pins - so that a future edit which changes
+// HlipStandingBlend.h and of HlipBlendParameters in ContactPlanningConfig.h
+// (each test quotes the sentence it pins), so that a future edit which changes
 // the law has to change the prose with it.
 
 namespace ocs2::legged {
@@ -248,7 +248,7 @@ TEST(HlipStandingBlend, phiIsTheSquaredRatioOfWhicheverComponentIsDrivenAlone) {
           << " of its maximum (" << maximum << ")";
     }
     // Spelled out on its own, because it is the sentence the header actually
-    // makes: at its maximum, one component alone carries the whole of phi = 1.
+    // makes: at its maximum, one component alone reaches phi = 1.
     EXPECT_DOUBLE_EQ(activityOf(blend, makeInput(component, maximum)), 1.0)
         << componentName(component) << " at its maximum";
   }
@@ -416,13 +416,13 @@ TEST(HlipStandingBlend, alphaLandsOnBothOfItsAsymptotes) {
   // The two ends of the sigmoid are the two behaviors the blend exists to
   // produce: a robot that is asked for nothing and is measured to be doing
   // nothing must be given the STANDING reference with no walking in it at all,
-  // and a robot at full stick must be given the whole H-LIP gait with no
+  // and a robot at full stick must be given the full H-LIP gait with no
   // standing in it. A law that only ever reached, say, 0.9 would permanently
   // shorten every step by a tenth.
   //
   // Note on the header's "alpha in (0, 1)": the interval is open in exact
   // arithmetic, because tanh never actually reaches +-1. In double precision it
-  // does - tanh(-20) rounds to exactly -1 - so the assertions below pin the
+  // does (tanh(-20) rounds to exactly -1), so the assertions below pin the
   // asymptotes with a tolerance and pin the bounds inclusively. That matches
   // the floating-point behavior of the shipped law.
   HlipBlendParameters parameters = makeParameters();
@@ -520,11 +520,11 @@ TEST(HlipStandingBlend, everyComponentAloneCanCrossTheHalfPoint) {
   // not a formality: the yaw rate was omitted from the blend's input once, and
   // ContactPlanningReferenceManager.cpp records what that cost - "`alpha` never
   // crossed its half point on yaw alone and the robot would not start" turning
-  // on the spot. The measured center-of-mass velocity matters for the same
+  // on the spot. The measured center-of-mass velocity is included for the same
   // reason in the other direction: a robot that has been pushed is moving
   // without any command, and the blend has to let it step to catch itself.
   //
-  // With the threshold at 0.25 the crossing of each component sits at exactly
+  // With the threshold at 0.25 the crossing of each component is at exactly
   // half its maximum, and half of each of the maxima above is again an exact
   // binary fraction, so the activity at the crossing is exactly the threshold.
   const HlipStandingBlend blend(makeParameters());
@@ -630,7 +630,7 @@ TEST(HlipStandingBlend,
   // planner is built from the configuration. This test pins that enforcement
   // for each of the five keys individually, so that adding a sixth term to phi
   // without extending the check fails here, and it pins that each rejection
-  // names the key the operator has to edit.
+  // identifies the key the operator has to edit.
   const absl::Status baseline = makeValidConfig().validateStatus();
   ASSERT_TRUE(baseline.ok()) << "the baseline configuration must be valid, or "
                                 "the checks below prove nothing: "
@@ -668,7 +668,7 @@ TEST(HlipStandingBlend,
 
   // The sharpness is the other divisor-like constant of the law: at zero, alpha
   // would be exactly a half everywhere, `isWalking` would be true at rest and
-  // the robot would march in place; negative, the whole law would run backwards
+  // the robot would march in place; negative, the law would run backwards
   // and a released stick would ask for the full gait.
   for (const scalar_t sharpness : {0.0, -40.0}) {
     ContactPlanningConfig config = makeValidConfig();

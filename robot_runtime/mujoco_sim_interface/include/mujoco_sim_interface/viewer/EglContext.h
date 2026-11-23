@@ -67,9 +67,9 @@ class EglContext {
   /**
    * Initializes the display and creates a context on it, not yet current.
    * `library` must outlive the context (every EglLibrary does). Fails with
-   * InvalidArgument when `options.deviceId` is past the devices, naming their
-   * count, and with Unavailable naming each display tried and its EGL error
-   * when none gives a desktop OpenGL context.
+   * InvalidArgument when `options.deviceId` is past the devices, reporting
+   * their count, and with Unavailable listing each display tried and its EGL
+   * error when none gives a desktop OpenGL context.
    */
   static absl::StatusOr<std::unique_ptr<EglContext>> Create(
       const EglLibrary* absl_nonnull library, const Options& options);

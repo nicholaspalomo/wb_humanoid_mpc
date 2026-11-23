@@ -144,7 +144,7 @@ class BusBridge:
         # (time.monotonic()), None while it waits for one. Whether the recording reached its sink at stop().
         self._dropped: dict[str, int] = {}
         # Under _lock: per topic of "latest" delivery, its newest message not yet handled, None when there is none.
-        # The queue holds one entry for a topic whose message waits here, which hands the writer whatever is newest.
+        # The queue keeps one entry for a topic whose message waits here, which gives the writer whatever is newest.
         self._latest: dict[str, _Task | None] = {}
         self._paused_reason: str | None = None
         self._pauses = 0

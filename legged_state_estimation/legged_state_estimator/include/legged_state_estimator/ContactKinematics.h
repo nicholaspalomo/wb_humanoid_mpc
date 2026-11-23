@@ -67,8 +67,8 @@ enum class ContactPointKind {
 /**
  * A contact point of the robot: a URDF link, which is a BODY frame of the
  * fixed-base Pinocchio model, and the point in that link's frame. A rolling
- * contact names its wheel link and the wheel center instead, with the wheel's
- * radius.
+ * contact specifies its wheel link and the wheel center instead, with the
+ * wheel's radius.
  */
 struct ContactPointSpec {
   /** The link's name in the URDF. */
@@ -80,13 +80,13 @@ struct ContactPointSpec {
   /** [m] The wheel radius of a kRolling contact; 0 for a kFixed one. */
   scalar_t wheelRadius = 0.0;
   /** The MPC's name of the contact (model_settings), for messages; may be
-   * empty, and the link names the contact then. */
+   * empty, and the link identifies the contact then. */
   std::string contactName = "";
 };
 
 /**
  * Returns OK when every contact of `contacts` is a point fixed on its link,
- * and InvalidArgument naming the first rolling contact otherwise, with
+ * and InvalidArgument identifying the first rolling contact otherwise, with
  * `consumer` (the estimator or kinematics that needs fixed points) leading the
  * message.
  */
@@ -101,8 +101,8 @@ absl::Status checkFixedContactPoints(
  * parent joint) is the same point relative to the child link. A joint of type
  * fixed in the URDF has a child link too. Parses the URDF once.
  *
- * @return InvalidArgument for a URDF that does not load, or naming a joint the
- * URDF does not have.
+ * @return InvalidArgument for a URDF that does not load, or identifying a joint
+ * the URDF does not have.
  */
 absl::StatusOr<std::vector<std::string>> childLinkNamesOfJoints(
     absl::string_view urdfFile, absl::Span<const std::string> jointNames);

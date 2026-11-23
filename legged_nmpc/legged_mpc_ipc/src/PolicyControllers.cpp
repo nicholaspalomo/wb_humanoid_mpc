@@ -41,7 +41,7 @@ namespace ocs2::legged::ipc {
 namespace {
 
 // `controller` as a `Concrete` when that is its exact type, else null;
-// `Concrete` carries the const of `Base`.
+// `Concrete` preserves the const of `Base`.
 template <typename Concrete, typename Base>
 Concrete* absl_nullable asExactly(Base& controller) {
   // NOLINTNEXTLINE(rtti): OCS2's ControllerBase has no visitor and no exact type tag (PolicyControllers.h says why).

@@ -57,11 +57,11 @@ void PlannedComOverride::overrideTarget(
   const ContactPlan& plan = *ctx.activePlan;
   if (plan.posComRtWorldEwrtWorldXyTraj.empty()) return;
 
-  // The reference carries the base pose, the plan carries the center of mass.
+  // The reference stores the base pose; the plan stores the center of mass.
   // The horizontal offset between them is measured at this cycle, in world
   // axes at the measured heading. It is fixed in the base for a fixed posture,
   // so a knot whose reference heading differs from the measured one by dpsi
-  // carries it turned by dpsi.
+  // uses it rotated by dpsi.
   const vector2_t measPosComRtBaseEwrtWorldXy =
       ctx.posComRtWorldEwrtWorldXy - ctx.posBaseRtWorldEwrtWorldXy;
 

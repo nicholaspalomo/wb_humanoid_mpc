@@ -86,14 +86,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * (legged_learning/acom/README.md, section 4).
  *
  * CoM + ACoM tracking used to be the top-level boolean `useComAndAcomTracking`,
- * whose four effects lived in four places and did not check one another. It is
- * now the cost `com_and_acom_tracking_cost` of the `costs` list, and these
- * tests pin what listing it means: the problem it assembles is exactly the one
- * the boolean assembled (Atlas ships it), the base-pose block is zeroed
- * whichever quadratic state cost carries Q, the terminal node keeps CoM and
- * orientation regulation beside the quadratic terminal cost, a task file still
- * carrying the boolean is refused, and the contact planner's heading model -
- * the other consumer of the ACoM network - follows a hot reload.
+ * whose four effects were spread across four places and did not check one
+ * another. It is now the cost `com_and_acom_tracking_cost` of the `costs` list,
+ * and these tests pin what listing it means: the problem it assembles is
+ * exactly the one the boolean assembled (Atlas ships it), the base-pose block
+ * is zeroed whichever quadratic state cost uses Q, the terminal node keeps CoM
+ * and orientation regulation beside the quadratic terminal cost, a task file
+ * still containing the boolean is refused, and the contact planner's heading
+ * model (the other consumer of the ACoM network) follows a hot reload.
  */
 namespace ocs2::legged {
 namespace {
@@ -341,9 +341,9 @@ TEST_F(AcomWiringTest,
 /**
  * Finding A115: with the quadratic terminal cost, zeroing Q_final's base-pose
  * block used to leave the terminal node with no CoM, height or orientation
- * regulation at all - the ACoM cost was added to the running state cost only -
+ * regulation at all (the ACoM cost was added to the running state cost only),
  * although terminalCostScaling makes the terminal node the heaviest of the
- * horizon. The terminal node now carries its own ComAndAcomTrackingCost,
+ * horizon. The terminal node now has its own ComAndAcomTrackingCost,
  * weighted by terminalCostScaling like Q_final.
  */
 TEST_F(
@@ -422,9 +422,9 @@ TEST_F(
 }
 
 /**
- * A task file that still carries the retired boolean does not parse: the parser
- * names the cost that replaced it, so that a stale file cannot silently run a
- * different formulation - whatever the key's value.
+ * A task file that still contains the retired boolean does not parse: the
+ * parser reports the cost that replaced it, so that a stale file cannot
+ * silently run a different formulation, whatever the key's value.
  */
 TEST_F(AcomWiringTest,
        aTaskFileStillCarryingTheRetiredBooleanIsRefusedAtStartUp) {
@@ -452,9 +452,9 @@ TEST_F(AcomWiringTest,
 }
 
 /**
- * Listing the cost without the weights it reads - the state the G1 and SA01
- * task files are in, which carry no com_weights / acom_weights - is a
- * configuration error, which Create() reports as a Status naming the block.
+ * Listing the cost without the weights it reads (as in the G1 and SA01 task
+ * files, which have no com_weights / acom_weights) is a configuration error,
+ * which Create() reports as a Status identifying the block.
  */
 TEST_F(AcomWiringTest,
        aListedCostWithoutItsWeightsIsRefusedNamingTheMissingBlock) {
@@ -616,7 +616,7 @@ TEST_F(HeadingModelReloadTest,
 TEST_F(HeadingModelReloadTest,
        theEvaluatorIsLeftToTheStatusReturningSetUpUntilItHasRun) {
   // While the interface is being constructed, the reference manager's Create()
-  // and ContactPlannerModule::Create() hand the configuration over through
+  // and ContactPlannerModule::Create() pass the configuration through
   // setConfigStatus() before the interface has called
   // loadHeadingModelEvaluator(); the evaluator is left to that one call.
   const std::shared_ptr<ContactPlanningReferenceManager> manager =
@@ -629,7 +629,7 @@ TEST_F(HeadingModelReloadTest,
 
 TEST_F(HeadingModelReloadTest,
        aNetworkTrainedOnOtherJointsRefusesTheReloadAndTheStart) {
-  // The MPC model's joints relabeled - two of them swapped - so that the
+  // The MPC model's joints relabeled (two of them swapped) so that the
   // network no longer matches them name by name.
   LEGGED_ASSERT_OK_AND_ASSIGN(
       ModelSettings permuted,

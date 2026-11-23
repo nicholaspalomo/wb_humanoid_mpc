@@ -89,10 +89,10 @@ namespace ocs2::legged {
  * of the base pose, the joint angles and velocities, the joint accelerations
  * and the contact wrenches in its state and input vectors. The base orientation
  * is stored as a quaternion and its rate as the body angular velocity, so the
- * state lives on the product manifold [E(3), unit quaternion, E(2 nj + 6)]
+ * state lies on the product manifold [E(3), unit quaternion, E(2 nj + 6)]
  * (stateManifoldOf()) and the tuning layout maps onto it through the Euler
  * boundary (orientation/EulerBoundary.h; design decision D18 for the angular
- * velocity). Holds a reference to `modelSettings`, which must outlive it;
+ * velocity). Stores a reference to `modelSettings`, which must outlive it;
  * otherwise stateless, so its const methods are safe to call concurrently.
  * Copied only by clone(). Every accessor takes a state of getStateDim() and an
  * input of getInputDim() entries, unchecked: the solver and the control thread
@@ -225,9 +225,9 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   };
 
   // The base class declares this non-const because the centroidal model updates
-  // its Pinocchio data in it; the whole-body state carries the velocities, so
+  // its Pinocchio data in it; the whole-body state includes the velocities, so
   // here it is a pure read, and the const overload below serves the callers
-  // that hold a const model (WBAccelDynamicsAD, whose clones share one).
+  // that have a const model (WBAccelDynamicsAD, whose clones share one).
   VECTOR_T<SCALAR_T> getGeneralizedVelocities(
       const VECTOR_T<SCALAR_T>& state,
       const VECTOR_T<SCALAR_T>& input) override {
@@ -361,7 +361,7 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
 
   /**
    * [dp_W, R(xi) w_B] of the state's base velocity slots, exact. The state
-   * holds the joint velocities too, so `jointVelocities` is not read; it is
+   * stores the joint velocities too, so `jointVelocities` is not read; it is
    * held to the size of the interface all the same (ABSL_CHECK), as the
    * centroidal model, which reads it, is.
    */

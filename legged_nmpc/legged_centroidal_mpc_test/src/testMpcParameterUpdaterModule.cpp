@@ -259,9 +259,9 @@ TEST_F(MpcParameterUpdaterModuleTest,
     EXPECT_EQ(solver.getSettings().g_min, runningGMin);
   }
 
-  // A value that does not parse refuses the whole file, with an error that
-  // names the file and the position, where a `get` with a default used to apply
-  // the default in its place without a word.
+  // A value that does not parse refuses the file, with an error that
+  // reports the file and the position, where a `get` with a default used to
+  // apply the default in its place without a word.
   {
     absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
     EXPECT_CALL(
@@ -290,7 +290,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
 TEST_F(MpcParameterUpdaterModuleTest,
        basisCostTransformRequiresBasisSpaceInputDim) {
   // The task file's input_weights is indexed in wrench space, so the only sane
-  // inputDim for a module carrying a basis-space transform is the transform's
+  // inputDim for a module with a basis-space transform is the transform's
   // basis-space dimension. Passing the wrench-space dimension must be rejected
   // at construction.
   const size_t wrenchInputDim =

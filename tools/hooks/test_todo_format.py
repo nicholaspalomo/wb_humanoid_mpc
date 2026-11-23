@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Tests for todo_format.py: a TODO names a bug, a link or an owner."""
+"""Tests for todo_format.py: a TODO specifies a bug, a link or an owner."""
 
 import unittest
 

@@ -76,7 +76,7 @@ struct PatchFrame {
     return rotmatSurfaceRtWorld.col(kNormalColumn);
   }
 
-  // The column of `rotmatSurfaceRtWorld` that holds the normal.
+  // The column of `rotmatSurfaceRtWorld` that stores the normal.
   static constexpr int kNormalColumn = 2;
 };
 

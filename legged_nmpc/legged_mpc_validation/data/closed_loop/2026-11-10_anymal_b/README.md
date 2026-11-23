@@ -11,7 +11,7 @@ make closed-loop-metrics ROBOT=anymal_b LABEL=2026-11-10_anymal_b RECORD_STATES=
 ```
 
 `RECORD_STATES=1` also wrote `data/benchmark/states/anymal_b_walk_0p5_states.txt`, which the solve benchmark replays.
-This README holds the label's metrics; the package READMEs and the validation README link here.
+This README lists the label's metrics; the package READMEs and the validation README link here.
 
 | Metric | standing | walk_0p5 | turn_in_place_720 |
 | --- | --- | --- | --- |
@@ -43,4 +43,4 @@ BASELINE=2026-11-10_anymal_b ROBOT=anymal_b` compares the three runs with no vio
 keeps the default bands (`closedLoopMetricBandsFor()`), since two runs of one configuration give the same documents.
 
 The runs set the tuning of `robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc` and of the quadruped gait table
-(the task file, the PD gains and `quadruped_gait.textproto` say which runs moved which value).
+(the task file, the PD gains and `quadruped_gait.textproto` note which runs changed which value).

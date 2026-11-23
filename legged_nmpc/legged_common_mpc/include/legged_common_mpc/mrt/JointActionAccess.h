@@ -49,10 +49,10 @@ namespace ocs2::legged {
 
 /**
  * Ends the process unless every index of `indices` is a joint of
- * `robotDescription`: a RobotJointAction of that description carries an action
+ * `robotDescription`: a RobotJointAction of that description contains an action
  * at each, so jointActionUnchecked() may reach them. For a constructor, once:
- * it builds a RobotJointAction, which allocates. `controller` names the caller
- * in the message.
+ * it builds a RobotJointAction, which allocates. `controller` identifies the
+ * caller in the message.
  */
 inline void checkJointIndices(
     const ::robot::model::RobotDescription& robotDescription,

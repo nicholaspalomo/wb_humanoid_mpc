@@ -48,7 +48,8 @@ namespace ocs2::legged {
  * The constrained block is whatever the model parameterizes the contact with:
  * the six wrench components for a wrench-space model, or the basis-vector
  * scalings lambda for BasisInputsModelDecorator. Constraining lambda directly
- * rather than the wrench B * lambda matters: B has only six independent rows,
+ * rather than the wrench B * lambda avoids null-space drift: B has only six
+ * independent rows,
  * so constraining the wrench would leave the null space of B (numBasisPerFoot -
  * 6 directions) completely free during swing, held down by nothing but the
  * small input regularization. Since the wrench is zero exactly when lambda is

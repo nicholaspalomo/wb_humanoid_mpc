@@ -41,7 +41,7 @@ namespace ocs2::legged {
  * Every shipped task file sets `model_settings.recompile_libraries_cpp_ad:
  * false`, and a library is reused whenever its .so file exists, so a library
  * taped for one state layout would silently be loaded for another. The library
- * folder therefore carries this tag (cppad_code_gen/cppad_<mpc><robot>/<tag>,
+ * folder therefore includes this tag (cppad_code_gen/cppad_<mpc><robot>/<tag>,
  * ModelSettings::Create()), and the tag changes whenever the layout of the
  * state, the input or the Pinocchio configuration a library reads changes: a
  * new layout then generates new libraries in a new folder instead of loading
@@ -51,8 +51,8 @@ namespace ocs2::legged {
  * "translation_spherical_quaternion_v1" is the quaternion layout: the root
  * joint Composite(Translation, Spherical), the base orientation stored as a
  * unit quaternion (x, y, z, w) and the base angular velocity in the body frame.
- * Libraries of the earlier, untagged ZYX Euler layout sit one folder up and are
- * never read.
+ * Libraries of the earlier, untagged ZYX Euler layout are in the parent folder
+ * and are never read.
  */
 // LINT.IfChange(cppad_layout_tag)
 inline constexpr absl::string_view kStateLayoutTag =

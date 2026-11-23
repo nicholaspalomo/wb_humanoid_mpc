@@ -243,7 +243,7 @@ void MpcServer::onObservation(const legged_mpc_msgs::MpcObservation& message) {
     return;
   }
   if (valid.ok()) {
-    // Checks the whole message before it writes anything: a rejected
+    // Checks the full message before it writes anything: a rejected
     // observation leaves the mailbox as it was.
     valid = fromProto(message.observation(), &mailboxObservation_);
   }

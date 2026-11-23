@@ -71,7 +71,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * behavior. Built on the G1 whole-body calculator, which needs no Pinocchio
  * model. Also the calculator's Create(): the typed reference file and its path
  * build the same calculator, and a reference file that does not parse or
- * convert is an InvalidArgument naming the file and the field.
+ * convert is an InvalidArgument reporting the file and the field.
  */
 namespace ocs2::legged {
 namespace {
@@ -334,8 +334,8 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
 
 TEST_F(TargetTrajectoriesCalculatorSettersTest,
        CreateRefusesACommandLimitThatDoesNotParse) {
-  // The strict parser refuses a value that is not a number, naming the file and
-  // the line and column of the value.
+  // The strict parser refuses a value that is not a number, reporting the file
+  // and the line and column of the value.
   std::ifstream in(referenceFile_);
   std::string reference((std::istreambuf_iterator<char>(in)),
                         std::istreambuf_iterator<char>());
@@ -373,7 +373,7 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
 
 TEST_F(TargetTrajectoriesCalculatorSettersTest,
        CreateRefusesADefaultPostureWithoutAJointNamingIt) {
-  // The default posture names every joint of the model; one left out is refused
+  // The default posture lists every joint of the model; one left out is refused
   // by name, not read as 0.
   mpc_config::ReferenceFile withoutAJoint = reference_;
   ASSERT_FALSE(withoutAJoint.default_joint_state.empty());
@@ -393,8 +393,8 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
 
 TEST_F(TargetTrajectoriesCalculatorSettersTest,
        TheErrorOfAConversionNamesTheReferenceFile) {
-  // A command limit the file must give: the path form names the file before the
-  // field.
+  // A command limit the file must give: the path form reports the file before
+  // the field.
   std::ifstream in(referenceFile_);
   std::string reference((std::istreambuf_iterator<char>(in)),
                         std::istreambuf_iterator<char>());

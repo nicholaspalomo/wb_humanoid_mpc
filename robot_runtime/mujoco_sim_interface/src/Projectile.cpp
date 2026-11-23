@@ -377,7 +377,7 @@ absl::Status addProjectileToSpec(mjSpec* absl_nullable spec,
   // The ball's contact parameters win every contact it makes; see the header
   // for what averaging them costs.
   geom->priority = 1;
-  // solref = (timeconst, dampratio). The damping ratio is what carries the
+  // solref = (timeconst, dampratio). The damping ratio determines the
   // restitution, and the time constant keeps the stiffness at
   // kProjectileContactNaturalFrequency; see contactDampRatioForRestitution for
   // the inversion.

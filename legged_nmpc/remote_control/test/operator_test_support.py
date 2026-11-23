@@ -30,7 +30,7 @@
 RecordingPublisher is the real operator_bus.TopicPublisher of an operator topic over a RecordingBus, so a tab given one
 goes through the same type check as in the GUI, and the test asserts on the protobuf message that would have gone out.
 
-The Tk tests need a display. `bazel test` hands the tests the caller's DISPLAY (env_inherit in BUILD.bazel): in the dev
+The Tk tests need a display. `bazel test` passes the tests the caller's DISPLAY (env_inherit in BUILD.bazel): in the dev
 container that is the VNC session's Xvfb. Where Tk cannot open a window on it, or there is none (CI), the tests start an
 Xvfb of their own. Only where that is not installed either are they skipped, saying why; on CI (the CI variable set)
 they fail instead, since a skipped test would pass there without having run.
@@ -123,7 +123,7 @@ def copy_config(config_dir: str, destination: str) -> str:
 
 
 class RecordingBus:
-    """Stands in for robot_ipc.Bus: records what is published and subscribed, and delivers what a test hands it.
+    """Stands in for robot_ipc.Bus: records what is published and subscribed, and delivers what a test passes it.
 
     Thread-safe like the bus, so that a test may publish from a helper thread.
     """
@@ -275,7 +275,7 @@ def _start_private_display() -> bool:
     share one. It listens on no TCP port and stops when the process exits.
 
     Returns:
-        True once DISPLAY names the new Xvfb; False, with DISPLAY untouched, when none could be started.
+        True once DISPLAY identifies the new Xvfb; False, with DISPLAY untouched, when none could be started.
     """
     binary = shutil.which("Xvfb")
     if binary is None:

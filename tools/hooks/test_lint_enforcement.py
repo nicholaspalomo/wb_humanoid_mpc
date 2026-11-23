@@ -68,7 +68,7 @@ _SWEEP_MARKER = re.compile(r"\bSWEEP(_BEGIN|_END)?\b")
 _SWEEP_NAMES = re.compile(
     r"sweep\.clang-tidy|clang_tidy_sweep_aspect|clang-tidy-sweep|lint-tidy-sweep"
 )
-# The files that name the old mechanism on purpose: this test, and the test that a stray sweep.clang-tidy enables
+# The files that reference the old mechanism on purpose: this test, and the test that a stray sweep.clang-tidy enables
 # nothing.
 _NAMING_THE_SWEEP = frozenset(
     {"tools/hooks/test_lint_enforcement.py", "tools/hooks/test_checks.py"}

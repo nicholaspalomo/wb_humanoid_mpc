@@ -97,8 +97,8 @@ bool waitFor(absl::FunctionRef<bool()> condition,
   return condition();
 }
 
-/** Records what the publisher publishes; can hold the telemetry until released,
- * like a slow network. */
+/** Records what the publisher publishes; can buffer the telemetry until
+ * released, like a slow network. */
 class RecordingSink {
  public:
   VisualizationPublisher::PublishFunction function() {
@@ -396,7 +396,7 @@ TEST_F(VisualizationPublisherTest, TheSceneDrawsTheLatestPolicyAndSample) {
   publisher->stop();
 }
 
-/** Whether `scenes` hold one at `time` that draws the measured robot. */
+/** Whether `scenes` contain one at `time` that draws the measured robot. */
 bool hasMeasuredSceneAt(
     absl::Span<const legged_mpc_msgs::VisualizationScene> scenes, double time) {
   for (const legged_mpc_msgs::VisualizationScene& scene : scenes) {
@@ -769,7 +769,7 @@ TEST_F(VisualizationPublisherTest,
   }
 
   // A solution whose terms cannot be evaluated is reported and counted, and its
-  // policy is handed over all the same.
+  // policy is passed all the same.
   EXPECT_FALSE(
       publisher->postSolveObserver()(command, PrimalSolution(), performance)
           .ok());

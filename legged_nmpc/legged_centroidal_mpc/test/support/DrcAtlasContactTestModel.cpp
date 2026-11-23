@@ -104,7 +104,7 @@ DrcAtlasContactTestModel::DrcAtlasContactTestModel(std::string modelNamePrefix)
 
   // The basis-vector decorator, built through the conversion
   // CentroidalMpcInterface builds it with, so that a test sees the input
-  // parameterization - generator set and all - the shipped robot actually runs.
+  // parameterization (including its generator set) the shipped robot runs.
   const absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>>
       basisMatrices = contactWrenchConeBasesFromConfig(config_.task.contacts,
                                                        *modelSettings_);
@@ -148,7 +148,7 @@ void DrcAtlasContactTestModel::setContactFlags(
       {kBipedModeStance, bipedModeOfFootContacts(contacts), kBipedModeStance});
   // It has to go through the GAIT schedule, not through
   // ReferenceManager::setModeSchedule(): that setter only fills a buffer, and
-  // SwitchedModelReferenceManager::modifyReferences() overwrites the whole mode
+  // SwitchedModelReferenceManager::modifyReferences() overwrites the mode
   // schedule from the gait schedule on every preSolverRun() anyway. Setting the
   // buffer alone leaves the terms under test reading whatever the reference
   // file's gait happened to be, so a test would pass or fail by coincidence.

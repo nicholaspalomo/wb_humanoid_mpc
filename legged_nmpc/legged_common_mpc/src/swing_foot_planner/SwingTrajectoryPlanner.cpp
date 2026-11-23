@@ -122,7 +122,7 @@ scalar_t SwingTrajectoryPlanner::getImpactProximityFactor(size_t leg,
   const int index =
       lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
   const SwingWindow& window = swingWindows_[leg][index];
-  // A foot searching for the ground holds the factor of its planned touch-down.
+  // A foot searching for the ground keeps the factor of its planned touch-down.
   if (isSearching(window, time)) {
     return impactProximityTrajectories_[leg][index].value(window.finalTime);
   }
@@ -274,7 +274,7 @@ void SwingTrajectoryPlanner::update(
 
       // Every phase of a swing, which spans several phases in a gait with
       // flight phases (run: the swing of one foot is FLY | other foot in
-      // stance | FLY), gets the same splines over the whole swing, so the
+      // stance | FLY), gets the same splines over the full swing, so the
       // references are continuous at the inner events and have one apex and
       // one short-swing scaling per swing. The heights are read at the
       // swing's first and last phase so that every phase of the swing reads

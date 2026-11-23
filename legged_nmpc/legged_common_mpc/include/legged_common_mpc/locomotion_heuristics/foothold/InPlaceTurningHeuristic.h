@@ -66,7 +66,7 @@ namespace ocs2::legged {
  *
  * Direction: a foot to the LEFT of a body turning counter-clockwise travels
  * BACKWARDS (omega x r), so the fore-aft displacements of the two feet are
- * equal and opposite. The implementation carries the sign, so a positive
+ * equal and opposite. The implementation applies the sign, so a positive
  * `forwardPerYawRate` means "lead the hips into the turn"; see the comment on
  * computeOffsetPosFootRtWorldEwrtWorldXy().
  *

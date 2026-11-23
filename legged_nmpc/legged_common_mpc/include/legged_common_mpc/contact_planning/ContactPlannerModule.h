@@ -57,9 +57,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged {
 
 /**
- * Solver synchronized module that runs the contact planner `planner.type` names
- * (ContactPlannerFactory: the closed-form H-LIP planner or the mixed-integer
- * one) and feeds its plans to the ContactPlanningReferenceManager.
+ * Solver synchronized module that runs the contact planner specified by
+ * `planner.type` (ContactPlannerFactory: the closed-form H-LIP planner or the
+ * mixed-integer one) and feeds its plans to the
+ * ContactPlanningReferenceManager.
  *
  * Before every MPC solve the module snapshots the planner input (CoM state,
  * feet, applied contact phases, and the operator's command as the reference
@@ -68,7 +69,7 @@ namespace ocs2::legged {
  * live target, which planned_com_override rewrites). With
  * `runInBackgroundThread` the snapshot is posted to a worker thread that plans
  * at most at `planningFrequency`; otherwise the plan is computed synchronously
- * inside the pre-solve hook. Either way a finished plan is handed to the
+ * inside the pre-solve hook. Either way a finished plan is passed to the
  * reference manager as PENDING and becomes active at the next solve: the solver
  * runs the reference manager's pre-solve hook (which activates pending plans)
  * before the modules', so even a synchronous plan made from this cycle's state
@@ -101,7 +102,7 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
    * Rate limiter of the snapshots posted to the worker. The period is counted
    * from the last snapshot the worker took (or from the one still waiting for
    * it), not from the last post: a snapshot posted while the worker was busy
-   * and dropped at the hand-over would otherwise hold the next post for a whole
+   * and dropped at the hand-over would otherwise delay the next post for a full
    * period although the worker is idle, which halved the planning rate whenever
    * a plan took longer than the period. Guarded by the module's input mutex;
    * public for the test.
@@ -132,15 +133,15 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
   };
 
   /**
-   * Builds the module and the planner `config.planner.type` names, and hands
-   * the configuration to the reference manager. `modelParameters` - the planner
-   * parameters derived from the robot model (torque limits, foot yaw bounds,
-   * nomPosComRtFeetmeanEwrtWorldZ where the file leaves it out, the ZMP box
-   * where it leaves it at 0) - are applied to `config` first and to every
-   * configuration set later, including the hot reloads, which do not carry
+   * Builds the module and the planner specified by `config.planner.type`, and
+   * passes the configuration to the reference manager. `modelParameters` (the
+   * planner parameters derived from the robot model: torque limits, foot yaw
+   * bounds, nomPosComRtFeetmeanEwrtWorldZ where the file leaves it out, and the
+   * ZMP box where it leaves it at 0) are applied to `config` first and to every
+   * configuration set later, including the hot reloads, which do not include
    * them. A null reference manager, an unknown planner, a configuration that
    * does not validate or a reference manager whose contact set is not the
-   * biped's (makeContactPlanner()) is an InvalidArgument naming the key to
+   * biped's (makeContactPlanner()) is an InvalidArgument identifying the key to
    * change.
    */
   static absl::StatusOr<std::shared_ptr<ContactPlannerModule>> Create(
@@ -157,7 +158,7 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
                     scalar_t finalTime,
                     const vector_t& initState,
                     const ReferenceManagerInterface& referenceManager) override;
-  /** Hands the predicted trajectory to the reference manager for the
+  /** Passes the predicted trajectory to the reference manager for the
    * closed-form corrections (when they are enabled). */
   void postSolverRun(const PrimalSolution& primalSolution) override;
 
@@ -167,12 +168,12 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
    *
    * The planner itself is reset by the thread that plans (runPlanner()), keyed
    * to the reference manager's plan epoch, which the reference manager's
-   * reset() - run first by MPC_BASE::reset() - advances: a snapshot taken
+   * reset() (run first by MPC_BASE::reset()) advances: a snapshot taken
    * before the reset is not planned from at all, and the first snapshot of the
    * new epoch is planned by a planner reset (ContactPlannerInterface::reset():
    * its warm start, its previous plan). A plan still being computed from a
    * snapshot of the old epoch when the reset comes is refused by the reference
-   * manager when it is handed over, and the state it leaves in the planner
+   * manager when it is submitted, and the state it leaves in the planner
    * belongs to the old epoch, so it is dropped before the next plan.
    */
   void reset() override;
@@ -182,8 +183,8 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
    * applied before the next plan), and logs the planner's formulation summary
    * again whenever reloadSummary() says it changed. The model parameters are
    * applied first; a configuration that then does not validate, or that the
-   * reference manager refuses, is returned as the InvalidArgument naming the
-   * key, and the running configuration is kept.
+   * reference manager refuses, is returned as an InvalidArgument identifying
+   * the key, and the running configuration is kept.
    */
   absl::Status setConfig(const ContactPlanningConfig& config);
 
@@ -224,7 +225,7 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
   void workerLoop();
   /**
    * Plans from `input`, a snapshot taken in the reference manager's plan epoch
-   * `planEpoch`, and hands the plan over. A snapshot of an epoch that is no
+   * `planEpoch`, and submits the plan. A snapshot of an epoch that is no
    * longer the reference manager's is dropped unplanned; the first one of a new
    * epoch is planned by a reset planner (see reset()).
    */

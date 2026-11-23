@@ -142,7 +142,7 @@ py_test(
     ],
 )
 
-# The realtime property. A binary of its own, because the allocation counter replaces malloc for the whole process.
+# The realtime property. A binary of its own, because the allocation counter replaces malloc for the process.
 cc_test(
     name = "test_nproto_allocations",
     size = "small",
