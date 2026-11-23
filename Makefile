@@ -268,7 +268,7 @@ validation_env = --test_env=WB_VALIDATION_GIT_COMMIT="$$commit" --test_env=WB_VA
 	--nozip_undeclared_test_outputs --cache_test_results=no --test_output=errors
 
 ## Closed-loop metrics of one robot: make closed-loop-metrics ROBOT=<robot> LABEL=<label> [SCENARIO=walk_0p5] [BASELINE=<label>] [RECORD_STATES=1]
-# ROBOT: drc_atlas, engineai_sa01, unitree_g1, unitree_r1, anymal_b, tron1 and anymal_c_wheels (three scenarios each), unitree_g1_wb or unitree_g1_kalman
+# ROBOT: drc_atlas, engineai_sa01, unitree_g1, unitree_r1, anymal_b, tron1 (three scenarios each), anymal_c_wheels (six), unitree_g1_wb or unitree_g1_kalman
 # (unitree_g1 with the kalman state estimator, three scenarios, held to unitree_g1's documents of BASELINE). Without SCENARIO every scenario runs. The
 # metrics land in data/closed_loop/$(LABEL)/ and the time series stay in the test's outputs; RECORD_STATES=1 also keeps
 # the walking states for the solve benchmark. With BASELINE each run's violations and improvements against it are printed

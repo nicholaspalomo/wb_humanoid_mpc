@@ -269,8 +269,8 @@ rolling contacts (`LF_wheel_contact`, `RF_wheel_contact`, `LH_wheel_contact`, `R
 quadrupeds' gait file (`legged_common_mpc/config/command/wheeled_quadruped_gait.textproto`), with the ground-truth
 contact estimator and state estimator
 ([robot_models/anybotics_anymal_c_wheels](../../robot_models/anybotics_anymal_c_wheels/README.md)). It runs `standing`,
-`walk_0p5`, `turn_in_place_720` and `lateral_0p2`. `walk_0p5` drives at 0.5 m/s and takes no step; its four parallel
-axles cannot roll through a yaw or sideways, so `turn_in_place_720` and `lateral_0p2` step a diagonal pair at a time
+`walk_0p5`, `turn_in_place_720`, `lateral_0p2`, `turn_1radps` and `arc`. `walk_0p5` drives at 0.5 m/s and takes no
+step; its four parallel axles cannot roll through a yaw or sideways, so the other four step a diagonal pair at a time
 where the wheels' lateral debt reaches 5 cm (the gait file's `rolling_lateral_debt` scheduler,
 [docs/rolling_contact](../docs/rolling_contact/README.md), section 10). It must survive `walk_0p5`, and its solve
 benchmark replays `data/benchmark/states/anymal_c_wheels_walk_0p5_states.txt`. The Kalman state estimator refuses a
@@ -280,7 +280,10 @@ and turns at 0.484 rad/s against 0.5 rad/s through 11.78 of 12.57 rad; the metri
 on the plain trot that did not turn, are in [the label's README](data/closed_loop/2026-11-12_anymal_c_wheels/README.md).
 That turn was on the gait file's `turning_trot`; label `2026-11-22_wheel_steps` recorded the event-driven steps: it turns
 through 11.97 rad with no violation of that baseline, and `lateral_0p2` survives with a velocity RMS error of
-0.042 m/s ([its README](data/closed_loop/2026-11-22_wheel_steps/README.md)).
+0.042 m/s ([its README](data/closed_loop/2026-11-22_wheel_steps/README.md)). Label `2026-11-23_wheeled_fast_turn`
+recorded the 0.05 s stance between steps, on which `turn_1radps` survives at a mean height of 0.630 m; on the 0.15 s
+stance before it the base sank and the robot fell 3.1 s into the turn
+([its README](data/closed_loop/2026-11-23_wheeled_fast_turn/README.md)).
 It uses the default bands; `make compare-closed-loop CANDIDATE=2026-11-12_anymal_c_wheels
 BASELINE=2026-11-12_anymal_c_wheels ROBOT=anymal_c_wheels` passes with no violation and no improvement.
 
@@ -288,7 +291,7 @@ BASELINE=2026-11-12_anymal_c_wheels ROBOT=anymal_c_wheels` passes with no violat
 
 A label is a directory of documents, one per run: `make closed-loop-metrics ROBOT=<robot> LABEL=<label>` writes
 `data/closed_loop/<label>/<robot>_<scenario>.json`, and `make benchmark-mpc-solve ROBOT=<robot> LABEL=<label>` writes
-`data/benchmark/<label>/<robot>_solve_benchmark.json`. Ten labels are checked in: `2026-11-07_kalman_variant`, the
+`data/benchmark/<label>/<robot>_solve_benchmark.json`. Eleven labels are checked in: `2026-11-07_kalman_variant`, the
 kalman variant's first runs, on the undamped G1 scene; `2026-11-08_g1_fall_fix`, `unitree_g1` surviving all three of
 those scenarios once its MJCF had joint damping; `2026-11-10_anymal_b`, the first runs of ANYmal B;
 `2026-11-11_g1_kalman`, `unitree_g1` and `unitree_g1_kalman` on the damped scene with the cycle-mean accelerometer;
@@ -296,9 +299,11 @@ those scenarios once its MJCF had joint damping; `2026-11-10_anymal_b`, the firs
 `2026-11-13_legged_rename`, five of those configurations rerun after the rename of the packages from `humanoid_*` to
 `legged_*`, each equal to its baseline
 ([its README](data/closed_loop/2026-11-13_legged_rename/README.md)); `2026-11-22_wheel_steps`, the two wheeled
-configurations on the event-driven steps ([its README](data/closed_loop/2026-11-22_wheel_steps/README.md)); and
+configurations on the event-driven steps ([its README](data/closed_loop/2026-11-22_wheel_steps/README.md));
 `2026-11-23_mujoco4`, the five configurations on MuJoCo 4.0.1, within the bands of their baselines
-([its README](data/closed_loop/2026-11-23_mujoco4/README.md)).
+([its README](data/closed_loop/2026-11-23_mujoco4/README.md)); and `2026-11-23_wheeled_fast_turn`, the wheeled ANYmal C
+on a shorter stance between its steps, which turns at 1 rad/s
+([its README](data/closed_loop/2026-11-23_wheeled_fast_turn/README.md)).
 Otherwise record a baseline on the code to compare against and a candidate on the change, on the same machine and container image, and give each label a README saying
 what it ran (the commit and the worktree state are in every document's provenance) and, for a candidate, the
 improvements its comparison found. Only the metrics documents are copied into the label; the time series and the
