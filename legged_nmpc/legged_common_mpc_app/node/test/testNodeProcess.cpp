@@ -97,8 +97,9 @@ TEST(NodeBus, RefusesANodeTheNetworkDoesNotHave) {
 
 TEST(NodeBus, TheStreamsANodeLagsBehindOnAreLatestValuesInTheShippedNetwork) {
   // After a stall, a subscriber is handed the newest observation or policy, not
-  // a backlog: their topics keep one sample (KEEP_LAST 1) at the writer and the
-  // reader's few, whichever node publishes them. The bound is robot_ipc's
+  // a backlog: their publishers drop a sample the link cannot take rather than
+  // queue it, and the subscriber's queue keeps its few newest, whichever node
+  // publishes them. The bound is robot_ipc's
   // BusDeliveryTest.AStalledSubscriberGetsTheNewestLatestValueNotABacklog.
   const absl::StatusOr<robot::ipc::BusOptions> mpc =
       nodeBusOptions(/*networkConfigPath=*/"", "mpc");
@@ -109,7 +110,9 @@ TEST(NodeBus, TheStreamsANodeLagsBehindOnAreLatestValuesInTheShippedNetwork) {
         ipc::topics::kRobotMpcObservation}) {
     const robot::ipc::QosProfile profile = mpc->network.qosProfileOf(topic);
     EXPECT_NE(profile, robot::ipc::QosProfile::kReliableEvents) << topic;
-    EXPECT_EQ(robot::ipc::qosPolicy(profile).writerHistoryDepth, 1) << topic;
+    EXPECT_EQ(robot::ipc::qosPolicy(profile).congestionControl,
+              robot::ipc::CongestionControl::kDrop)
+        << topic;
   }
   const absl::StatusOr<robot::ipc::BusOptions> robot =
       nodeBusOptions(/*networkConfigPath=*/"", "robot");

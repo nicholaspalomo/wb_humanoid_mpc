@@ -46,7 +46,7 @@ INVALID_PERIODS = (0.0, -1.0, math.nan)
 
 
 def _network() -> robot_ipc.NetworkConfig:
-    """A network of one node of this test process's own DDS domain."""
+    """A network of one node of this test process's own domain."""
     return robot_ipc.isolated_test_network(["publisher"])
 
 

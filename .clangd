@@ -35,7 +35,7 @@ Diagnostics:
       - absl/.*/internal/.*
       - google/protobuf/.*internal.*
       - google/protobuf/port_(un)?def[.]inc
-      - dds/dds[a-z]+/.*
+      - zenoh_[a-z]+[.]h
       - bits/.*
       - asm(-generic)?/.*
     # LINT.ThenChange(//.clang-tidy:include_cleaner_ignore)

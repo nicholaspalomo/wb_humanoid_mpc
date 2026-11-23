@@ -18,7 +18,7 @@ supervisor (`legged_common_mpc:mpc_reset_supervisor`). No Pinocchio and no robot
 
 The C++ and Python topic names are tied together, and to the topic table of the distributed-runtime README, with
 `LINT.IfChange(topics)`; `:test_topics_py` reads `Topics.h` and checks that every constant has an equal Python twin.
-Every topic is a DDS topic of the same name, and `config/ipc/network.textproto` gives each one its QoS profile and
+Every topic is the last chunks of a Zenoh key expression of the same name, and `config/ipc/network.textproto` gives each one its QoS profile and
 publishers (`:test_topics` checks that it lists exactly these topics: `mpc/policy` is `reliable_latest`,
 `robot/mpc_observation` `latest`, the operator's one-off commands `reliable_events`). Besides
 the MPC link's streams and the operator's commands, the topics include the GUI's two-copy Save: `operator/config_save`

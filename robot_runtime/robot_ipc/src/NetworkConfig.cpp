@@ -53,9 +53,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 #include "google/protobuf/text_format.h"
 
-#include "robot_ipc/DomainConfig.h"
 #include "robot_ipc/NodeEndpoint.h"
 #include "robot_ipc/QosProfile.h"
+#include "robot_ipc/SessionConfig.h"
 #include "robot_ipc_proto/network_config.pb.h"
 #include "robot_runtime/robot_ipc/LocalhostNetworkText.h"
 #include "robot_runtime/robot_ipc/src/StatusMacros.h"
@@ -78,9 +78,11 @@ constexpr absl::string_view kTransportField = "transport";
 constexpr absl::string_view kNodeNamePunctuation = "_-";
 // A domain tag is a run of letters, digits and these.
 constexpr absl::string_view kDomainTagPunctuation = "_-.";
-// A DDS topic name is letters, digits and these, not starting with a digit
-// (Cyclone DDS's own rule).
+// A topic is letters, digits and these, not starting with a digit, and its
+// chunks between the '/' are not empty.
 constexpr absl::string_view kTopicNamePunctuation = "_/";
+constexpr absl::string_view kTopicChunkSeparator = "/";
+constexpr absl::string_view kEmptyTopicChunk = "//";
 // The hosts that specify every interface rather than a machine.
 constexpr absl::string_view kWildcardHostAny = "0.0.0.0";
 constexpr absl::string_view kWildcardHostStar = "*";
@@ -92,18 +94,7 @@ constexpr absl::string_view kLoopbackPrefix = "127.";
 constexpr unsigned char kFirstHostCharacter = '!';
 constexpr unsigned char kLastHostCharacter = '~';
 constexpr absl::string_view kHostRefusedPunctuation = "/:";
-// The UDP payload sizes Cyclone DDS can send: from one that fits a DDSI header
-// and a fragment, to the largest IPv4 UDP payload.
-constexpr int64_t kMinMessageSizeBytes = 1024;
-constexpr int64_t kMaxMessageSizeBytes = 65500;
-// The largest process count per host whose unicast ports (two per process) a
-// domain's 250 ports leave room for.
-constexpr int kMaxProcessesPerHost = 115;
-// Packets per thousand: 1000 drops every one.
-constexpr int kPerMille = 1000;
 // LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/network_config.py:network_rules)
-// The largest UDP port.
-constexpr int kMaxPort = 65535;
 // An IPv4 address: four decimal octets.
 constexpr size_t kIpv4Octets = 4;
 constexpr int kMaxOctet = 255;
@@ -232,36 +223,20 @@ absl::Status validateTopics(const NetworkConfig& config) {
 
 absl::Status validateTransport(const TransportOptions& transport) {
   const std::string key(kTransportField);
-  if (transport.maxMessageSizeBytes != 0 &&
-      (transport.maxMessageSizeBytes < kMinMessageSizeBytes ||
-       transport.maxMessageSizeBytes > kMaxMessageSizeBytes)) {
-    return invalid(
-        absl::StrCat(key, ".max_message_size_bytes"),
-        absl::StrCat(transport.maxMessageSizeBytes,
-                     " is not 0 (the default) or in [", kMinMessageSizeBytes,
-                     ", ", kMaxMessageSizeBytes, "]"));
-  }
   if (transport.socketReceiveBufferBytes < 0 ||
-      transport.socketSendBufferBytes < 0 ||
-      transport.writerUnackedBytesLimit < 0) {
+      transport.socketSendBufferBytes < 0) {
     return invalid(key, "the buffer sizes must be >= 0 (0: the default)");
   }
   if (transport.maxProcessesPerHost < 0 ||
-      transport.maxProcessesPerHost > kMaxProcessesPerHost) {
+      transport.maxProcessesPerHost > kZenohDomainGain) {
     return invalid(absl::StrCat(key, ".max_processes_per_host"),
                    absl::StrCat(transport.maxProcessesPerHost,
                                 " is not 0 (the default) or in [1, ",
-                                kMaxProcessesPerHost, "]"));
+                                kZenohDomainGain, "]"));
   }
   if (transport.leaseDuration < absl::ZeroDuration()) {
     return invalid(absl::StrCat(key, ".lease_duration_ms"),
                    "must be >= 0 (0: the default)");
-  }
-  if (transport.simulatedSendLossPerMille < 0 ||
-      transport.simulatedSendLossPerMille >= kPerMille) {
-    return invalid(absl::StrCat(key, ".simulated_send_loss_per_mille"),
-                   absl::StrCat(transport.simulatedSendLossPerMille,
-                                " is not in [0, ", kPerMille, ")"));
   }
   return absl::OkStatus();
 }
@@ -309,20 +284,14 @@ absl::StatusOr<NetworkConfig> fromProto(
   }
   const TransportProto& transport = message.transport();
   config.transport = TransportOptions{
-      .maxMessageSizeBytes =
-          static_cast<int64_t>(transport.max_message_size_bytes()),
       .socketReceiveBufferBytes =
           static_cast<int64_t>(transport.socket_receive_buffer_bytes()),
       .socketSendBufferBytes =
           static_cast<int64_t>(transport.socket_send_buffer_bytes()),
-      .writerUnackedBytesLimit =
-          static_cast<int64_t>(transport.writer_unacked_bytes_limit()),
       .maxProcessesPerHost = static_cast<int>(
           std::min<uint32_t>(transport.max_processes_per_host(),
                              std::numeric_limits<int32_t>::max())),
       .leaseDuration = absl::Milliseconds(transport.lease_duration_ms()),
-      .simulatedSendLossPerMille = static_cast<int>(std::min<uint32_t>(
-          transport.simulated_send_loss_per_mille(), kPerMille)),
   };
   ROBOT_IPC_RETURN_IF_ERROR(validateNetworkConfig(config));
   return config;
@@ -352,20 +321,14 @@ robot_ipc_proto::NetworkConfig toProto(const NetworkConfig& config) {
   const TransportOptions& transport = config.transport;
   if (!(transport == TransportOptions{})) {
     TransportProto& entry = *message.mutable_transport();
-    entry.set_max_message_size_bytes(
-        static_cast<uint32_t>(transport.maxMessageSizeBytes));
     entry.set_socket_receive_buffer_bytes(
         static_cast<uint32_t>(transport.socketReceiveBufferBytes));
     entry.set_socket_send_buffer_bytes(
         static_cast<uint32_t>(transport.socketSendBufferBytes));
-    entry.set_writer_unacked_bytes_limit(
-        static_cast<uint32_t>(transport.writerUnackedBytesLimit));
     entry.set_max_processes_per_host(
         static_cast<uint32_t>(transport.maxProcessesPerHost));
     entry.set_lease_duration_ms(static_cast<uint32_t>(
         absl::ToInt64Milliseconds(transport.leaseDuration)));
-    entry.set_simulated_send_loss_per_mille(
-        static_cast<uint32_t>(transport.simulatedSendLossPerMille));
   }
   return message;
 }
@@ -473,11 +436,15 @@ absl::Status validateTopicName(absl::string_view topic) {
     return absl::InvalidArgumentError("the topic is empty");
   }
   if (absl::ascii_isdigit(static_cast<unsigned char>(topic.front())) ||
-      !isRunOf(topic, kTopicNamePunctuation)) {
+      !isRunOf(topic, kTopicNamePunctuation) ||
+      absl::StartsWith(topic, kTopicChunkSeparator) ||
+      absl::EndsWith(topic, kTopicChunkSeparator) ||
+      absl::StrContains(topic, kEmptyTopicChunk)) {
     return absl::InvalidArgumentError(
         absl::StrCat("'", topic,
-                     "' is not a DDS topic name: letters, digits, '_' and '/', "
-                     "not starting with a digit"));
+                     "' is not a bus topic: letters, digits, '_' and '/', not "
+                     "starting with a digit, without an empty chunk between "
+                     "the '/'"));
   }
   return absl::OkStatus();
 }
@@ -498,16 +465,6 @@ absl::Status validateNetworkConfig(const NetworkConfig& config) {
   }
   ROBOT_IPC_RETURN_IF_ERROR(validateTopics(config));
   ROBOT_IPC_RETURN_IF_ERROR(validateTransport(config.transport));
-  if (const int lastPort = unicastPortRange(config).last; lastPort > kMaxPort) {
-    return invalid(
-        "domain_id",
-        absl::StrCat(
-            "domain ", config.domainId, " with ",
-            lastPort - unicastPortRange(config).first + 1,
-            " ports per host reaches UDP port ", lastPort, ", beyond ",
-            kMaxPort,
-            ": a smaller domain_id or transport.max_processes_per_host"));
-  }
   return absl::OkStatus();
 }
 

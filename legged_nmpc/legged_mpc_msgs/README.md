@@ -49,7 +49,7 @@ that deploy keeps them: a header that gives the former package (`humanoid_mpc_co
 protoc is the prebuilt binary of the `protobuf` module in `MODULE.bazel`. The Python code links against the protobuf
 wheel of the `@operator_deps` hub (`//tools/python:python_proto_toolchain`), whose version must match the Python
 gencode of that protoc; the two are tied together with a `LINT.IfChange` directive. `:messages_cc_test` and
-`:messages_py_test` check that the generated code loads, round-trips an `MpcPolicy` and travels over the DDS bus (`robot_ipc`).
+`:messages_py_test` check that the generated code loads, round-trips an `MpcPolicy` and travels over the Zenoh bus (`robot_ipc`).
 
 `:messages_nproto` provides the plain C++ structs of the messages (`tools/nproto/README.md`): `#include
 "legged_mpc_msgs/<file>.nproto.h"` for the struct `ocs2::legged::msgs::<Name>`, with Eigen vectors for the

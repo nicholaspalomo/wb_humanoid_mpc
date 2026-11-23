@@ -46,50 +46,42 @@ namespace robot::ipc {
 
 /** One topic of the network file and its quality of service. */
 struct TopicQos {
-  /** The bus topic, which is also the DDS topic name, e.g. "mpc/policy". */
+  /** The bus topic, the last chunks of its Zenoh key expression, e.g.
+   * "mpc/policy". */
   std::string topic;
   QosProfile profile = QosProfile::kReliableEvents;
-  /** The nodes that publish it; their buses create the topic's DDS writer in
-   * Bus::Create(). */
+  /** The nodes that publish it; their buses declare the topic's Zenoh
+   * publisher in Bus::Create(). */
   std::vector<std::string> publishers;
 
   bool operator==(const TopicQos& other) const = default;
 };
 
-/** The DDS transport of the network file. Every field is optional: 0 (or a zero
- * duration) keeps its default. */
+/** The Zenoh transport of the network file. Every field is optional: 0 (or a
+ * zero duration) keeps its default. */
 struct TransportOptions {
   // The Python bus has the same defaults (robot_ipc/network_config.py).
   // LINT.IfChange(transport_defaults)
-  /** The defaults of the fields that are not Cyclone DDS's own defaults. */
-  static constexpr int64_t kDefaultWriterUnackedBytesLimit = int64_t{8} << 20;
+  /** The defaults of the fields that are not the OS's. */
   static constexpr int kDefaultMaxProcessesPerHost = 20;
   static constexpr absl::Duration kDefaultLeaseDuration = absl::Seconds(3);
   // LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/network_config.py:transport_defaults)
 
-  /** General/MaxMessageSize [bytes]; 0: Cyclone's 14720 B. */
-  int64_t maxMessageSizeBytes = 0;
-  /** Internal/SocketReceiveBufferSize max [bytes]; 0: Cyclone's 1 MiB request.
-   */
+  /** transport.link.tcp.so_rcvbuf [bytes]; 0: the OS default. */
   int64_t socketReceiveBufferBytes = 0;
-  /** Internal/SocketSendBufferSize max [bytes]; 0: the OS default. */
+  /** transport.link.tcp.so_sndbuf [bytes]; 0: the OS default. */
   int64_t socketSendBufferBytes = 0;
-  /** Internal/Watermarks/WhcHigh [bytes]; 0: kDefaultWriterUnackedBytesLimit.
-   */
-  int64_t writerUnackedBytesLimit = 0;
-  /** Discovery/MaxAutoParticipantIndex + 1; 0: kDefaultMaxProcessesPerHost. */
+  /** The TCP ports of the domain on one machine (SessionConfig.h); 0:
+   * kDefaultMaxProcessesPerHost. */
   int maxProcessesPerHost = 0;
-  /** Discovery/LeaseDuration; zero: kDefaultLeaseDuration. */
+  /** transport.link.tx.lease; zero: kDefaultLeaseDuration. */
   absl::Duration leaseDuration = absl::ZeroDuration();
-  /** Internal/Test/XmitLossiness: UDP packets dropped per 1000 sent, for tests
-   * and rehearsals; 0 on a real network. */
-  int simulatedSendLossPerMille = 0;
 
   bool operator==(const TransportOptions& other) const = default;
 };
 
 /**
- * The DDS network of the bus, as the network file names it: a textproto of
+ * The Zenoh network of the bus, as the network file names it: a textproto of
  * robot_ipc_proto.NetworkConfig
  * (robot_runtime/robot_ipc/proto/network_config.proto), such as
  * config/ipc/network.textproto:
@@ -100,18 +92,20 @@ struct TransportOptions {
  *   topics { name: "mpc/policy" qos_profile: "reliable_latest" publishers:
  * "mpc" }
  *
- * DomainConfig.h turns it into the Cyclone DDS configuration of a process.
+ * SessionConfig.h turns it into the Zenoh configuration of a process.
  */
 struct NetworkConfig {
-  /** The largest domain id whose ports stay below 65536 (DomainConfig.h). */
+  /** The largest domain id: its ports stay below the ephemeral ports from 32768
+   * (SessionConfig.h). */
   static constexpr int kMaxDomainId = 232;
 
   /** In the order of the file. */
   std::vector<NodeEndpoint> nodes;
-  /** The DDS domain, in [0, kMaxDomainId]. */
+  /** The domain, in [0, kMaxDomainId]: the TCP ports and the first chunks of
+   * the key expressions. */
   int domainId = 0;
-  /** Discovery/Tag: only processes with the same tag discover each other.
-   * Empty: none. */
+  /** Only processes with the same tag exchange samples: a chunk of every key
+   * expression. Empty: none. */
   std::string domainTag;
   /** The topics the file lists, in its order, each at most once. */
   std::vector<TopicQos> topics;
@@ -130,8 +124,8 @@ struct NetworkConfig {
   QosProfile qosProfileOf(absl::string_view topic) const;
   /** The topics that `nodeName` publishes, in the order of the file. */
   std::vector<std::string> topicsPublishedBy(absl::string_view nodeName) const;
-  /** The distinct hosts of the nodes, in the order of the file: the unicast
-   * discovery peers. */
+  /** The distinct hosts of the nodes, in the order of the file: the hosts every
+   * bus connects to. */
   std::vector<std::string> peerHosts() const;
 
   bool operator==(const NetworkConfig& other) const = default;
@@ -165,10 +159,11 @@ absl::StatusOr<NetworkConfig> parseNetworkConfig(absl::string_view text,
 absl::Status validateNetworkConfig(const NetworkConfig& config);
 
 /**
- * The bus topic as a DDS topic name: letters, digits, '_' and '/', not starting
- * with a digit (Cyclone DDS refuses anything else). An empty or invalid topic
- * is InvalidArgument. The topic is used as it is, so a DDS tool (ddsls) shows
- * the bus's own names.
+ * The bus topic as the last chunks of a Zenoh key expression: letters, digits,
+ * '_' and '/', not starting with a digit, without an empty chunk (no leading,
+ * trailing or doubled '/'), so that no topic is a wildcard or a verbatim chunk.
+ * An empty or invalid topic is InvalidArgument. The topic is used as it is, so
+ * a Zenoh tool shows the bus's own names.
  */
 absl::Status validateTopicName(absl::string_view topic);
 

@@ -82,11 +82,12 @@ C_SYSTEM_DIRECTORIES = frozenset(
     "sys arpa asm asm-generic bits gnu net netinet protocols rpc rpcsvc scsi"
     " drm linux misc mtd rdma sound video xen".split()
 )
-# Third-party headers that have no directory of their own: cpp-httplib's single header and libjpeg-turbo's TurboJPEG
-# API (MODULE.bazel), and HPIPM and BLASFEO, which install their headers flat (bazel/system_libs.bzl). .clang-format's
+# Third-party headers that have no directory of their own: cpp-httplib's single header, libjpeg-turbo's TurboJPEG API
+# and zenoh-c's umbrella header (MODULE.bazel), and HPIPM and BLASFEO, which install their headers flat
+# (bazel/system_libs.bzl). .clang-format's
 # include categories sort them with the other libraries.
 # LINT.IfChange(directoryless_third_party)
-DIRECTORYLESS_THIRD_PARTY = frozenset({"httplib.h", "turbojpeg.h"})
+DIRECTORYLESS_THIRD_PARTY = frozenset({"httplib.h", "turbojpeg.h", "zenoh.h"})
 _DIRECTORYLESS_THIRD_PARTY_PATTERN = re.compile(
     r"^(hpipm|blasfeo)_[a-z0-9_]+\.h$"
 )

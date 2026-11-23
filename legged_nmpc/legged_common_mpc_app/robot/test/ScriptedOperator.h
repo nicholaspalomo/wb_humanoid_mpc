@@ -90,7 +90,7 @@ class ScriptedOperator {
 
   /**
    * Sends the FSM command `command` with the next sequence number, again every
-   * 50 ms (a sample written before DDS discovery matched the writers is not
+   * 50 ms (a sample put before the sessions have met is not
    * delivered; the robot drops the repeats by their sequence), until the
    * robot's FSM state satisfies `reached`; false when it does not within
    * `timeout`.

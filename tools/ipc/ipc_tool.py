@@ -33,7 +33,7 @@
     bazel run //tools/ipc:ipc_tool -- hz robot/mpc_observation      # rate, period jitter, payload size
 
 Every subcommand takes --network_config (default config/ipc/network.textproto, relative to the directory the tool was
-started from or the repository root). The tool only receives: it joins the network file's DDS domain as a subscriber
+started from or the repository root). The tool only receives: it joins the network file's domain as a subscriber
 (legged_nmpc/docs/distributed_runtime/README.md), so it sees every topic whichever process publishes it, and decodes
 payloads by the type name their envelope carries with the default descriptor pool, into which it imports every
 legged_mpc_msgs and legged_mpc_config module.
@@ -345,7 +345,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--network_config",
         default=bus_listener.DEFAULT_NETWORK_CONFIG,
         help=(
-            "the network file of the bus: its DDS domain and nodes (default:"
+            "the network file of the bus: its domain and nodes (default:"
             " %(default)s)"
         ),
     )

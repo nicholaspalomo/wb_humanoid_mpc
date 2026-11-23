@@ -51,11 +51,11 @@ namespace ocs2::legged::node::test_support {
 
 /**
  * The robot process and the operator GUI as an MPC node's tests script them:
- * two buses on the test process's DDS domain (nodes "robot" and "operator",
+ * two buses on the test process's domain (nodes "robot" and "operator",
  * robot::ipc::isolatedTestNetwork()) that an MPC node's bus shares, the
  * policies the robot receives, and helpers that resend a message until its
- * effect is seen (a sample written before DDS discovery matched its writer with
- * a reader is not delivered).
+ * effect is seen (a sample put before the subscriber's declaration reached the
+ * publisher is not delivered).
  */
 class ScriptedRobot {
  public:

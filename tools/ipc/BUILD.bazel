@@ -5,7 +5,7 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 #
 #   bazel run //tools/ipc:ipc_tool -- list | echo <topic> | hz <topic>
 #
-# The tool only receives: a subscribe-only robot_ipc.Bus on the network file's DDS domain
+# The tool only receives: a subscribe-only robot_ipc.Bus on the network file's domain
 # (legged_nmpc/docs/distributed_runtime/README.md).
 
 package(default_visibility = ["//visibility:public"])
@@ -38,7 +38,7 @@ py_binary(
     deps = [":ipc_tool_lib"],
 )
 
-# Publishers of raw bus messages on the test process's own DDS domain, and its network file.
+# Publishers of raw bus messages on the test process's own domain, and its network file.
 py_library(
     name = "bus_test_publisher",
     testonly = True,
@@ -46,7 +46,7 @@ py_library(
     imports = ["."],
     deps = [
         "//robot_runtime/robot_ipc:robot_ipc_py",
-        requirement("cyclonedds"),
+        requirement("eclipse-zenoh"),
     ],
 )
 

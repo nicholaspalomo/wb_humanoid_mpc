@@ -145,8 +145,8 @@ class RemoteMpcLinkProtocolTest : public ::testing::Test {
                                             [this]() { ioGate_.pass(); }));
     CHECK_OK(robotBus_->start());
     CHECK_OK(mpc_.bus().start());
-    // Both directions are up once a message of each has gone through (DDS
-    // discovery has matched the writers and readers).
+    // Both directions are up once a message of each has gone through (the
+    // sessions have met and the declarations reached the publishers).
     ASSERT_TRUE(waitFor([&]() {
       link_->setCurrentObservation(observationAt(kStartTime, /*value=*/1.0));
       CHECK_OK(mpc_.bus().publish(
@@ -852,7 +852,7 @@ TEST(RemoteMpcLinkOwnBusTest, ALinkWithABusOfItsOwnSendsAndReceives) {
   MpcResetSupervisor supervisor;
   RemoteMpcLink::Config config;
   config.dimensions = modelDimensions();
-  // The link creates and owns its bus, on this test process's DDS domain, where
+  // The link creates and owns its bus, on this test process's domain, where
   // the fake MPC's bus is.
   robot::ipc::BusOptions options;
   options.nodeName = "robot";

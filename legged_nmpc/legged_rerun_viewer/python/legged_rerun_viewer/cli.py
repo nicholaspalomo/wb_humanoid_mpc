@@ -750,7 +750,7 @@ def run(
         return RunResult(EXIT_USAGE)
     watch = _start_watch(sink, feed, the_bridge)
     _LOGGER.info(
-        "subscribed to %s on DDS domain %d (peers %s)",
+        "subscribed to %s on domain %d (peers %s)",
         ", ".join(feed.subscribed_topics),
         feed.bus.domain_id,
         ", ".join(feed.bus.discovery_peers),

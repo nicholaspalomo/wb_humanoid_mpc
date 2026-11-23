@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The Python topic names are the C++ ones, unique, and valid DDS topic names.
+"""The Python topic names are the C++ ones, unique, and valid bus topic names.
 
 The C++ header include/legged_mpc_ipc/Topics.h is data of this test, so that a topic changed on one side only fails
 here as well as in the LINT.IfChange review.
@@ -100,8 +100,8 @@ class TopicsTest(unittest.TestCase):
         ):
             self.assertEqual(topics.ALL_TOPICS.count(topic), 1)
 
-    def test_every_topic_is_a_dds_topic_name(self) -> None:
-        # Letters, digits, '_' and '/', not starting with a digit: Cyclone DDS refuses anything else.
+    def test_every_topic_is_a_valid_topic_name(self) -> None:
+        # Letters, digits, '_' and '/', not starting with a digit: robot_ipc refuses anything else (topic_name_problem).
         for topic in topics.ALL_TOPICS:
             self.assertRegex(topic, r"^[A-Za-z_/][A-Za-z0-9_/]*$")
 

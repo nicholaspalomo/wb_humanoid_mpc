@@ -27,7 +27,7 @@
 
 """The remote control's side of the bus: the publishers, the FSM commands, the FSM state mailbox and the operator bus.
 
-The operator bus is tested first over a bus that records and then over real robot_ipc buses over DDS. The DDS tests
+The operator bus is tested first over a bus that records and then over robot_ipc buses over Zenoh. The Zenoh tests
 share a domain and tag of this test process's own (robot_ipc.isolated_test_network()), so they never see a running GUI
 or another test.
 """
@@ -413,7 +413,7 @@ def _test_network():
 
 
 class TestOperatorBusOverLoopback(unittest.TestCase):
-    """The operator bus and a robot bus, both real, on this test process's DDS domain."""
+    """The operator bus and a robot bus, both real, on this test process's domain."""
 
     def setUp(self):
         self.robot = robot_ipc.Bus("robot", _test_network())
@@ -464,7 +464,7 @@ class TestOperatorBusOverLoopback(unittest.TestCase):
             return list(self.received.get(topic, []))
 
     def _publish_until_received(self, publish, topic):
-        """Publishes until the robot has the message (a VOLATILE reader misses what is written before it matched)."""
+        """Publishes until the robot has the message (a subscriber misses what is put before its declaration reached the publisher)."""
 
         def arrived():
             publish()

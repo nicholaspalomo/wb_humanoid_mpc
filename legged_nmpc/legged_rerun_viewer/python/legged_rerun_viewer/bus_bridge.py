@@ -27,8 +27,8 @@
 
 """Feeds a RerunBridge from the IPC bus: the subscriptions, the writer thread, the periodic flush and report, start and stop.
 
-The bridge only subscribes (it publishes as no node), so it can run on any machine of the network file; DDS discovery
-matches it with every publisher, so the publishers may start, stop and restart in any order.
+The bridge only subscribes (it publishes as no node), so it can run on any machine of the network file; its session
+connects to every node's host, so the publishers may start, stop and restart in any order.
 
 | Topic | Message | Delivery | Handler |
 |---|---|---|---|
@@ -216,7 +216,7 @@ class BusBridge:
             raise
 
     def bus_rejected(self) -> int:
-        """Messages of the subscribed topics the bus rejected: wrong type, not three frames, or not parsing."""
+        """Messages of the subscribed topics the bus rejected: wrong type, another wire protocol version, or not parsing."""
         statistics = self.bus.statistics()
         return sum(
             statistics[topic].rejected

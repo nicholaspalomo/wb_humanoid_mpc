@@ -63,9 +63,9 @@ STOP_COMMAND_DURATION = 1.0
 STOP_COMMAND_TICKS = max(
     1, round(STOP_COMMAND_DURATION * WALKING_COMMAND_RATE_HZ)
 )
-# How long close_after_stop() waits for the bus to hand its stop command to its DDS writer [s], and then before it closes
-# the bus [s]: operator/walking_velocity_command is BEST_EFFORT ("latest"), so nothing repairs a datagram that was still
-# on its way out when the writer was deleted, and the grace period lets the network carry it first.
+# How long close_after_stop() waits for the bus to hand its stop command to its Zenoh publisher [s], and then before it
+# closes the bus [s]: operator/walking_velocity_command is "latest" (dropped under congestion), so nothing sends again a
+# sample that was still on its way out when the publisher was undeclared, and the grace period lets Zenoh send it first.
 STOP_COMMAND_SEND_TIMEOUT = 1.0
 STOP_COMMAND_GRACE_PERIOD = 0.1
 # How often close_after_stop() looks at the bus's counter [s].
@@ -151,7 +151,7 @@ def close_after_stop(
 
     The MPC keeps the last walking command it received, so a publisher that exits without a stop command leaves the
     robot walking at its last command. The bus writes from its receive thread, so its `written` counter is waited for
-    (the command reached the DDS writer) and then `grace_period` more, before close() deletes the writer.
+    (the command reached the Zenoh publisher) and then `grace_period` more, before close() undeclares the publisher.
 
     Args:
         publisher: the walking command publisher; its bus is closed in every case.

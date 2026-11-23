@@ -148,8 +148,8 @@ the sink.
 
 The README of the distributed runtime gives `mpc/status` and `robot/loop_timing` "latest" delivery: the table's default,
 and the robot's for its solver-health mirror of `mpc/status`. The bridge takes every message of these, because it plots
-them. DDS discovery matches a publisher whenever it appears, so the publishers may start, stop and restart in any
-order.
+them. The bridge's subscriptions reach a publisher whenever its session joins the bus, so the publishers may start,
+stop and restart in any order.
 
 ## Time
 

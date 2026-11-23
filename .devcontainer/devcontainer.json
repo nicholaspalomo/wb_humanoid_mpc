@@ -81,8 +81,8 @@
     8888
   ],
   // On Linux the container runs on the host's network (docker-compose.yaml), where these ports already answer on the
-  // host; the IDE forwards them for a remote host. The DDS bus ports (UDP 7410-7449) are not forwarded: forwardPorts
-  // forwards TCP, and takes single ports, not a range (docker-compose.bridge.yaml publishes them on Docker Desktop). Every forwarded port
+  // host; the IDE forwards them for a remote host. The Zenoh bus ports (TCP 7447-7466) are not forwarded: forwardPorts
+  // takes single ports, not a range (docker-compose.bridge.yaml publishes them on Docker Desktop). Every forwarded port
   // has its entry below (//tools/dev_container:test_dev_container).
   "portsAttributes": {
     "6080": {

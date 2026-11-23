@@ -26,23 +26,25 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-"""The Python network file loader and domain configuration: the properties testNetworkConfig.cpp checks in C++.
+"""The Python network file loader and session configuration: the properties testNetworkConfig.cpp checks in C++.
 
 A malformed textproto is an error reporting its line and column, every invalid node, topic or field is an error identifying it,
-format_network_config() and parse_network_config() round-trip, the shipped files parse, and the Cyclone DDS
-configuration and ports follow from the network.
+format_network_config() and parse_network_config() round-trip, the shipped files parse, the Zenoh configuration and
+ports follow from the network, and the key expressions and the envelope round-trip.
 """
 
 import unittest
 
 import robot_ipc
-from robot_ipc import domain_config
+from robot_ipc import envelope
+from robot_ipc import key_exprs
+from robot_ipc import session_config
 
 # Relative to the test's runfiles directory (data dependencies of //config/ipc).
 SHIPPED_NETWORK_FILE = "config/ipc/network.textproto"
 TWO_MACHINE_NETWORK_FILE = "config/ipc/two_machine.example.textproto"
 SOURCE = "test.textproto"
-MAX_UDP_PORT = 65535
+FIRST_EPHEMERAL_PORT = 32768
 
 
 def parse(text: str) -> robot_ipc.NetworkConfig:
@@ -69,7 +71,7 @@ nodes {
 topics { name: "mpc/policy" qos_profile: "reliable_latest" publishers: "mpc" }
 topics { name: "robot/state" qos_profile: "latest" publishers: ["robot"] }
 default_qos_profile: "latest"
-transport { max_message_size_bytes: 1400 lease_duration_ms: 2500 simulated_send_loss_per_mille: 5 }
+transport { socket_receive_buffer_bytes: 4096 lease_duration_ms: 2500 }
 """
         )
         self.assertEqual(config.node_names(), ["robot", "mpc"])
@@ -89,9 +91,8 @@ transport { max_message_size_bytes: 1400 lease_duration_ms: 2500 simulated_send_
         )
         self.assertEqual(config.topics_published_by("mpc"), ["mpc/policy"])
         self.assertEqual(config.peer_hosts(), ["192.168.1.10", "laptop.local"])
-        self.assertEqual(config.transport.max_message_size_bytes, 1400)
+        self.assertEqual(config.transport.socket_receive_buffer_bytes, 4096)
         self.assertEqual(config.transport.lease_duration_ms, 2500)
-        self.assertEqual(config.transport.simulated_send_loss_per_mille, 5)
 
     def test_the_shipped_files_parse_and_the_example_is_the_shipped_network_on_two_machines(
         self,
@@ -166,6 +167,12 @@ MALFORMED_FILES = [
         'nodes {\n  name: "robot"\n  port: 5600\n}',
         3,
         "port",
+    ),
+    (
+        "the retired DDS message size",
+        "transport {\n  max_message_size_bytes: 1400\n}",
+        2,
+        "max_message_size_bytes",
     ),
     (
         "an unknown top-level field",
@@ -253,9 +260,19 @@ INVALID_FILES = [
     ("a domain id out of range", _ROBOT + "domain_id: 233", "domain_id"),
     ("an invalid domain tag", _ROBOT + 'domain_tag: "a b"', "domain_tag"),
     (
-        "a topic that is no DDS name",
+        "a topic that is no key expression chunk",
         _ROBOT + 'topics { name: "robot/a-b" qos_profile: "latest" }',
         "topics[0] (robot/a-b).name",
+    ),
+    (
+        "a topic with an empty chunk",
+        _ROBOT + 'topics { name: "robot//state" qos_profile: "latest" }',
+        "topics[0] (robot//state).name",
+    ),
+    (
+        "a topic ending in a slash",
+        _ROBOT + 'topics { name: "robot/" qos_profile: "latest" }',
+        "topics[0] (robot/).name",
     ),
     (
         "a topic listed twice",
@@ -285,19 +302,9 @@ INVALID_FILES = [
         "default_qos_profile",
     ),
     (
-        "a message size out of range",
-        _ROBOT + "transport { max_message_size_bytes: 70000 }",
-        "transport.max_message_size_bytes",
-    ),
-    (
         "too many processes per host",
-        _ROBOT + "transport { max_processes_per_host: 116 }",
+        _ROBOT + "transport { max_processes_per_host: 101 }",
         "transport.max_processes_per_host",
-    ),
-    (
-        "a loss of every packet",
-        _ROBOT + "transport { simulated_send_loss_per_mille: 1000 }",
-        "transport.simulated_send_loss_per_mille",
     ),
     (
         "the second node invalid",
@@ -409,80 +416,92 @@ class DeliveryAndProfileTest(unittest.TestCase):
             robot_ipc.parse_qos_profile("fast")
         self.assertIn("reliable_latest", str(raised.exception))
 
-    def test_each_profile_has_its_reliability_and_history(self) -> None:
+    def test_each_profile_has_its_congestion_control(self) -> None:
         policy = robot_ipc.qos_profile.qos_policy
-        reliability = robot_ipc.qos_profile.Reliability
+        control = robot_ipc.qos_profile.CongestionControl
         self.assertIs(
-            policy(robot_ipc.QosProfile.LATEST).reliability,
-            reliability.BEST_EFFORT,
+            policy(robot_ipc.QosProfile.LATEST).congestion_control, control.DROP
         )
-        self.assertEqual(
-            policy(robot_ipc.QosProfile.LATEST).writer_history_depth, 1
+        self.assertTrue(policy(robot_ipc.QosProfile.LATEST).express)
+        self.assertIs(
+            policy(robot_ipc.QosProfile.RELIABLE_LATEST).congestion_control,
+            control.DROP,
         )
         self.assertIs(
-            policy(robot_ipc.QosProfile.RELIABLE_LATEST).reliability,
-            reliability.RELIABLE,
+            policy(robot_ipc.QosProfile.RELIABLE_EVENTS).congestion_control,
+            control.BLOCK,
         )
-        self.assertEqual(
-            policy(robot_ipc.QosProfile.RELIABLE_LATEST).writer_history_depth, 1
-        )
-        self.assertEqual(
-            policy(robot_ipc.QosProfile.RELIABLE_EVENTS).writer_history_depth,
-            robot_ipc.qos_profile.RELIABLE_EVENTS_HISTORY_DEPTH,
+        self.assertIs(
+            policy(robot_ipc.QosProfile.RELIABLE_EVENTS).priority,
+            robot_ipc.qos_profile.Priority.INTERACTIVE_HIGH,
         )
 
 
-class DomainConfigTest(unittest.TestCase):
+class SessionConfigTest(unittest.TestCase):
 
-    def test_the_unicast_ports_follow_the_ddsi_mapping_and_stay_below_65536(
+    def test_the_tcp_ports_start_at_zenohs_port_and_stay_below_the_ephemeral(
         self,
     ) -> None:
         network = robot_ipc.NetworkConfig(nodes=(node("robot"),))
         self.assertEqual(
-            robot_ipc.unicast_port_range(network),
-            robot_ipc.network_config.PortRange(7410, 7449),
+            robot_ipc.tcp_port_range(network),
+            session_config.PortRange(7447, 7466),
         )
         largest = robot_ipc.NetworkConfig(
-            nodes=(node("robot"),), domain_id=robot_ipc.MAX_DOMAIN_ID
+            nodes=(node("robot"),),
+            domain_id=robot_ipc.MAX_DOMAIN_ID,
+            transport=robot_ipc.TransportOptions(
+                max_processes_per_host=session_config.ZENOH_DOMAIN_GAIN
+            ),
         )
         robot_ipc.validate_network_config(largest)
-        self.assertLessEqual(
-            robot_ipc.unicast_port_range(largest).last, MAX_UDP_PORT
+        self.assertLess(
+            robot_ipc.tcp_port_range(largest).last, FIRST_EPHEMERAL_PORT
         )
-        with self.assertRaisesRegex(
-            robot_ipc.NetworkConfigError, r"^domain_id"
-        ):
-            robot_ipc.validate_network_config(
-                robot_ipc.NetworkConfig(
-                    nodes=(node("robot"),),
-                    domain_id=robot_ipc.MAX_DOMAIN_ID,
-                    transport=robot_ipc.TransportOptions(
-                        max_processes_per_host=115
-                    ),
-                )
-            )
 
-    def test_a_loopback_network_uses_the_loopback_interface_and_unicast_discovery(
+    def test_every_process_connects_to_every_port_of_every_node_host(
+        self,
+    ) -> None:
+        network = robot_ipc.NetworkConfig(
+            nodes=(
+                node("robot", "192.0.2.1"),
+                node("mpc", "laptop.example"),
+                node("operator", "laptop.example"),
+            ),
+            transport=robot_ipc.TransportOptions(max_processes_per_host=2),
+        )
+        self.assertEqual(
+            session_config.connect_endpoints(network),
+            [
+                "tcp/192.0.2.1:7447",
+                "tcp/192.0.2.1:7448",
+                "tcp/laptop.example:7447",
+                "tcp/laptop.example:7448",
+            ],
+        )
+
+    def test_a_loopback_network_listens_on_loopback_without_multicast(
         self,
     ) -> None:
         shipped = robot_ipc.load_network_config(SHIPPED_NETWORK_FILE)
-        config = robot_ipc.cyclone_domain_config(shipped, "robot")
+        config = robot_ipc.zenoh_session_config(shipped, "robot", 7450)
+        self.assertTrue(config.startswith('{"mode":"peer",'), config)
         for fragment in (
-            '<NetworkInterface address="127.0.0.1"/>',
-            "<AllowMulticast>false</AllowMulticast>",
-            '<Peers AddLocalhost="false"><Peer Address="127.0.0.1"/></Peers>',
-            "<MaxAutoParticipantIndex>19</MaxAutoParticipantIndex>",
-            "<LeaseDuration>3000ms</LeaseDuration>",
-            "<MaxMessageSize>65500B</MaxMessageSize>",
-            '<SocketReceiveBufferSize min="default" max="8388608B"/>',
-            "<WhcHigh>8388608B</WhcHigh>",
+            '"listen":{"endpoints":["tcp/127.0.0.1:7450"],',
+            '"tcp/127.0.0.1:7447",',
+            '"tcp/127.0.0.1:7466"]',
+            '"multicast":{"enabled":false}',
+            '"lease":3000',
+            '"so_rcvbuf":8388608',
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, config)
-        self.assertNotIn("<Tag>", config)
-        self.assertEqual(robot_ipc.cyclone_domain_config(shipped, ""), config)
+        self.assertNotIn("so_sndbuf", config)
+        self.assertEqual(
+            robot_ipc.zenoh_session_config(shipped, "", 7450), config
+        )
 
-    def test_a_node_uses_its_hosts_interface_or_refuses_another_machines_address(
+    def test_a_node_listens_on_its_hosts_address_or_refuses_another_machines(
         self,
     ) -> None:
         network = robot_ipc.NetworkConfig(
@@ -493,46 +512,142 @@ class DomainConfigTest(unittest.TestCase):
             )
         )
         with self.assertRaises(robot_ipc.InterfaceError):
-            domain_config.interface_address_for(network, "robot")
+            session_config.interface_address_for(network, "robot")
+        with self.assertRaises(robot_ipc.InterfaceError):
+            robot_ipc.zenoh_session_config(network, "robot", 7447)
         self.assertEqual(
-            domain_config.interface_address_for(network, "mpc"), ""
+            session_config.interface_address_for(network, "mpc"), ""
         )
         self.assertEqual(
-            domain_config.interface_address_for(network, "local"), "127.0.0.1"
+            session_config.interface_address_for(network, "local"), "127.0.0.1"
         )
-        self.assertEqual(domain_config.interface_address_for(network, ""), "")
-        config = robot_ipc.cyclone_domain_config(network, "mpc")
-        self.assertIn('<NetworkInterface autodetermine="true"/>', config)
-        self.assertIn(
-            '<Peer Address="192.0.2.1"/><Peer Address="laptop.example"/><Peer'
-            ' Address="127.0.0.1"/>',
-            config,
-        )
+        self.assertEqual(session_config.interface_address_for(network, ""), "")
+        config = robot_ipc.zenoh_session_config(network, "mpc", 7449)
+        self.assertIn('["tcp/0.0.0.0:7449"]', config)
 
-    def test_the_tag_and_the_transport_reach_the_configuration(self) -> None:
+    def test_the_transport_reaches_the_configuration(self) -> None:
         network = robot_ipc.NetworkConfig(
             nodes=(node("robot"),),
-            domain_tag="lab.robot-2",
             transport=robot_ipc.TransportOptions(
                 max_processes_per_host=4,
                 lease_duration_ms=1500,
                 socket_send_buffer_bytes=1 << 20,
-                writer_unacked_bytes_limit=1 << 22,
-                simulated_send_loss_per_mille=20,
             ),
         )
-        config = robot_ipc.cyclone_domain_config(network, "robot")
-        for fragment in (
-            "<Tag>lab.robot-2</Tag>",
-            "<MaxAutoParticipantIndex>3</MaxAutoParticipantIndex>",
-            "<LeaseDuration>1500ms</LeaseDuration>",
-            '<SocketSendBufferSize min="default" max="1048576B"/>',
-            "<WhcHigh>4194304B</WhcHigh>",
-            "<Test><XmitLossiness>20</XmitLossiness></Test>",
-        ):
-            with self.subTest(fragment=fragment):
-                self.assertIn(fragment, config)
-        self.assertNotIn("MaxMessageSize", config)
+        config = robot_ipc.zenoh_session_config(network, "robot", 7447)
+        # Every port but its own listener's.
+        self.assertIn(
+            '"connect":{"endpoints":["tcp/127.0.0.1:7448","tcp/127.0.0.1:7449",'
+            '"tcp/127.0.0.1:7450"],',
+            config,
+        )
+        self.assertIn(
+            '"link":{"tx":{"lease":1500},"tcp":{"so_sndbuf":1048576}}', config
+        )
+
+
+class KeyExprsTest(unittest.TestCase):
+
+    def test_the_domain_tag_and_profile_keep_topics_apart(self) -> None:
+        network = robot_ipc.NetworkConfig(
+            nodes=(node("robot"),),
+            domain_id=3,
+            domain_tag="lab.robot-2",
+            topics=(
+                robot_ipc.TopicQos(
+                    "mpc/policy", robot_ipc.QosProfile.RELIABLE_LATEST
+                ),
+            ),
+        )
+        self.assertEqual(
+            key_exprs.data_key_expr(network, "mpc/policy"),
+            "robot_ipc/3/tag_lab.robot-2/reliable_latest/mpc/policy",
+        )
+        self.assertEqual(
+            key_exprs.data_key_expr(network, "unlisted"),
+            "robot_ipc/3/tag_lab.robot-2/reliable_events/unlisted",
+        )
+        self.assertEqual(
+            key_exprs.all_topics_key_expr(network),
+            "robot_ipc/3/tag_lab.robot-2/*/**",
+        )
+        self.assertEqual(
+            key_exprs.parse_data_key_expr(
+                network, key_exprs.data_key_expr(network, "mpc/policy")
+            ),
+            key_exprs.DataKey(
+                robot_ipc.QosProfile.RELIABLE_LATEST, "mpc/policy"
+            ),
+        )
+        self.assertIsNone(
+            key_exprs.parse_data_key_expr(network, "robot_ipc/3/tag_/latest/a")
+        )
+        self.assertIsNone(
+            key_exprs.parse_data_key_expr(
+                network, "robot_ipc/3/tag_lab.robot-2/fast/a"
+            )
+        )
+
+    def test_endpoint_tokens_round_trip(self) -> None:
+        network = robot_ipc.load_network_config(SHIPPED_NETWORK_FILE)
+        token = key_exprs.EndpointToken(
+            key_exprs.EndpointRole.SUBSCRIBER,
+            robot_ipc.QosProfile.LATEST,
+            "00000000deadbeef",
+            "robot/state",
+        )
+        key_expr = key_exprs.endpoint_token_key_expr(network, token)
+        self.assertEqual(
+            key_expr,
+            "robot_ipc_endpoints/0/tag_/subscriber/latest/00000000deadbeef/"
+            "robot/state",
+        )
+        self.assertEqual(
+            key_exprs.parse_endpoint_token_key_expr(network, key_expr), token
+        )
+        self.assertIsNone(
+            key_exprs.parse_endpoint_token_key_expr(
+                network, "robot_ipc_endpoints/0/tag_/owner/latest/1/a"
+            )
+        )
+        self.assertIsNone(
+            key_exprs.parse_endpoint_token_key_expr(
+                network, "robot_ipc_endpoints/0/tag_/publisher/latest/1"
+            )
+        )
+
+
+class EnvelopeTest(unittest.TestCase):
+
+    def test_an_envelope_round_trips_and_a_truncated_one_does_not_decode(
+        self,
+    ) -> None:
+        sample = envelope.Envelope(
+            protocol_version=envelope.WIRE_PROTOCOL_VERSION,
+            writer_id=0x0102030405060708,
+            sequence_number=42,
+            source_timestamp_ns=-5,
+            type_name="pkg.Message",
+            payload=b"\x00\x01payload",
+        )
+        data = sample.encode()
+        self.assertEqual(len(data), envelope.ENVELOPE_HEADER_BYTES + 11 + 9)
+        self.assertEqual(data[0], envelope.WIRE_PROTOCOL_VERSION)
+        self.assertEqual(
+            envelope.protocol_version_of(data), envelope.WIRE_PROTOCOL_VERSION
+        )
+        self.assertEqual(envelope.decode(data), sample)
+        self.assertIsNone(envelope.protocol_version_of(b"abc"))
+        with self.assertRaises(envelope.EnvelopeError):
+            envelope.decode(data[: envelope.ENVELOPE_HEADER_BYTES - 1])
+        with self.assertRaises(envelope.EnvelopeError):
+            envelope.decode(data[: envelope.ENVELOPE_HEADER_BYTES + 10])
+        self.assertEqual(
+            envelope.decode(
+                data[: envelope.ENVELOPE_HEADER_BYTES + 11]
+            ).payload,
+            b"",
+        )
 
 
 if __name__ == "__main__":

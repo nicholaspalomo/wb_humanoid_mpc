@@ -30,21 +30,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <exception>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
 #include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
@@ -57,19 +59,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "dds/dds.h"
 #include "google/protobuf/message.h"
+#include "zenoh.h"  // NOLINT(build/include_subdir): zenoh-c installs its headers in no directory
 
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
-#include "robot_ipc/DomainConfig.h"
+#include "robot_ipc/KeyExprs.h"
 #include "robot_ipc/NetworkConfig.h"
 #include "robot_ipc/QosProfile.h"
 #include "robot_ipc/TopicStatistics.h"
 #include "robot_ipc/WireProtocol.h"
-#include "robot_runtime/robot_ipc/idl/Envelope.h"
-#include "robot_runtime/robot_ipc/src/DomainRegistry.h"
+#include "robot_runtime/robot_ipc/src/SessionRegistry.h"
 #include "robot_runtime/robot_ipc/src/StatusMacros.h"
 
 namespace robot::ipc {
@@ -79,23 +81,11 @@ using Clock = std::chrono::steady_clock;
 
 // The IO thread logs a recurring problem at most this often.
 constexpr int kLogPeriodSeconds = 5;
-constexpr std::chrono::milliseconds kWaitFailureBackoff(10);
 // What one counted event adds to its counter.
 constexpr uint64_t kOneEvent = 1;
 // The samples a drain may hold before it dispatches, before the vector that
 // holds them grows (it keeps its capacity).
 constexpr size_t kInitialPendingCapacity = 256;
-// The name of the DDS participant of a bus that only subscribes.
-constexpr absl::string_view kSubscriberParticipantName = "robot_ipc_subscriber";
-// A reliable write never waits for acknowledgments: at the writer's
-// unacknowledged-bytes limit it fails at once and is counted as sendDropped.
-constexpr dds_duration_t kReliableWriteBlockingTime = 0;
-// The data representation of every writer, and the ones a reader accepts (a
-// Python writer may pick either).
-constexpr dds_data_representation_id_t kWriterRepresentation =
-    DDS_DATA_REPRESENTATION_XCDR2;
-constexpr std::array<dds_data_representation_id_t, 2> kReaderRepresentations = {
-    DDS_DATA_REPRESENTATION_XCDR1, DDS_DATA_REPRESENTATION_XCDR2};
 
 // The counters of one topic. Written by the IO thread (and by publish() for
 // sendDropped), read by any thread.
@@ -108,12 +98,8 @@ struct TopicCounters {
   std::atomic<uint64_t> rejected = 0;
   std::atomic<uint64_t> handlerErrors = 0;
   std::atomic<uint64_t> missed = 0;
-  // The DDS status of the topic's reader and writer, as the IO thread last read
-  // it.
-  std::atomic<uint64_t> sampleLost = 0;
-  std::atomic<uint64_t> sampleRejected = 0;
-  std::atomic<uint64_t> requestedIncompatibleQos = 0;
-  std::atomic<uint64_t> offeredIncompatibleQos = 0;
+  // The liveliness tokens of the topic, as the IO thread last counted them.
+  std::atomic<uint64_t> incompatibleQos = 0;
   std::atomic<uint64_t> matchedReaders = 0;
   std::atomic<uint64_t> matchedWriters = 0;
 
@@ -127,11 +113,8 @@ struct TopicCounters {
     statistics.rejected = rejected.load(std::memory_order_relaxed);
     statistics.handlerErrors = handlerErrors.load(std::memory_order_relaxed);
     statistics.missed = missed.load(std::memory_order_relaxed);
-    statistics.sampleLost = sampleLost.load(std::memory_order_relaxed);
-    statistics.sampleRejected = sampleRejected.load(std::memory_order_relaxed);
     statistics.incompatibleQos =
-        requestedIncompatibleQos.load(std::memory_order_relaxed) +
-        offeredIncompatibleQos.load(std::memory_order_relaxed);
+        incompatibleQos.load(std::memory_order_relaxed);
     statistics.matchedReaders = matchedReaders.load(std::memory_order_relaxed);
     statistics.matchedWriters = matchedWriters.load(std::memory_order_relaxed);
     return statistics;
@@ -142,6 +125,34 @@ void increment(std::atomic<uint64_t>& counter, uint64_t count = kOneEvent) {
   counter.fetch_add(count, std::memory_order_relaxed);
 }
 
+/**
+ * Wakes the IO thread: publish(), stop() and the Zenoh threads that deliver a
+ * sample or a liveliness change call wake(), and the IO thread waits for it.
+ * Thread-safe.
+ */
+class Waker {
+ public:
+  Waker() = default;
+  Waker(const Waker&) = delete;
+  Waker& operator=(const Waker&) = delete;
+
+  void wake() {
+    absl::MutexLock lock(mutex_);
+    woken_ = true;
+  }
+
+  /** Waits until wake() was called (since the last wait) or for `timeout`. */
+  void wait(absl::Duration timeout) {
+    absl::MutexLock lock(mutex_);
+    mutex_.AwaitWithTimeout(absl::Condition(&woken_), timeout);
+    woken_ = false;
+  }
+
+ private:
+  absl::Mutex mutex_;
+  bool woken_ ABSL_GUARDED_BY(mutex_) = false;
+};
+
 // One message, serialized on the publishing thread.
 struct OutgoingMessage {
   std::string topic;
@@ -150,9 +161,13 @@ struct OutgoingMessage {
   TopicCounters* absl_nullable counters = nullptr;
 };
 
-// The DDS writer of one topic. The IO thread's own, once it runs.
+// The Zenoh publisher of one topic and its liveliness token. The IO thread's
+// own, once it runs.
 struct TopicWriter {
-  dds_entity_t writer = 0;
+  z_owned_publisher_t publisher;
+  z_owned_liveliness_token_t token;
+  QosProfile profile = QosProfile::kReliableEvents;
+  uint64_t writerId = 0;
   // The sequence number of the last sample written; the next one is one more.
   uint64_t lastSequence = 0;
   TopicCounters* absl_nullable counters = nullptr;
@@ -161,6 +176,7 @@ struct TopicWriter {
 struct Subscription {
   std::string topic;
   Delivery delivery = Delivery::kLatest;
+  QosProfile profile = QosProfile::kReliableEvents;
   // The full name of the subscribed message type; empty for subscribeRaw(),
   // which takes any type.
   std::string expectedTypeName;
@@ -169,17 +185,24 @@ struct Subscription {
   Bus::MessageHandler messageHandler;
   Bus::RawHandler rawHandler;
   TopicCounters* absl_nullable counters = nullptr;
-  dds_entity_t reader = 0;
-  dds_entity_t readCondition = 0;
-  // The loans of the current drain: dds_take() fills `samples` with pointers
-  // into the reader's cache, and the drain returns them (dds_return_loan) once
-  // it has dispatched. Sized to the reader's history depth.
-  std::vector<void* absl_nullable> samples;
-  std::vector<dds_sample_info_t> infos;
-  size_t taken = 0;
-  // The last sequence number of each writer (its publication handle) this
-  // reader took a sample of.
-  absl::flat_hash_map<dds_instance_handle_t, uint64_t> lastSequenceByWriter;
+  z_owned_subscriber_t subscriber;
+  z_owned_liveliness_token_t token;
+  // True once the subscriber and the token are declared; the bus drops them.
+  bool declared = false;
+
+  // Zenoh's threads -> the IO thread: the envelopes that arrived, the newest
+  // `depth` of them (an older one is replaced, and counted as missed from the
+  // gap in its writer's sequence numbers).
+  Waker* absl_nullable waker = nullptr;
+  size_t depth = 1;
+  absl::Mutex inboxMutex;
+  std::deque<std::string> inbox ABSL_GUARDED_BY(inboxMutex);
+
+  // The envelopes of the current drain (IO thread; keeps its capacity).
+  std::vector<std::string> taken;
+  // The last sequence number of each writer this subscription took a sample
+  // of.
+  absl::flat_hash_map<uint64_t, uint64_t> lastSequenceByWriter;
   // Delivery::kLatest: the index, in the drain's pending samples, of the newest
   // sample of this subscription so far.
   std::optional<size_t> latestPending;
@@ -189,11 +212,23 @@ struct Subscription {
 // the order the samples were written.
 struct PendingMessage {
   Subscription* absl_nonnull subscription;
-  dds_time_t sourceTimestamp = 0;
-  const robot_ipc_Envelope* absl_nonnull envelope;
+  EnvelopeView envelope;
   // Delivery::kLatest: a newer sample of the same topic is in the same drain;
   // this one is not dispatched.
   bool superseded = false;
+};
+
+// A liveliness token that appeared (alive) or went away.
+struct TokenEvent {
+  std::string keyExpr;
+  bool alive = false;
+};
+
+// Zenoh's threads -> the IO thread: the liveliness changes of the domain.
+struct TokenInbox {
+  Waker* absl_nullable waker = nullptr;
+  absl::Mutex mutex;
+  std::vector<TokenEvent> events ABSL_GUARDED_BY(mutex);
 };
 
 struct PeriodicCallback {
@@ -201,11 +236,6 @@ struct PeriodicCallback {
   Clock::time_point nextDeadline;
   absl::AnyInvocable<void()> callback;
 };
-
-absl::Status ddsError(absl::string_view what, dds_return_t code) {
-  return absl::InternalError(
-      absl::StrCat("robot_ipc: ", what, ": ", dds_strretcode(code)));
-}
 
 absl::Status validateOptions(const BusOptions& options) {
   const absl::Status network = validateNetworkConfig(options.network);
@@ -241,28 +271,101 @@ absl::Status validateOptions(const BusOptions& options) {
   return absl::OkStatus();
 }
 
-// The QoS of a reader or writer of `profile` with a KEEP_LAST history of
-// `depth`. The caller deletes it.
-dds_qos_t* absl_nonnull createQos(QosProfile profile, int depth) {
-  dds_qos_t* absl_nonnull qos = dds_create_qos();
-  const QosPolicy policy = qosPolicy(profile);
-  if (policy.reliability == Reliability::kReliable) {
-    dds_qset_reliability(qos, DDS_RELIABILITY_RELIABLE,
-                         kReliableWriteBlockingTime);
-  } else {
-    dds_qset_reliability(qos, DDS_RELIABILITY_BEST_EFFORT,
-                         /*max_blocking_time=*/0);
+z_congestion_control_t zenohCongestionControl(CongestionControl control) {
+  switch (control) {
+    case CongestionControl::kDrop:
+      return Z_CONGESTION_CONTROL_DROP;
+    case CongestionControl::kBlock:
+      return Z_CONGESTION_CONTROL_BLOCK;
   }
-  dds_qset_history(qos, DDS_HISTORY_KEEP_LAST, depth);
-  dds_qset_durability(qos, DDS_DURABILITY_VOLATILE);
-  return qos;
+  return Z_CONGESTION_CONTROL_BLOCK;
+}
+
+z_priority_t zenohPriority(Priority priority) {
+  switch (priority) {
+    case Priority::kInteractiveHigh:
+      return Z_PRIORITY_INTERACTIVE_HIGH;
+    case Priority::kData:
+      return Z_PRIORITY_DATA;
+  }
+  return Z_PRIORITY_DATA;
+}
+
+// A random id, the same width in every bus: a writer id, or a bus id in hex.
+uint64_t randomId() {
+  static absl::NoDestructor<absl::Mutex> mutex;
+  static absl::NoDestructor<std::mt19937_64> generator(std::random_device{}());
+  absl::MutexLock lock(*mutex);
+  return (*generator)();
+}
+
+std::string keyExprText(const z_loaned_keyexpr_t* absl_nonnull keyExpr) {
+  z_view_string_t text;
+  z_keyexpr_as_view_string(keyExpr, &text);
+  const z_loaned_string_t* absl_nonnull loaned = z_view_string_loan(&text);
+  return std::string(z_string_data(loaned), z_string_len(loaned));
+}
+
+// The sample callback of a subscription, on a Zenoh thread: copies the
+// envelope into the subscription's inbox and wakes the IO thread.
+void onSample(z_loaned_sample_t* absl_nonnull sample,
+              void* absl_nullable context) {
+  Subscription& subscription = *static_cast<Subscription*>(context);
+  const z_loaned_bytes_t* absl_nonnull payload = z_sample_payload(sample);
+  std::string bytes(z_bytes_len(payload), '\0');
+  z_bytes_reader_t reader = z_bytes_get_reader(payload);
+  bytes.resize(z_bytes_reader_read(
+      &reader, reinterpret_cast<uint8_t*>(bytes.data()), bytes.size()));
+  {
+    absl::MutexLock lock(subscription.inboxMutex);
+    if (subscription.inbox.size() >= subscription.depth) {
+      subscription.inbox.pop_front();
+    }
+    subscription.inbox.push_back(std::move(bytes));
+  }
+  subscription.waker->wake();
+}
+
+// The liveliness callback of a bus, on a Zenoh thread.
+void onToken(z_loaned_sample_t* absl_nonnull sample,
+             void* absl_nullable context) {
+  TokenInbox& inbox = *static_cast<TokenInbox*>(context);
+  TokenEvent event{.keyExpr = keyExprText(z_sample_keyexpr(sample)),
+                   .alive = z_sample_kind(sample) == Z_SAMPLE_KIND_PUT};
+  {
+    absl::MutexLock lock(inbox.mutex);
+    inbox.events.push_back(std::move(event));
+  }
+  inbox.waker->wake();
+}
+
+// A closure that does not own `context`.
+void dropNothing(void* absl_nullable context) {
+  static_cast<void>(context);
+}
+
+absl::Status declareToken(const z_loaned_session_t* absl_nonnull session,
+                          absl::string_view keyExpr,
+                          z_owned_liveliness_token_t& token) {
+  // z_view_keyexpr_from_str() needs a NUL-terminated key.
+  const std::string keyText(keyExpr);
+  z_view_keyexpr_t key;
+  if (z_view_keyexpr_from_str(&key, keyText.c_str()) != Z_OK ||
+      z_liveliness_declare_token(session, &token, z_view_keyexpr_loan(&key),
+                                 /*_options=*/nullptr) != Z_OK) {
+    return absl::InternalError(absl::StrCat(
+        "robot_ipc: cannot declare the liveliness token '", keyExpr, "'"));
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace
 
 class Bus::Impl {
  public:
-  explicit Impl(BusOptions options) : options_(std::move(options)) {}
+  explicit Impl(BusOptions options)
+      : options_(std::move(options)),
+        busId_(absl::StrCat(absl::Hex(randomId(), absl::kZeroPad16))) {}
 
   ~Impl() {
     if (isIoThread()) {
@@ -270,17 +373,25 @@ class Bus::Impl {
                     "handler or a periodic callback)";
     }
     stop();
-    if (participant_ > 0) {
-      // Deletes the readers, writers, topics, the waitset and the guard
-      // condition with it.
-      const dds_return_t deleted = dds_delete(participant_);
-      if (deleted < 0) {
-        LOG(ERROR) << "robot_ipc: deleting the DDS participant failed: "
-                   << dds_strretcode(deleted);
+    // The subscribers first, so that no Zenoh thread calls into a subscription
+    // or the token inbox once they go.
+    if (tokenSubscriberDeclared_) {
+      z_subscriber_drop(z_subscriber_move(&tokenSubscriber_));
+    }
+    for (std::pair<const std::string, std::unique_ptr<Subscription>>& entry :
+         subscriptions_) {
+      if (entry.second->declared) {
+        z_subscriber_drop(z_subscriber_move(&entry.second->subscriber));
+        z_liveliness_token_drop(z_liveliness_token_move(&entry.second->token));
       }
     }
-    if (domainAcquired_) {
-      domainRegistry().release(options_.network.domainId);
+    for (std::pair<const std::string, std::unique_ptr<TopicWriter>>& entry :
+         writers_) {
+      z_publisher_drop(z_publisher_move(&entry.second->publisher));
+      z_liveliness_token_drop(z_liveliness_token_move(&entry.second->token));
+    }
+    if (session_ != nullptr) {
+      sessionRegistry().release(options_.network.domainId);
     }
   }
 
@@ -310,7 +421,7 @@ class Bus::Impl {
   const std::vector<std::string>& discoveryPeers() const {
     return discoveryPeers_;
   }
-  const std::string& domainConfig() const { return domainConfig_; }
+  const std::string& domainConfig() const { return sessionConfig_; }
   TopicStatistics topicStatistics(absl::string_view topic) const;
   absl::flat_hash_map<std::string, TopicStatistics> statistics() const;
   uint64_t periodicCallbackErrors() const {
@@ -322,38 +433,41 @@ class Bus::Impl {
   absl::StatusOr<OutgoingMessage> serialize(
       absl::string_view topic, const google::protobuf::Message& message);
   TopicCounters& countersFor(absl::string_view topic);
-  absl::StatusOr<dds_entity_t> topicFor(absl::string_view name);
   absl::StatusOr<TopicWriter* absl_nonnull> writerFor(absl::string_view topic);
-  absl::Status createReader(Subscription& subscription);
-  void wake() const;
+  absl::Status declareSubscriber(Subscription& subscription);
+  absl::Status declareTokenSubscriber();
   absl::Status enqueue(OutgoingMessage outgoing);
 
   // The IO thread.
   void runIoLoop();
-  dds_duration_t waitTimeout(Clock::time_point now) const;
+  absl::Duration waitTimeout(Clock::time_point now) const;
   void sendQueued();
   void send(OutgoingMessage& message);
-  dds_time_t nextSourceTimestamp();
+  int64_t nextSourceTimestamp();
   void drain();
-  size_t take(Subscription& subscription, size_t budget);
-  bool accepts(Subscription& subscription,
-               const robot_ipc_Envelope& envelope) const;
-  void trackSequence(Subscription& subscription,
-                     dds_instance_handle_t writer,
-                     uint64_t sequence);
+  void take(Subscription& subscription, size_t& budget);
+  std::optional<EnvelopeView> decode(const Subscription& subscription,
+                                     absl::string_view bytes) const;
+  bool acceptsType(const Subscription& subscription,
+                   const EnvelopeView& envelope) const;
+  void trackSequence(Subscription& subscription, const EnvelopeHeader& header);
   void coalesceLatest();
-  void dispatch(Subscription& subscription, const robot_ipc_Envelope& envelope);
-  void refreshStatusIfDue(Clock::time_point now);
+  void dispatch(Subscription& subscription, const EnvelopeView& envelope);
+  void applyTokenEvents();
+  void countPeers();
   void runDueCallbacks(Clock::time_point now);
 
   const BusOptions options_;
-  std::string domainConfig_;
+  // This bus's id in its liveliness tokens (KeyExprs.h).
+  const std::string busId_;
+  std::string sessionConfig_;
   std::vector<std::string> discoveryPeers_;
-  bool domainAcquired_ = false;
-  // 0 until initialize() created them; the participant owns the others.
-  dds_entity_t participant_ = 0;
-  dds_entity_t waitset_ = 0;
-  dds_entity_t wakeCondition_ = 0;
+  // Null until initialize() acquired the session of the domain.
+  const z_loaned_session_t* absl_nullable session_ = nullptr;
+  Waker waker_;
+  TokenInbox tokenInbox_;
+  z_owned_subscriber_t tokenSubscriber_;
+  bool tokenSubscriberDeclared_ = false;
 
   // Serializes the configuration calls, start() and stop(), which hold it
   // across the join of the IO thread. The IO thread never takes it: every call
@@ -368,18 +482,18 @@ class Bus::Impl {
   // initialize()), and used by the IO thread only while it runs; the thread's
   // start and join order the two. writers_ also grows on the IO thread (a topic
   // published for the first time).
-  absl::flat_hash_map<std::string, dds_entity_t> topics_;
-  absl::flat_hash_map<std::string, TopicWriter> writers_;
+  absl::flat_hash_map<std::string, std::unique_ptr<TopicWriter>> writers_;
   absl::flat_hash_map<std::string, std::unique_ptr<Subscription>>
       subscriptions_;
+  // The live liveliness tokens of the domain by key expression (IO thread).
+  absl::flat_hash_map<std::string, EndpointToken> liveTokens_;
   // The samples of the current drain, in the order they were written (the IO
   // thread's own; it keeps its capacity).
   std::vector<PendingMessage> pending_;
   std::vector<PeriodicCallback> periodicCallbacks_;
   // The source timestamp of the last sample written: every next one is later,
   // across topics (IO thread).
-  dds_time_t lastSourceTimestamp_ = 0;
-  Clock::time_point nextStatusRefresh_;
+  int64_t lastSourceTimestamp_ = 0;
 
   // publish() -> IO thread. The IO thread holds the mutex only to swap the
   // vector with sending_.
@@ -399,42 +513,17 @@ absl::Status Bus::Impl::initialize() {
   pending_.reserve(
       std::min(options_.maxMessagesPerDrain, kInitialPendingCapacity));
   discoveryPeers_ = options_.network.peerHosts();
+  tokenInbox_.waker = &waker_;
   ROBOT_IPC_ASSIGN_OR_RETURN(
-      domainConfig_, cycloneDomainConfig(options_.network, options_.nodeName));
-  ROBOT_IPC_RETURN_IF_ERROR(
-      domainRegistry().acquire(options_.network.domainId, domainConfig_));
-  domainAcquired_ = true;
+      SessionLease lease,
+      sessionRegistry().acquire(options_.network, options_.nodeName));
+  session_ = lease.session;
+  sessionConfig_ = std::move(lease.config);
+  ROBOT_IPC_RETURN_IF_ERROR(declareTokenSubscriber());
 
-  dds_qos_t* absl_nonnull qos = dds_create_qos();
-  const std::string participantName =
-      options_.nodeName.empty() ? std::string(kSubscriberParticipantName)
-                                : options_.nodeName;
-  dds_qset_entity_name(qos, participantName.c_str());
-  participant_ = dds_create_participant(options_.network.domainId, qos,
-                                        /*listener=*/nullptr);
-  dds_delete_qos(qos);
-  if (participant_ < 0) {
-    const dds_return_t code = participant_;
-    participant_ = 0;
-    return ddsError(
-        absl::StrCat("cannot join DDS domain ", options_.network.domainId),
-        code);
-  }
-  waitset_ = dds_create_waitset(participant_);
-  if (waitset_ < 0) return ddsError("cannot create the waitset", waitset_);
-  wakeCondition_ = dds_create_guardcondition(participant_);
-  if (wakeCondition_ < 0) {
-    return ddsError("cannot create the wake-up condition", wakeCondition_);
-  }
-  const dds_return_t attached =
-      dds_waitset_attach(waitset_, wakeCondition_, /*x=*/0);
-  if (attached < 0) {
-    return ddsError("cannot attach the wake-up condition", attached);
-  }
-
-  // The writers of the topics this node publishes exist from the start, so that
-  // the subscribers have discovered them before the first sample (a VOLATILE
-  // reader gets only what is written after it matched).
+  // The publishers of the topics this node publishes exist from the start, so
+  // that the subscribers know of them before the first sample (a subscriber
+  // gets only what is put after the declarations met).
   if (!options_.nodeName.empty()) {
     for (const std::string& topic :
          options_.network.topicsPublishedBy(options_.nodeName)) {
@@ -444,94 +533,118 @@ absl::Status Bus::Impl::initialize() {
   return absl::OkStatus();
 }
 
-absl::StatusOr<dds_entity_t> Bus::Impl::topicFor(absl::string_view name) {
-  const absl::flat_hash_map<std::string, dds_entity_t>::const_iterator it =
-      topics_.find(name);
-  if (it != topics_.end()) {
-    return it->second;
+absl::Status Bus::Impl::declareTokenSubscriber() {
+  const std::string keyExpr = allEndpointTokensKeyExpr(options_.network);
+  z_view_keyexpr_t key;
+  if (z_view_keyexpr_from_str(&key, keyExpr.c_str()) != Z_OK) {
+    return absl::InternalError(
+        absl::StrCat("robot_ipc: '", keyExpr, "' is no key expression"));
   }
-  ROBOT_IPC_RETURN_IF_ERROR(validateTopicName(name));
-  // dds_create_topic() needs a NUL-terminated name.
-  std::string topicName(name);
-  const dds_entity_t topic =
-      dds_create_topic(participant_, &robot_ipc_Envelope_desc,
-                       topicName.c_str(), /*qos=*/nullptr,
-                       /*listener=*/nullptr);
-  if (topic < 0) {
-    return ddsError(absl::StrCat("cannot create the DDS topic '", name, "'"),
-                    topic);
+  z_owned_closure_sample_t callback;
+  z_closure_sample(&callback, &onToken, &dropNothing, &tokenInbox_);
+  z_liveliness_subscriber_options_t subscriberOptions;
+  z_liveliness_subscriber_options_default(&subscriberOptions);
+  // The tokens declared before this bus came up, too.
+  subscriberOptions.history = true;
+  if (z_liveliness_declare_subscriber(
+          session_, &tokenSubscriber_, z_view_keyexpr_loan(&key),
+          z_closure_sample_move(&callback), &subscriberOptions) != Z_OK) {
+    return absl::InternalError(
+        absl::StrCat("robot_ipc: cannot subscribe to the liveliness tokens '",
+                     keyExpr, "'"));
   }
-  topics_.emplace(std::move(topicName), topic);
-  return topic;
+  tokenSubscriberDeclared_ = true;
+  return absl::OkStatus();
 }
 
 absl::StatusOr<TopicWriter* absl_nonnull> Bus::Impl::writerFor(
     absl::string_view topic) {
-  const absl::flat_hash_map<std::string, TopicWriter>::iterator it =
-      writers_.find(topic);
+  const absl::flat_hash_map<std::string, std::unique_ptr<TopicWriter>>::iterator
+      it = writers_.find(topic);
   if (it != writers_.end()) {
-    return &it->second;
+    return it->second.get();
   }
-  ROBOT_IPC_ASSIGN_OR_RETURN(const dds_entity_t ddsTopic, topicFor(topic));
-  const QosProfile profile = options_.network.qosProfileOf(topic);
-  dds_qos_t* absl_nonnull qos =
-      createQos(profile, qosPolicy(profile).writerHistoryDepth);
-  dds_qset_data_representation(qos, /*n=*/1, &kWriterRepresentation);
-  dds_qset_entity_name(qos, options_.nodeName.c_str());
-  const dds_entity_t writer =
-      dds_create_writer(participant_, ddsTopic, qos, /*listener=*/nullptr);
-  dds_delete_qos(qos);
-  if (writer < 0) {
-    return ddsError(
-        absl::StrCat("cannot create the DDS writer of '", topic, "'"), writer);
+  ROBOT_IPC_RETURN_IF_ERROR(validateTopicName(topic));
+  std::unique_ptr<TopicWriter> writer = std::make_unique<TopicWriter>();
+  writer->profile = options_.network.qosProfileOf(topic);
+  writer->writerId = randomId();
+  writer->counters = &countersFor(topic);
+  const std::string keyExpr = dataKeyExpr(options_.network, topic);
+  z_view_keyexpr_t key;
+  if (z_view_keyexpr_from_str(&key, keyExpr.c_str()) != Z_OK) {
+    return absl::InternalError(
+        absl::StrCat("robot_ipc: '", keyExpr, "' is no key expression"));
   }
-  TopicWriter& entry = writers_[topic];
-  entry.writer = writer;
-  entry.counters = &countersFor(topic);
-  return &entry;
+  const QosPolicy policy = qosPolicy(writer->profile);
+  z_publisher_options_t publisherOptions;
+  z_publisher_options_default(&publisherOptions);
+  publisherOptions.congestion_control =
+      zenohCongestionControl(policy.congestionControl);
+  publisherOptions.priority = zenohPriority(policy.priority);
+  publisherOptions.is_express = policy.express;
+  if (z_declare_publisher(session_, &writer->publisher,
+                          z_view_keyexpr_loan(&key),
+                          &publisherOptions) != Z_OK) {
+    return absl::InternalError(
+        absl::StrCat("robot_ipc: cannot declare the Zenoh publisher of '",
+                     topic, "' (", keyExpr, ")"));
+  }
+  const absl::Status token = declareToken(
+      session_,
+      endpointTokenKeyExpr(options_.network,
+                           EndpointToken{.role = EndpointRole::kPublisher,
+                                         .profile = writer->profile,
+                                         .busId = busId_,
+                                         .topic = std::string(topic)}),
+      writer->token);
+  if (!token.ok()) {
+    z_publisher_drop(z_publisher_move(&writer->publisher));
+    return token;
+  }
+  TopicWriter* absl_nonnull entry = writer.get();
+  writers_.emplace(std::string(topic), std::move(writer));
+  countPeers();
+  return entry;
 }
 
-absl::Status Bus::Impl::createReader(Subscription& subscription) {
-  ROBOT_IPC_ASSIGN_OR_RETURN(const dds_entity_t ddsTopic,
-                             topicFor(subscription.topic));
-  const int depth = subscription.delivery == Delivery::kAll
-                        ? options_.allDeliveryHistoryDepth
-                        : options_.latestDeliveryHistoryDepth;
-  dds_qos_t* absl_nonnull qos =
-      createQos(options_.network.qosProfileOf(subscription.topic), depth);
-  dds_qset_data_representation(
-      qos, static_cast<uint32_t>(kReaderRepresentations.size()),
-      kReaderRepresentations.data());
-  const dds_entity_t reader =
-      dds_create_reader(participant_, ddsTopic, qos, /*listener=*/nullptr);
-  dds_delete_qos(qos);
-  if (reader < 0) {
-    return ddsError(absl::StrCat("cannot create the DDS reader of '",
-                                 subscription.topic, "'"),
-                    reader);
+absl::Status Bus::Impl::declareSubscriber(Subscription& subscription) {
+  subscription.profile = options_.network.qosProfileOf(subscription.topic);
+  subscription.depth =
+      static_cast<size_t>(subscription.delivery == Delivery::kAll
+                              ? options_.allDeliveryHistoryDepth
+                              : options_.latestDeliveryHistoryDepth);
+  subscription.waker = &waker_;
+  subscription.taken.reserve(
+      std::min(subscription.depth, options_.maxMessagesPerDrain));
+  const std::string keyExpr = dataKeyExpr(options_.network, subscription.topic);
+  z_view_keyexpr_t key;
+  if (z_view_keyexpr_from_str(&key, keyExpr.c_str()) != Z_OK) {
+    return absl::InternalError(
+        absl::StrCat("robot_ipc: '", keyExpr, "' is no key expression"));
   }
-  const dds_entity_t condition =
-      dds_create_readcondition(reader, DDS_ANY_STATE);
-  if (condition < 0) {
-    dds_delete(reader);
-    return ddsError(absl::StrCat("cannot create the read condition of '",
-                                 subscription.topic, "'"),
-                    condition);
+  z_owned_closure_sample_t callback;
+  z_closure_sample(&callback, &onSample, &dropNothing, &subscription);
+  if (z_declare_subscriber(session_, &subscription.subscriber,
+                           z_view_keyexpr_loan(&key),
+                           z_closure_sample_move(&callback),
+                           /*options=*/nullptr) != Z_OK) {
+    return absl::InternalError(
+        absl::StrCat("robot_ipc: cannot declare the Zenoh subscriber of '",
+                     subscription.topic, "' (", keyExpr, ")"));
   }
-  const dds_return_t attached =
-      dds_waitset_attach(waitset_, condition, /*x=*/reader);
-  if (attached < 0) {
-    dds_delete(reader);
-    return ddsError(
-        absl::StrCat("cannot attach the reader of '", subscription.topic, "'"),
-        attached);
+  const absl::Status token = declareToken(
+      session_,
+      endpointTokenKeyExpr(options_.network,
+                           EndpointToken{.role = EndpointRole::kSubscriber,
+                                         .profile = subscription.profile,
+                                         .busId = busId_,
+                                         .topic = subscription.topic}),
+      subscription.token);
+  if (!token.ok()) {
+    z_subscriber_drop(z_subscriber_move(&subscription.subscriber));
+    return token;
   }
-  subscription.reader = reader;
-  subscription.readCondition = condition;
-  const size_t capacity =
-      std::min(static_cast<size_t>(depth), options_.maxMessagesPerDrain);
-  subscription.samples.assign(capacity, nullptr);
-  subscription.infos.resize(capacity);
+  subscription.declared = true;
   return absl::OkStatus();
 }
 
@@ -553,10 +666,18 @@ absl::Status Bus::Impl::addSubscription(
         absl::StrCat("robot_ipc: the topic '", subscription->topic,
                      "' already has a subscription"));
   }
-  ROBOT_IPC_RETURN_IF_ERROR(createReader(*subscription));
   subscription->counters = &countersFor(subscription->topic);
+  // The subscription's address is the Zenoh callback's context: it is in the
+  // map before the first sample can arrive.
+  Subscription& entry = *subscription;
   const std::string topic = subscription->topic;
   subscriptions_.emplace(topic, std::move(subscription));
+  const absl::Status declared = declareSubscriber(entry);
+  if (!declared.ok()) {
+    subscriptions_.erase(topic);
+    return declared;
+  }
+  countPeers();
   return absl::OkStatus();
 }
 
@@ -606,7 +727,6 @@ absl::Status Bus::Impl::start() {
   for (PeriodicCallback& periodic : periodicCallbacks_) {
     periodic.nextDeadline = now + periodic.period;
   }
-  nextStatusRefresh_ = now;
   running_.store(true);
   try {  // NOLINT(exceptions): std::thread throws std::system_error; converted to a Status at once
     ioThread_ = std::thread([this] { runIoLoop(); });
@@ -624,13 +744,13 @@ void Bus::Impl::stop() {
     // Joining itself would deadlock: the loop ends after this call, and the
     // next stop() or the destructor joins.
     stopRequested_.store(true);
-    wake();
+    waker_.wake();
     return;
   }
   absl::MutexLock lock(lifecycleMutex_);
   if (ioThread_.joinable()) {
     stopRequested_.store(true);
-    wake();
+    waker_.wake();
     ioThread_.join();
   }
   running_.store(false);
@@ -694,7 +814,7 @@ absl::Status Bus::Impl::enqueue(OutgoingMessage outgoing) {
   // The IO thread empties the queue on one wake-up, so only the first
   // message needs to wake it.
   if (wasEmpty) {
-    wake();
+    waker_.wake();
   }
   return absl::OkStatus();
 }
@@ -748,32 +868,15 @@ absl::flat_hash_map<std::string, TopicStatistics> Bus::Impl::statistics()
   return statistics;
 }
 
-void Bus::Impl::wake() const {
-  // Fails only for a deleted condition, i.e. a bus being destroyed, whose IO
-  // thread has stopped already.
-  static_cast<void>(dds_set_guardcondition(wakeCondition_, /*triggered=*/true));
-}
-
 void Bus::Impl::runIoLoop() {
   ioThreadId_.store(std::this_thread::get_id());
   while (!stopRequested_.load(std::memory_order_acquire)) {
     try {  // NOLINT(exceptions): the IO thread's outermost loop: what escapes a handler is logged
-      const dds_return_t waited = dds_waitset_wait(
-          waitset_, /*xs=*/nullptr, /*nxs=*/0, waitTimeout(Clock::now()));
-      if (waited < 0) {
-        LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds)
-            << "robot_ipc: dds_waitset_wait() failed: "
-            << dds_strretcode(waited);
-        std::this_thread::sleep_for(kWaitFailureBackoff);
-        continue;
-      }
-      bool woken = false;
-      static_cast<void>(dds_take_guardcondition(wakeCondition_, &woken));
+      waker_.wait(waitTimeout(Clock::now()));
       sendQueued();
+      applyTokenEvents();
       drain();
-      const Clock::time_point now = Clock::now();
-      refreshStatusIfDue(now);
-      runDueCallbacks(now);
+      runDueCallbacks(Clock::now());
       // NOLINTNEXTLINE(exceptions): the IO thread's outermost loop: what escapes a handler is logged
     } catch (const std::exception& exception) {
       LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds)
@@ -786,21 +889,20 @@ void Bus::Impl::runIoLoop() {
     }
   }
   sendQueued();
-  refreshStatusIfDue(Clock::now());
+  applyTokenEvents();
   ioThreadId_.store(std::thread::id());
 }
 
-dds_duration_t Bus::Impl::waitTimeout(Clock::time_point now) const {
+absl::Duration Bus::Impl::waitTimeout(Clock::time_point now) const {
   Clock::duration wait = std::chrono::duration_cast<Clock::duration>(
       absl::ToChronoNanoseconds(options_.ioPollPeriod));
   for (const PeriodicCallback& periodic : periodicCallbacks_) {
     wait = std::min(wait, periodic.nextDeadline - now);
   }
   if (wait <= Clock::duration::zero()) {
-    return 0;
+    return absl::ZeroDuration();
   }
-  return static_cast<dds_duration_t>(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(wait).count());
+  return absl::FromChrono(wait);
 }
 
 void Bus::Impl::sendQueued() {
@@ -818,8 +920,9 @@ void Bus::Impl::sendQueued() {
   sending_.clear();
 }
 
-dds_time_t Bus::Impl::nextSourceTimestamp() {
-  lastSourceTimestamp_ = std::max(dds_time(), lastSourceTimestamp_ + 1);
+int64_t Bus::Impl::nextSourceTimestamp() {
+  lastSourceTimestamp_ =
+      std::max(absl::GetCurrentTimeNanos(), lastSourceTimestamp_ + 1);
   return lastSourceTimestamp_;
 }
 
@@ -832,151 +935,142 @@ void Bus::Impl::send(OutgoingMessage& message) {
     return;
   }
   TopicWriter& entry = **writer;
-  if (message.payload.size() > static_cast<size_t>(UINT32_MAX)) {
+  if (message.typeName.size() > static_cast<size_t>(UINT32_MAX)) {
     increment(message.counters->sendDropped);
     LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds)
-        << "robot_ipc: a message of " << message.payload.size() << " bytes on '"
-        << message.topic << "' is larger than a DDS sequence holds";
+        << "robot_ipc: a type name of " << message.typeName.size()
+        << " bytes on '" << message.topic
+        << "' is longer than an envelope holds";
     return;
   }
-  robot_ipc_Envelope envelope{};
-  envelope.protocol_version = kWireProtocolVersion;
-  envelope.sequence_number = entry.lastSequence + 1;
-  // dds_write() serializes the sample and changes nothing in it.
-  envelope.type_name = message.typeName.data();
-  envelope.payload._buffer = reinterpret_cast<uint8_t*>(message.payload.data());
-  envelope.payload._length = static_cast<uint32_t>(message.payload.size());
-  envelope.payload._maximum = envelope.payload._length;
-  envelope.payload._release = false;
-  const dds_return_t written =
-      dds_write_ts(entry.writer, &envelope, nextSourceTimestamp());
-  if (written < 0) {
+  const EnvelopeHeader header{.protocolVersion = kWireProtocolVersion,
+                              .writerId = entry.writerId,
+                              .sequenceNumber = entry.lastSequence + 1,
+                              .sourceTimestampNs = nextSourceTimestamp()};
+  const std::string envelope =
+      encodeEnvelope(header, message.typeName, message.payload);
+  z_owned_bytes_t payload;
+  if (z_bytes_copy_from_buf(&payload,
+                            reinterpret_cast<const uint8_t*>(envelope.data()),
+                            envelope.size()) != Z_OK ||
+      z_publisher_put(z_publisher_loan(&entry.publisher),
+                      z_bytes_move(&payload), /*options=*/nullptr) != Z_OK) {
     increment(message.counters->sendDropped);
     LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
-        << "robot_ipc: writing on '" << message.topic
-        << "' failed: " << dds_strretcode(written);
+        << "robot_ipc: putting a sample on '" << message.topic << "' failed";
     return;
   }
-  entry.lastSequence = envelope.sequence_number;
+  entry.lastSequence = header.sequenceNumber;
   increment(message.counters->written);
 }
 
 void Bus::Impl::drain() {
-  // Empty unless the previous drain was cut short by an exception; its loans
-  // are returned below as usual.
   pending_.clear();
   size_t budget = options_.maxMessagesPerDrain;
+  // Every subscription's envelopes are taken before any is decoded, so that
+  // the views of pending_ point into vectors that no longer grow.
   for (std::pair<const std::string, std::unique_ptr<Subscription>>& entry :
        subscriptions_) {
-    if (budget == 0) {
-      break;
+    take(*entry.second, budget);
+  }
+  for (std::pair<const std::string, std::unique_ptr<Subscription>>& entry :
+       subscriptions_) {
+    Subscription& subscription = *entry.second;
+    for (const std::string& bytes : subscription.taken) {
+      increment(subscription.counters->received);
+      const std::optional<EnvelopeView> envelope = decode(subscription, bytes);
+      if (!envelope.has_value()) {
+        increment(subscription.counters->rejected);
+        continue;
+      }
+      trackSequence(subscription, envelope->header);
+      if (!acceptsType(subscription, *envelope)) {
+        increment(subscription.counters->rejected);
+        continue;
+      }
+      pending_.push_back(PendingMessage{.subscription = &subscription,
+                                        .envelope = *envelope,
+                                        .superseded = false});
     }
-    budget -= take(*entry.second, budget);
   }
   // In the order the samples were written: each bus's source timestamps
   // increase strictly across its topics.
   std::stable_sort(
       pending_.begin(), pending_.end(),
       [](const PendingMessage& first, const PendingMessage& second) {
-        return first.sourceTimestamp < second.sourceTimestamp;
+        return first.envelope.header.sourceTimestampNs <
+               second.envelope.header.sourceTimestampNs;
       });
   coalesceLatest();
   for (PendingMessage& message : pending_) {
     if (!message.superseded) {
-      dispatch(*message.subscription, *message.envelope);
+      dispatch(*message.subscription, message.envelope);
     }
   }
   pending_.clear();
   for (std::pair<const std::string, std::unique_ptr<Subscription>>& entry :
        subscriptions_) {
-    Subscription& subscription = *entry.second;
-    if (subscription.taken > 0) {
-      const dds_return_t returned =
-          dds_return_loan(subscription.reader, subscription.samples.data(),
-                          static_cast<int32_t>(subscription.taken));
-      if (returned < 0) {
-        LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds)
-            << "robot_ipc: returning the samples of '" << subscription.topic
-            << "' failed: " << dds_strretcode(returned);
-      }
-      subscription.taken = 0;
-    }
+    entry.second->taken.clear();
   }
 }
 
-size_t Bus::Impl::take(Subscription& subscription, size_t budget) {
-  const size_t capacity = std::min(subscription.samples.size(), budget);
-  // Null pointers ask dds_take() to lend the samples of the reader's cache
-  // instead of copying them.
-  std::fill(subscription.samples.begin(), subscription.samples.end(), nullptr);
-  const dds_return_t taken = dds_take(
-      subscription.reader, subscription.samples.data(),
-      subscription.infos.data(), capacity, static_cast<uint32_t>(capacity));
-  if (taken < 0) {
-    LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds)
-        << "robot_ipc: taking the samples of '" << subscription.topic
-        << "' failed: " << dds_strretcode(taken);
-    return 0;
+void Bus::Impl::take(Subscription& subscription, size_t& budget) {
+  absl::MutexLock lock(subscription.inboxMutex);
+  while (budget > 0 && !subscription.inbox.empty()) {
+    subscription.taken.push_back(std::move(subscription.inbox.front()));
+    subscription.inbox.pop_front();
+    --budget;
   }
-  subscription.taken = static_cast<size_t>(taken);
-  for (size_t index = 0; index < subscription.taken; ++index) {
-    const dds_sample_info_t& info = subscription.infos[index];
-    // A writer's disposal or unregistration contains no sample.
-    if (!info.valid_data || subscription.samples[index] == nullptr) {
-      continue;
-    }
-    const robot_ipc_Envelope& envelope =
-        *static_cast<const robot_ipc_Envelope*>(subscription.samples[index]);
-    increment(subscription.counters->received);
-    trackSequence(subscription, info.publication_handle,
-                  envelope.sequence_number);
-    if (!accepts(subscription, envelope)) {
-      increment(subscription.counters->rejected);
-      continue;
-    }
-    pending_.push_back(PendingMessage{.subscription = &subscription,
-                                      .sourceTimestamp = info.source_timestamp,
-                                      .envelope = &envelope,
-                                      .superseded = false});
+  // What the budget left behind waits for the next drain, which comes at once.
+  if (!subscription.inbox.empty()) {
+    waker_.wake();
   }
-  return subscription.taken;
 }
 
 void Bus::Impl::trackSequence(Subscription& subscription,
-                              dds_instance_handle_t writer,
-                              uint64_t sequence) {
-  const std::pair<
-      absl::flat_hash_map<dds_instance_handle_t, uint64_t>::iterator, bool>
-      inserted =
-          subscription.lastSequenceByWriter.try_emplace(writer, sequence);
+                              const EnvelopeHeader& header) {
+  const std::pair<absl::flat_hash_map<uint64_t, uint64_t>::iterator, bool>
+      inserted = subscription.lastSequenceByWriter.try_emplace(
+          header.writerId, header.sequenceNumber);
   if (inserted.second) {
     return;
   }
   uint64_t& last = inserted.first->second;
-  if (sequence > last + 1) {
-    increment(subscription.counters->missed, sequence - last - 1);
+  if (header.sequenceNumber > last + 1) {
+    increment(subscription.counters->missed, header.sequenceNumber - last - 1);
   }
-  last = std::max(last, sequence);
+  last = std::max(last, header.sequenceNumber);
 }
 
-bool Bus::Impl::accepts(Subscription& subscription,
-                        const robot_ipc_Envelope& envelope) const {
-  if (envelope.protocol_version != kWireProtocolVersion) {
+std::optional<EnvelopeView> Bus::Impl::decode(const Subscription& subscription,
+                                              absl::string_view bytes) const {
+  const std::optional<uint32_t> version = envelopeProtocolVersion(bytes);
+  if (version != kWireProtocolVersion) {
     LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
         << "robot_ipc: a sample on '" << subscription.topic
-        << "' speaks wire protocol " << envelope.protocol_version
+        << "' speaks wire protocol "
+        << (version.has_value() ? absl::StrCat(*version) : "none")
         << ", but this bus speaks " << kWireProtocolVersion
         << "; rebuild both from the same checkout";
-    return false;
+    return std::nullopt;
   }
-  const absl::string_view type = envelope.type_name == nullptr
-                                     ? absl::string_view()
-                                     : absl::string_view(envelope.type_name);
-  if (!subscription.expectedTypeName.empty() &&
-      type != subscription.expectedTypeName) {
+  std::optional<EnvelopeView> envelope = decodeEnvelope(bytes);
+  if (!envelope.has_value()) {
     LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
-        << "robot_ipc: '" << subscription.topic << "' carries a " << type
-        << ", but its subscription takes a " << subscription.expectedTypeName;
+        << "robot_ipc: a sample on '" << subscription.topic
+        << "' is shorter than its envelope says";
+  }
+  return envelope;
+}
+
+bool Bus::Impl::acceptsType(const Subscription& subscription,
+                            const EnvelopeView& envelope) const {
+  if (!subscription.expectedTypeName.empty() &&
+      envelope.typeName != subscription.expectedTypeName) {
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+        << "robot_ipc: '" << subscription.topic << "' carries a "
+        << envelope.typeName << ", but its subscription takes a "
+        << subscription.expectedTypeName;
     return false;
   }
   return true;
@@ -1001,14 +1095,9 @@ void Bus::Impl::coalesceLatest() {
 }
 
 void Bus::Impl::dispatch(Subscription& subscription,
-                         const robot_ipc_Envelope& envelope) {
+                         const EnvelopeView& envelope) {
   TopicCounters& counters = *subscription.counters;
-  const absl::string_view type = envelope.type_name == nullptr
-                                     ? absl::string_view()
-                                     : absl::string_view(envelope.type_name);
-  const absl::string_view payload(
-      reinterpret_cast<const char*>(envelope.payload._buffer),
-      envelope.payload._length);
+  const absl::string_view payload = envelope.payload;
   if (subscription.message != nullptr &&
       (payload.size() > static_cast<size_t>(INT_MAX) ||
        !subscription.message->ParseFromArray(
@@ -1016,7 +1105,7 @@ void Bus::Impl::dispatch(Subscription& subscription,
     increment(counters.rejected);
     LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
         << "robot_ipc: a sample on '" << subscription.topic
-        << "' does not parse as a " << type;
+        << "' does not parse as a " << envelope.typeName;
     return;
   }
   increment(counters.delivered);
@@ -1024,7 +1113,7 @@ void Bus::Impl::dispatch(Subscription& subscription,
     if (subscription.message != nullptr) {
       subscription.messageHandler(*subscription.message);
     } else {
-      subscription.rawHandler(type, payload);
+      subscription.rawHandler(envelope.typeName, payload);
     }
     // NOLINTNEXTLINE(exceptions): a handler's exception is counted and logged, not let end the IO thread
   } catch (const std::exception& exception) {
@@ -1041,55 +1130,76 @@ void Bus::Impl::dispatch(Subscription& subscription,
   }
 }
 
-void Bus::Impl::refreshStatusIfDue(Clock::time_point now) {
-  if (now < nextStatusRefresh_) {
-    return;
+void Bus::Impl::applyTokenEvents() {
+  std::vector<TokenEvent> events;
+  {
+    absl::MutexLock lock(tokenInbox_.mutex);
+    if (tokenInbox_.events.empty()) {
+      return;
+    }
+    events.swap(tokenInbox_.events);
   }
-  nextStatusRefresh_ =
-      now + std::chrono::duration_cast<Clock::duration>(
-                absl::ToChronoNanoseconds(options_.ioPollPeriod));
+  for (TokenEvent& event : events) {
+    if (!event.alive) {
+      liveTokens_.erase(event.keyExpr);
+      continue;
+    }
+    std::optional<EndpointToken> token =
+        parseEndpointTokenKeyExpr(options_.network, event.keyExpr);
+    if (token.has_value()) {
+      liveTokens_.insert_or_assign(std::move(event.keyExpr), *std::move(token));
+    }
+  }
+  countPeers();
+}
+
+void Bus::Impl::countPeers() {
+  for (std::pair<const std::string, std::unique_ptr<TopicWriter>>& entry :
+       writers_) {
+    const TopicWriter& writer = *entry.second;
+    uint64_t matched = 0;
+    uint64_t incompatible = 0;
+    for (const std::pair<const std::string, EndpointToken>& live :
+         liveTokens_) {
+      const EndpointToken& token = live.second;
+      if (token.role != EndpointRole::kSubscriber ||
+          token.topic != entry.first) {
+        continue;
+      }
+      ++(token.profile == writer.profile ? matched : incompatible);
+    }
+    writer.counters->matchedReaders.store(matched, std::memory_order_relaxed);
+    writer.counters->incompatibleQos.store(incompatible,
+                                           std::memory_order_relaxed);
+  }
   for (std::pair<const std::string, std::unique_ptr<Subscription>>& entry :
        subscriptions_) {
-    Subscription& subscription = *entry.second;
-    TopicCounters& counters = *subscription.counters;
-    dds_sample_lost_status_t lost{};
-    if (dds_get_sample_lost_status(subscription.reader, &lost) ==
-        DDS_RETCODE_OK) {
-      counters.sampleLost.store(lost.total_count, std::memory_order_relaxed);
+    const Subscription& subscription = *entry.second;
+    uint64_t matched = 0;
+    uint64_t incompatible = 0;
+    for (const std::pair<const std::string, EndpointToken>& live :
+         liveTokens_) {
+      const EndpointToken& token = live.second;
+      if (token.role != EndpointRole::kPublisher ||
+          token.topic != subscription.topic) {
+        continue;
+      }
+      ++(token.profile == subscription.profile ? matched : incompatible);
     }
-    dds_sample_rejected_status_t rejected{};
-    if (dds_get_sample_rejected_status(subscription.reader, &rejected) ==
-        DDS_RETCODE_OK) {
-      counters.sampleRejected.store(rejected.total_count,
-                                    std::memory_order_relaxed);
-    }
-    dds_requested_incompatible_qos_status_t incompatible{};
-    if (dds_get_requested_incompatible_qos_status(
-            subscription.reader, &incompatible) == DDS_RETCODE_OK) {
-      counters.requestedIncompatibleQos.store(incompatible.total_count,
-                                              std::memory_order_relaxed);
-    }
-    dds_subscription_matched_status_t matched{};
-    if (dds_get_subscription_matched_status(subscription.reader, &matched) ==
-        DDS_RETCODE_OK) {
-      counters.matchedWriters.store(matched.current_count,
-                                    std::memory_order_relaxed);
-    }
-  }
-  for (std::pair<const std::string, TopicWriter>& entry : writers_) {
-    TopicWriter& writer = entry.second;
-    dds_offered_incompatible_qos_status_t incompatible{};
-    if (dds_get_offered_incompatible_qos_status(writer.writer, &incompatible) ==
-        DDS_RETCODE_OK) {
-      writer.counters->offeredIncompatibleQos.store(incompatible.total_count,
-                                                    std::memory_order_relaxed);
-    }
-    dds_publication_matched_status_t matched{};
-    if (dds_get_publication_matched_status(writer.writer, &matched) ==
-        DDS_RETCODE_OK) {
-      writer.counters->matchedReaders.store(matched.current_count,
-                                            std::memory_order_relaxed);
-    }
+    subscription.counters->matchedWriters.store(matched,
+                                                std::memory_order_relaxed);
+    // A topic this bus both publishes and subscribes counts the incompatible
+    // endpoints of both roles.
+    const absl::flat_hash_map<
+        std::string, std::unique_ptr<TopicWriter>>::const_iterator writer =
+        writers_.find(subscription.topic);
+    const uint64_t writerIncompatible =
+        writer == writers_.end()
+            ? 0
+            : writer->second->counters->incompatibleQos.load(
+                  std::memory_order_relaxed);
+    subscription.counters->incompatibleQos.store(
+        writerIncompatible + incompatible, std::memory_order_relaxed);
   }
 }
 
@@ -1125,7 +1235,6 @@ void Bus::Impl::runDueCallbacks(Clock::time_point now) {
     }
   }
 }
-
 // ---------------------------------------------------------------------------------------------------------------------
 // Bus
 // ---------------------------------------------------------------------------------------------------------------------

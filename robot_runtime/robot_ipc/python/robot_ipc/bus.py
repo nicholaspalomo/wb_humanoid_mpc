@@ -26,23 +26,27 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-"""The DDS bus of the distributed runtime, in Python: the twin of robot_ipc/Bus.h.
+"""The Zenoh bus of the distributed runtime, in Python: the twin of robot_ipc/Bus.h.
 
-Every bus topic is a DDS topic of the same name whose samples are one robot_ipc::Envelope (envelope.py): the wire
-protocol's version, the writer's sequence number, the full protobuf type name and the serialized message, exactly as
-the C++ bus writes them. A sample of another protocol version is refused and counted as rejected.
+Every bus topic is a Zenoh key expression (key_exprs.py) whose samples are one envelope (envelope.py): the wire
+protocol's version, the writer's id and sequence number, the source timestamp, the full protobuf type name and the
+serialized message, exactly as the C++ bus writes them. A sample of another protocol version is refused and counted as
+rejected.
 
-A bus is one Cyclone DDS participant of the network's domain, configured from the network file (domain_config.py):
-unicast discovery to the host of every node, the QoS of each topic by its named profile (qos_profile.py). A named bus
-creates the writers of the topics the file lists its node as a publisher of when it is constructed.
+The buses of a process share one Zenoh peer session of the network's domain, configured from the network file
+(session_config.py): a TCP listener on the node's host, connections to the host of every node, the QoS of each topic by
+its named profile (qos_profile.py). A named bus declares the publishers of the topics the file lists its node as a
+publisher of when it is constructed, and every bus declares a liveliness token per publisher and subscriber, which the
+others count (TopicStatistics.matched_readers, matched_writers).
 
 One drain takes up to max_messages_per_drain samples across the topics and dispatches them in the order they were
 written (their source timestamps, which every bus makes strictly increasing across its topics): every sample of an ALL
 subscription, and the newest one of a LATEST subscription at the place it was written.
 
-The DDS readers and writers belong to the bus's receive thread, which start() launches. Callbacks and periodic
-callbacks run on it, one at a time. publish() may be called from any thread: it serializes on the caller and queues
-the sample for the receive thread, which a guard condition wakes at once; only the receive thread writes to DDS.
+The Zenoh publishers belong to the bus's receive thread, which start() launches; Zenoh's own threads copy each arriving
+sample into its subscription's queue and wake it. Callbacks and periodic callbacks run on the receive thread, one at a
+time. publish() may be called from any thread: it serializes on the caller and queues the sample for the receive
+thread, which it wakes at once; only the receive thread puts samples.
 
     network = robot_ipc.load_network_config("config/ipc/network.textproto")
     with robot_ipc.Bus("operator", network) as bus:
@@ -55,46 +59,46 @@ import dataclasses
 import enum
 import logging
 import math
+import random
 import threading
 import time
 from typing import Any
 
-import cyclonedds.builtin
-import cyclonedds.core
-import cyclonedds.domain
-import cyclonedds.pub
-import cyclonedds.qos
-import cyclonedds.sub
-import cyclonedds.topic
 from google.protobuf import message as protobuf_message
+import zenoh
 
-from robot_ipc import domain_config
 from robot_ipc import envelope
+from robot_ipc import key_exprs
 from robot_ipc import network_config
 from robot_ipc import qos_profile
+from robot_ipc import session_config
 
 _LOGGER = logging.getLogger("robot_ipc")
 
 # The receive thread logs a recurring problem at most this often, in seconds.
 _LOG_PERIOD = 5.0
-# The name of the DDS participant of a bus that only subscribes.
-_SUBSCRIBER_PARTICIPANT_NAME = "robot_ipc_subscriber"
-# A reliable write never waits for acknowledgments: at the writer's unacknowledged-bytes limit it fails at once and is
-# counted as send_dropped.
-_RELIABLE_WRITE_BLOCKING_TIME_NS = 0
-_NANOSECONDS_PER_SECOND = 1_000_000_000
-_ANY_STATE = (
-    cyclonedds.core.SampleState.Any
-    | cyclonedds.core.ViewState.Any
-    | cyclonedds.core.InstanceState.Any
-)
+# Zenoh's own log: errors only, unless RUST_LOG says otherwise.
+_ZENOH_LOG_FILTER = "error"
+# The listen port of the configuration that buses sharing a session compare.
+_SHARED_CONFIG_PORT = 0
+# The width of a random writer or bus id, in bits.
+_ID_BITS = 64
 
 WIRE_PROTOCOL_VERSION = envelope.WIRE_PROTOCOL_VERSION
+
+_CONGESTION_CONTROLS = {
+    qos_profile.CongestionControl.DROP: zenoh.CongestionControl.DROP,
+    qos_profile.CongestionControl.BLOCK: zenoh.CongestionControl.BLOCK,
+}
+_PRIORITIES = {
+    qos_profile.Priority.INTERACTIVE_HIGH: zenoh.Priority.INTERACTIVE_HIGH,
+    qos_profile.Priority.DATA: zenoh.Priority.DATA,
+}
 
 
 # LINT.IfChange(delivery_names)
 class Delivery(str, enum.Enum):
-    """What a subscription is handed of a topic each time the receive thread drains it."""
+    """What a subscription receives of a topic each time the receive thread drains it."""
 
     # Only the newest sample of the topic; the older ones of the same drain are dropped unparsed (superseded).
     LATEST = "latest"
@@ -112,7 +116,7 @@ def parse_delivery(value: str | Delivery) -> Delivery:
         value: The name of a delivery, or a Delivery, which is returned as it is.
 
     Returns:
-        The Delivery that `value` names.
+        The Delivery that `value` specifies.
 
     Raises:
         ValueError: an unknown name; the message lists the valid ones.
@@ -133,25 +137,23 @@ def parse_delivery(value: str | Delivery) -> Delivery:
 class TopicStatistics:
     """What a bus did with one topic; see robot_ipc/TopicStatistics.h.
 
-    Once a drain has dispatched, received == delivered + superseded + rejected. The last five fields are DDS's own
-    account, refreshed by the receive thread at most every io_poll_period.
+    Once a drain has dispatched, received == delivered + superseded + rejected. The last three fields count the
+    liveliness tokens of the buses (key_exprs.py), as the receive thread last saw them.
 
     Attributes:
-        written: samples passed to the topic's DDS writer, not delivered ones.
-        send_dropped: publish() calls refused because the queue to the receive thread was full, writes DDS refused,
+        written: samples passed to the topic's Zenoh publisher, not delivered ones.
+        send_dropped: publish() calls refused because the queue to the receive thread was full, puts Zenoh refused,
             and queued samples close() discarded because the bus was not running to send them.
-        received: samples taken from the topic's DDS reader.
+        received: samples taken from the subscription's queue.
         delivered: samples passed to the callback (including those whose callback then raised).
         superseded: LATEST only: samples replaced by a newer one of the same drain before they were parsed.
         rejected: samples of another wire protocol version, another type than the subscription's, or that did not
             parse.
         handler_errors: callback calls that raised; the bus logs and counts them and carries on.
-        missed: samples a matched writer wrote that the reader never took (gaps in its sequence numbers).
-        sample_lost: DDS SAMPLE_LOST of the reader.
-        sample_rejected: DDS SAMPLE_REJECTED of the reader.
-        incompatible_qos: DDS REQUESTED_ and OFFERED_INCOMPATIBLE_QOS of the topic's reader and writer.
-        matched_readers: the DDS readers this bus's writer of the topic currently matches.
-        matched_writers: the DDS writers this bus's reader of the topic currently matches.
+        missed: samples a writer wrote that the subscription never took (gaps in its sequence numbers).
+        incompatible_qos: publishers and subscribers of the topic whose profile is another than this bus's.
+        matched_readers: the subscribers of the topic with this bus's profile, while this bus has a publisher of it.
+        matched_writers: the publishers of the topic with this bus's profile, while this bus subscribes to it.
     """
 
     written: int = 0
@@ -162,8 +164,6 @@ class TopicStatistics:
     rejected: int = 0
     handler_errors: int = 0
     missed: int = 0
-    sample_lost: int = 0
-    sample_rejected: int = 0
     incompatible_qos: int = 0
     matched_readers: int = 0
     matched_writers: int = 0
@@ -173,7 +173,7 @@ class TopicStatistics:
 
 
 class BusError(RuntimeError):
-    """The bus cannot do what was asked in its current state, or cannot join its DDS domain."""
+    """The bus cannot do what was asked in its current state, or cannot open its Zenoh session."""
 
 
 MessageCallback = Callable[[protobuf_message.Message], None]
@@ -181,67 +181,144 @@ RawCallback = Callable[[str, bytes], None]
 TopicCallback = Callable[[str, str, bytes], None]
 
 
-class _DomainRegistry:
-    """The Cyclone DDS domains of this process, shared by its buses (robot_ipc/src/DomainRegistry.h).
+@dataclasses.dataclass
+class _Session:
+    """One open session of the registry."""
 
-    A process configures a domain once, so the buses of one domain share it: the first creates it, the last to release
-    it lets it go. Thread-safe.
+    session: Any
+    shared_config: str
+    config: str
+    users: int = 1
+
+
+class _SessionRegistry:
+    """The Zenoh sessions of this process, one per domain, shared by its buses (robot_ipc/src/SessionRegistry.h).
+
+    The first bus of a domain opens its session, on the lowest free port of the domain, and the last to release it
+    closes it. Thread-safe.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        # domain id -> [the Domain, its configuration, its users].
-        self._domains: dict[int, list[Any]] = {}
+        self._sessions: dict[int, _Session] = {}
+        self._log_initialized = False
 
-    def acquire(self, domain_id: int, config: str) -> None:
-        """Creates the domain with `config`, or counts one more user of it; another configuration is refused.
+    def acquire(
+        self, network: network_config.NetworkConfig, node_name: str
+    ) -> _Session:
+        """Opens the session of `network`'s domain, or counts one more user of it; another configuration is refused.
 
         Args:
-            domain_id: The DDS domain.
-            config: Its Cyclone DDS configuration.
+            network: The network.
+            node_name: The node of the bus; empty for one that only subscribes.
+
+        Returns:
+            The session entry.
 
         Raises:
-            BusError: the domain exists with another configuration, or DDS cannot create it.
+            session_config.InterfaceError: the node's host is an address of another machine.
+            BusError: the session is open with another configuration, or no port of the domain is free.
         """
+        shared_config = session_config.zenoh_session_config(
+            network, node_name, _SHARED_CONFIG_PORT
+        )
         with self._lock:
-            entry = self._domains.get(domain_id)
+            entry = self._sessions.get(network.domain_id)
             if entry is not None:
-                if entry[1] != config:
+                if entry.shared_config != shared_config:
                     raise BusError(
-                        f"DDS domain {domain_id} is configured differently by"
-                        " another bus of this process (a bus of another node"
+                        f"domain {network.domain_id} is configured differently"
+                        " by another bus of this process (a bus of another node"
                         " or network); use one network file and node per"
                         " process"
                     )
-                entry[2] += 1
-                return
-            try:
-                created = cyclonedds.domain.Domain(domain_id, config)
-            except cyclonedds.core.DDSException as error:
-                raise BusError(
-                    f"cannot create DDS domain {domain_id}:"
-                    f" {error} (configuration: {config})"
-                ) from error
-            self._domains[domain_id] = [created, config, 1]
+                entry.users += 1
+                return entry
+            if not self._log_initialized:
+                zenoh.init_log_from_env_or(_ZENOH_LOG_FILTER)
+                self._log_initialized = True
+            listen_address = session_config.interface_address_for(
+                network, node_name
+            )
+            ports = session_config.tcp_port_range(network)
+            for port in range(ports.first, ports.last + 1):
+                # A taken port is skipped before Zenoh tries it, which would log an error.
+                if not session_config.is_tcp_port_free(listen_address, port):
+                    continue
+                config = session_config.zenoh_session_config(
+                    network, node_name, port
+                )
+                try:
+                    session = zenoh.open(zenoh.Config.from_json5(config))
+                except zenoh.ZError:
+                    continue
+                entry = _Session(session, shared_config, config)
+                self._sessions[network.domain_id] = entry
+                return entry
+            raise BusError(
+                f"no Zenoh session of domain {network.domain_id} could listen"
+                f" on any TCP port of {ports.first}-{ports.last}: every port is"
+                " taken on this machine (stop a process of the domain, or raise"
+                " transport.max_processes_per_host), or the listen address is"
+                " not this machine's"
+            )
 
     def release(self, domain_id: int) -> None:
-        """Releases one use of the domain; the last release deletes it."""
+        """Releases one use of the domain's session; the last release closes it."""
         with self._lock:
-            entry = self._domains.get(domain_id)
+            entry = self._sessions.get(domain_id)
             if entry is None:
                 return
-            entry[2] -= 1
-            if entry[2] == 0:
-                del self._domains[domain_id]
+            entry.users -= 1
+            if entry.users == 0:
+                del self._sessions[domain_id]
+                entry.session.close()
 
 
-# Process-wide, like the DDS domains it tracks: a domain is configured once per process.
-_DOMAINS = _DomainRegistry()
+# Process-wide, like the sessions it tracks: one session per domain and process.
+_SESSIONS = _SessionRegistry()
+
+# The random ids of writers and buses; a module-level generator rather than one per bus, under its own lock.
+_ID_LOCK = threading.Lock()
+_ID_RANDOM = random.SystemRandom()
+
+
+def _random_id() -> int:
+    with _ID_LOCK:
+        return _ID_RANDOM.getrandbits(_ID_BITS)
+
+
+class _Inbox:
+    """Zenoh's threads -> the receive thread: the newest `depth` items (None: all), and a wake-up of the receive thread.
+
+    Thread-safe.
+    """
+
+    def __init__(self, depth: int | None, wake: Callable[[], None]) -> None:
+        self._lock = threading.Lock()
+        self._items: collections.deque[Any] = collections.deque(maxlen=depth)
+        self._wake = wake
+
+    def put(self, item: Any) -> None:
+        """Appends `item`, dropping the oldest at the depth, and wakes the receive thread."""
+        with self._lock:
+            self._items.append(item)
+        self._wake()
+
+    def take(self, budget: int) -> list[Any]:
+        """The oldest items, up to `budget`; what is left stays for the next drain."""
+        with self._lock:
+            count = min(budget, len(self._items))
+            return [self._items.popleft() for _ in range(count)]
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._items)
 
 
 @dataclasses.dataclass
 class _Subscription:
-    """One subscription of the bus and its DDS reader."""
+    """One subscription of the bus, its Zenoh subscriber and its queue."""
 
     topic: str
     delivery: Delivery
@@ -250,8 +327,11 @@ class _Subscription:
     message_class: type[protobuf_message.Message] | None
     expected_type: str
     statistics: TopicStatistics
-    reader: Any = None
-    # The last sequence number of each writer (its publication handle) this reader took a sample of.
+    profile: qos_profile.QosProfile = qos_profile.QosProfile.RELIABLE_EVENTS
+    inbox: _Inbox | None = None
+    subscriber: Any = None
+    token: Any = None
+    # The last sequence number of each writer this subscription took a sample of.
     last_sequence: dict[int, int] = dataclasses.field(default_factory=dict)
     # LATEST: the index, in the drain's pending samples, of the newest sample of this subscription so far.
     latest: int | None = None
@@ -259,9 +339,12 @@ class _Subscription:
 
 @dataclasses.dataclass
 class _Writer:
-    """The DDS writer of one topic, and the sequence number of its last sample."""
+    """The Zenoh publisher of one topic, its liveliness token and the sequence number of its last sample."""
 
-    writer: Any
+    publisher: Any
+    token: Any
+    profile: qos_profile.QosProfile
+    writer_id: int
     statistics: TopicStatistics
     last_sequence: int = 0
 
@@ -270,7 +353,6 @@ class _Writer:
 class _PendingMessage:
     """A sample a drain has taken and dispatches once it has taken the rest, in the order the samples were written."""
 
-    source_timestamp: int
     # None for the subscription to every topic.
     subscription: _Subscription | None
     topic: str
@@ -301,46 +383,25 @@ class _RateLimitedLog:
             _LOGGER.warning("robot_ipc: %s", text, exc_info=exc_info)
 
 
-def _qos(
-    profile: qos_profile.QosProfile, depth: int, *policies: Any
-) -> cyclonedds.qos.Qos:
-    """The QoS of a reader or writer of `profile` with a KEEP_LAST history of `depth`, plus `policies`."""
-    if (
-        qos_profile.qos_policy(profile).reliability
-        is qos_profile.Reliability.RELIABLE
-    ):
-        reliability = cyclonedds.qos.Policy.Reliability.Reliable(
-            max_blocking_time=_RELIABLE_WRITE_BLOCKING_TIME_NS
-        )
-    else:
-        reliability = cyclonedds.qos.Policy.Reliability.BestEffort
-    return cyclonedds.qos.Qos(
-        reliability,
-        cyclonedds.qos.Policy.History.KeepLast(depth),
-        cyclonedds.qos.Policy.Durability.Volatile,
-        *policies,
-    )
-
-
 class Bus:
-    """A publish/subscribe bus over Cyclone DDS, wire-compatible with the C++ robot::ipc::Bus.
+    """A publish/subscribe bus over Zenoh, wire-compatible with the C++ robot::ipc::Bus.
 
     Args:
         node_name: the node this process publishes as. Empty: only subscribe.
-        network: the DDS network: domain, discovery peers, topic QoS and transport.
+        network: the Zenoh network: domain, peers, topic QoS and transport.
         io_poll_period: the longest the receive thread waits, in seconds; publish(), stop(), arriving samples and
             due periodic callbacks all wake it at once.
         publish_queue_capacity: messages publish() queues before it refuses (counted as send_dropped).
         max_messages_per_drain: the most samples one drain takes, across topics, before the thread dispatches.
-        latest_delivery_history_depth: the KEEP_LAST depth of the reader of a LATEST subscription (more than one, so
-            that a sample of the wrong type does not displace a valid one before the drain sees both).
-        all_delivery_history_depth: the KEEP_LAST depth of the reader of an ALL subscription.
+        latest_delivery_history_depth: the samples the queue of a LATEST subscription keeps, the newest (more than
+            one, so that a sample of the wrong type does not displace a valid one before the drain sees both).
+        all_delivery_history_depth: the samples the queue of an ALL subscription keeps while the thread is busy.
 
     Raises:
         network_config.NetworkConfigError: the network is invalid.
         ValueError: the node is not in the network, or an option is out of range.
-        domain_config.InterfaceError: the node's host is an address of another machine.
-        BusError: the process's buses disagree about the domain's configuration, or DDS fails.
+        session_config.InterfaceError: the node's host is an address of another machine.
+        BusError: the process's buses disagree about the domain's configuration, or Zenoh fails.
     """
 
     # LINT.IfChange(bus_defaults)
@@ -386,18 +447,19 @@ class Bus:
         self._max_messages_per_drain = max_messages_per_drain
         self._latest_delivery_history_depth = latest_delivery_history_depth
         self._all_delivery_history_depth = all_delivery_history_depth
+        self._bus_id = f"{_random_id():016x}"
 
         self._lifecycle_lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._io_thread_ident: int | None = None
         self._stop_requested = threading.Event()
+        self._woken = threading.Event()
         self._closed = False
 
         self._subscriptions: dict[str, _Subscription] = {}
         self._all_topics_callback: TopicCallback | None = None
-        # The subscription to every topic: the publications discovered so far, and a reader of each Envelope topic.
-        self._publications_reader: Any = None
-        self._all_topics_readers: dict[str, Any] = {}
+        self._all_topics_inbox: _Inbox | None = None
+        self._all_topics_subscriber: Any = None
         self._periodic_callbacks: list[_PeriodicCallback] = []
         self._periodic_callback_errors = 0
 
@@ -409,119 +471,119 @@ class Bus:
         self._statistics: dict[str, TopicStatistics] = {}
         self._log = _RateLimitedLog()
         self._last_source_timestamp = 0
-        self._next_status_refresh = 0.0
-
-        self._domain_config = domain_config.cyclone_domain_config(
-            network, node_name
-        )
-        _DOMAINS.acquire(network.domain_id, self._domain_config)
-        self._topics: dict[str, Any] = {}
+        # Zenoh's threads -> the receive thread: (key expression, alive) of the domain's liveliness tokens.
+        self._token_events = _Inbox(depth=None, wake=self._wake)
+        # The live tokens of the domain by key expression (receive thread).
+        self._live_tokens: dict[str, key_exprs.EndpointToken] = {}
         self._writers: dict[str, _Writer] = {}
-        # Set below; None once close() released them.
-        self._participant: Any = None
-        self._waitset: Any = None
-        self._wake_condition: Any = None
+        self._token_subscriber: Any = None
+
+        entry = _SESSIONS.acquire(network, node_name)
+        self._session: Any = entry.session
+        self._session_config = entry.config
         try:
-            self._participant = cyclonedds.domain.DomainParticipant(
-                network.domain_id,
-                qos=cyclonedds.qos.Qos(
-                    cyclonedds.qos.Policy.EntityName(
-                        node_name or _SUBSCRIBER_PARTICIPANT_NAME
-                    )
-                ),
+            self._token_subscriber = (
+                self._session.liveliness().declare_subscriber(
+                    key_exprs.all_endpoint_tokens_key_expr(network),
+                    self._on_token,
+                    history=True,
+                )
             )
-            self._waitset = cyclonedds.core.WaitSet(self._participant)
-            self._wake_condition = cyclonedds.core.GuardCondition(
-                self._participant
-            )
-            self._waitset.attach(self._wake_condition)
-            # The writers of the topics this node publishes exist from the start, so that the subscribers have
-            # discovered them before the first sample (a VOLATILE reader gets only what is written after it matched).
+            # The publishers of the topics this node publishes exist from the start, so that the subscribers know of
+            # them before the first sample (a subscriber gets only what is put after the declarations met).
             for name in (
                 network.topics_published_by(node_name) if node_name else []
             ):
                 self._writer_for(name)
-        except cyclonedds.core.DDSException as error:
-            self._release_dds()
+        except zenoh.ZError as error:
+            self._release_zenoh()
             raise BusError(
-                f"cannot set up the DDS entities: {error}"
+                f"cannot declare the Zenoh entities: {error}"
             ) from error
         except BaseException:
-            self._release_dds()
+            self._release_zenoh()
             raise
 
-    def _release_dds(self) -> None:
-        """Drops the DDS entities, the participant last, and releases the domain."""
-        self._writers = {}
-        self._all_topics_readers = {}
-        self._publications_reader = None
+    def _release_zenoh(self) -> None:
+        """Undeclares the subscribers first, then the publishers and tokens, and releases the session."""
+        if self._session is None:
+            return
+        undeclared = [self._token_subscriber, self._all_topics_subscriber]
         for subscription in self._subscriptions.values():
-            subscription.reader = None
-        self._topics = {}
-        self._wake_condition = None
-        self._waitset = None
-        self._participant = None
-        _DOMAINS.release(self._network.domain_id)
+            undeclared += [subscription.subscriber, subscription.token]
+            subscription.subscriber = subscription.token = None
+        for writer in self._writers.values():
+            undeclared += [writer.publisher, writer.token]
+        for entity in undeclared:
+            if entity is not None:
+                entity.undeclare()
+        self._token_subscriber = self._all_topics_subscriber = None
+        self._writers = {}
+        self._session = None
+        _SESSIONS.release(self._network.domain_id)
 
-    def _topic_for(self, name: str) -> Any:
-        """The DDS topic of `name`, created on first use."""
-        existing = self._topics.get(name)
+    def _declare_token(
+        self,
+        role: key_exprs.EndpointRole,
+        profile: qos_profile.QosProfile,
+        topic: str,
+    ) -> Any:
+        return self._session.liveliness().declare_token(
+            key_exprs.endpoint_token_key_expr(
+                self._network,
+                key_exprs.EndpointToken(
+                    role=role, profile=profile, bus_id=self._bus_id, topic=topic
+                ),
+            )
+        )
+
+    def _writer_for(self, name: str) -> _Writer:
+        """The Zenoh publisher of topic `name`, declared on first use with the topic's QoS profile."""
+        existing = self._writers.get(name)
         if existing is not None:
             return existing
         problem = network_config.topic_name_problem(name)
         if problem is not None:
             raise ValueError(problem)
-        created = cyclonedds.topic.Topic(
-            self._participant, name, envelope.Envelope
-        )
-        self._topics[name] = created
-        return created
-
-    def _writer_for(self, name: str) -> _Writer:
-        """The DDS writer of topic `name`, created on first use with the topic's QoS profile."""
-        existing = self._writers.get(name)
-        if existing is not None:
-            return existing
         profile = self._network.qos_profile_of(name)
-        writer = cyclonedds.pub.DataWriter(
-            self._participant,
-            self._topic_for(name),
-            qos=_qos(
-                profile,
-                qos_profile.qos_policy(profile).writer_history_depth,
-                cyclonedds.qos.Policy.DataRepresentation(
-                    use_xcdrv2_representation=True
-                ),
-                cyclonedds.qos.Policy.EntityName(self._node_name),
-            ),
+        policy = qos_profile.qos_policy(profile)
+        publisher = self._session.declare_publisher(
+            key_exprs.data_key_expr(self._network, name),
+            congestion_control=_CONGESTION_CONTROLS[policy.congestion_control],
+            priority=_PRIORITIES[policy.priority],
+            express=policy.express,
+        )
+        token = self._declare_token(
+            key_exprs.EndpointRole.PUBLISHER, profile, name
         )
         with self._statistics_lock:
             statistics = self._statistics_of(name)
-        created = _Writer(writer=writer, statistics=statistics)
+        created = _Writer(
+            publisher=publisher,
+            token=token,
+            profile=profile,
+            writer_id=_random_id(),
+            statistics=statistics,
+        )
         self._writers[name] = created
+        self._count_peers()
         return created
 
-    def _create_reader(self, name: str, delivery: Delivery) -> Any:
-        """Creates the DDS reader of topic `name` for `delivery` and attaches it to the waitset."""
-        depth = (
-            self._all_delivery_history_depth
-            if delivery is Delivery.ALL
-            else self._latest_delivery_history_depth
+    def _on_sample(self, inbox: _Inbox, sample: Any) -> None:
+        """A subscription's sample, on a Zenoh thread."""
+        inbox.put(sample.payload.to_bytes())
+
+    def _on_all_topics_sample(self, sample: Any) -> None:
+        """A sample of any topic, on a Zenoh thread (subscribe_all_topics())."""
+        inbox = self._all_topics_inbox
+        if inbox is not None:
+            inbox.put((str(sample.key_expr), sample.payload.to_bytes()))
+
+    def _on_token(self, sample: Any) -> None:
+        """A liveliness token that appeared or went away, on a Zenoh thread."""
+        self._token_events.put(
+            (str(sample.key_expr), sample.kind == zenoh.SampleKind.PUT)
         )
-        reader = cyclonedds.sub.DataReader(
-            self._participant,
-            self._topic_for(name),
-            qos=_qos(
-                self._network.qos_profile_of(name),
-                depth,
-                cyclonedds.qos.Policy.DataRepresentation(
-                    use_cdrv0_representation=True,
-                    use_xcdrv2_representation=True,
-                ),
-            ),
-        )
-        self._waitset.attach(cyclonedds.core.ReadCondition(reader, _ANY_STATE))
-        return reader
 
     # ------------------------------------------------------------------------------------------------------------------
     # Configuration (while the bus is not running)
@@ -534,18 +596,18 @@ class Bus:
         callback: MessageCallback,
         delivery: str | Delivery = Delivery.LATEST,
     ) -> None:
-        """Hands every message of `topic` that carries `message_class` to `callback`, on the receive thread.
+        """Passes every message of `topic` that has `message_class` to `callback`, on the receive thread.
 
         A message of another type, or one that does not parse, is rejected and counted. One subscription per topic.
 
         Args:
-            topic: The topic, a DDS topic name.
-            message_class: The generated protobuf class the messages of the topic carry.
+            topic: The topic.
+            message_class: The generated protobuf class the messages of the topic have.
             callback: Called with each parsed message.
             delivery: Delivery.LATEST (or "latest") or Delivery.ALL (or "all").
 
         Raises:
-            ValueError: `message_class` is not a generated message, the topic is not a DDS topic name or already
+            ValueError: `message_class` is not a generated message, the topic is not a bus topic or already
                 subscribed, or the callback is not callable.
             BusError: the bus is running or closed.
         """
@@ -571,7 +633,7 @@ class Bus:
         callback: RawCallback,
         delivery: str | Delivery = Delivery.LATEST,
     ) -> None:
-        """Hands every message of `topic` to `callback(type_name, payload)`, whatever its type."""
+        """Passes every message of `topic` to `callback(type_name, payload)`, whatever its type."""
         self._add_subscription(
             _Subscription(
                 topic=topic,
@@ -584,11 +646,10 @@ class Bus:
         )
 
     def subscribe_all_topics(self, callback: TopicCallback) -> None:
-        """Hands every message of every topic to `callback(topic, type_name, payload)`, in order (for tools/ipc).
+        """Passes every message of every topic to `callback(topic, type_name, payload)`, in order (for tools/ipc).
 
-        The bus discovers the topics from the DDS publications it sees, and reads each one whose type is the envelope
-        with a BEST_EFFORT reader, which matches every writer. It sees the messages of the topics that have their own
-        subscription too, from the moment it discovered their publisher. It keeps no per-topic statistics.
+        One Zenoh subscriber takes every key expression of the domain and tag, of every profile. It sees the messages of
+        the topics that have their own subscription too. It keeps no per-topic statistics.
 
         Args:
             callback: Called with the topic, the type name and the serialized message of each message.
@@ -606,19 +667,17 @@ class Bus:
                 raise ValueError(
                     "the bus already has a subscription to every topic"
                 )
-            self._publications_reader = cyclonedds.builtin.BuiltinDataReader(
-                self._participant,
-                cyclonedds.builtin.BuiltinTopicDcpsPublication,
+            self._all_topics_inbox = _Inbox(
+                self._all_delivery_history_depth, self._wake
             )
-            self._waitset.attach(
-                cyclonedds.core.ReadCondition(
-                    self._publications_reader, _ANY_STATE
-                )
+            self._all_topics_subscriber = self._session.declare_subscriber(
+                key_exprs.all_topics_key_expr(self._network),
+                self._on_all_topics_sample,
             )
             self._all_topics_callback = callback
 
     def _add_subscription(self, subscription: _Subscription) -> None:
-        """Validates `subscription` and creates its DDS reader; the bus must not be running."""
+        """Validates `subscription` and declares its Zenoh subscriber; the bus must not be running."""
         if not isinstance(subscription.topic, str):
             raise ValueError("the topic is not a string")
         problem = network_config.topic_name_problem(subscription.topic)
@@ -634,20 +693,41 @@ class Bus:
                     f"the topic '{subscription.topic}' already has a"
                     " subscription"
                 )
+            subscription.profile = self._network.qos_profile_of(
+                subscription.topic
+            )
+            inbox = _Inbox(
+                (
+                    self._all_delivery_history_depth
+                    if subscription.delivery is Delivery.ALL
+                    else self._latest_delivery_history_depth
+                ),
+                self._wake,
+            )
+            subscription.inbox = inbox
             try:
-                subscription.reader = self._create_reader(
-                    subscription.topic, subscription.delivery
+                subscription.subscriber = self._session.declare_subscriber(
+                    key_exprs.data_key_expr(self._network, subscription.topic),
+                    lambda sample: self._on_sample(inbox, sample),
                 )
-            except cyclonedds.core.DDSException as error:
+                subscription.token = self._declare_token(
+                    key_exprs.EndpointRole.SUBSCRIBER,
+                    subscription.profile,
+                    subscription.topic,
+                )
+            except zenoh.ZError as error:
+                if subscription.subscriber is not None:
+                    subscription.subscriber.undeclare()
                 raise BusError(
-                    f"cannot create the DDS reader of '{subscription.topic}':"
-                    f" {error}"
+                    f"cannot declare the Zenoh subscriber of"
+                    f" '{subscription.topic}': {error}"
                 ) from error
             with self._statistics_lock:
                 subscription.statistics = self._statistics.setdefault(
                     subscription.topic, subscription.statistics
                 )
             self._subscriptions[subscription.topic] = subscription
+            self._count_peers()
 
     def add_periodic_callback(
         self, period: float, callback: Callable[[], None]
@@ -714,7 +794,6 @@ class Bus:
             now = time.monotonic()
             for periodic in self._periodic_callbacks:
                 periodic.next_deadline = now + periodic.period
-            self._next_status_refresh = now
             self._thread = threading.Thread(
                 target=self._run,
                 name=f"robot_ipc-{self._node_name or 'subscriber'}",
@@ -740,12 +819,11 @@ class Bus:
             self._thread = None
 
     def close(self) -> None:
-        """Stops the bus and deletes its DDS entities; the bus cannot be started again. Idempotent.
+        """Stops the bus and undeclares its Zenoh entities; the bus cannot be started again. Idempotent.
 
-        From the call on, publish() raises BusError. On a running bus, what was queued before is written first. On a
-        bus that is not running, the queue is discarded and counted as send_dropped, as is a publish() that raced the
-        call and landed after the last write. A reliable sample that DDS has not delivered yet is still sent while its
-        writer lingers (Cyclone DDS's WriterLingerDuration).
+        From the call on, publish() raises BusError. On a running bus, what was queued before is put first. On a bus
+        that is not running, the queue is discarded and counted as send_dropped, as is a publish() that raced the call
+        and landed after the last put.
 
         Raises:
             BusError: called from one of the bus's own callbacks, whose entities are still in use.
@@ -762,7 +840,7 @@ class Bus:
         self.stop()
         self._discard_queued()
         with self._lifecycle_lock:
-            self._release_dds()
+            self._release_zenoh()
 
     def _discard_queued(self) -> None:
         """Counts what is still queued at close() as send_dropped of its topic, and logs how many there were."""
@@ -818,7 +896,7 @@ class Bus:
 
         Raises:
             BusError: the bus has no node name, so it only subscribes; or it is closed.
-            ValueError: the topic is not a DDS topic name.
+            ValueError: the topic is not a bus topic.
         """
         return self.publish_raw(
             topic, message.DESCRIPTOR.full_name, message.SerializeToString()
@@ -846,7 +924,7 @@ class Bus:
     def publish_from_io_thread(
         self, topic: str, message: protobuf_message.Message
     ) -> None:
-        """Publishes from a callback or a periodic callback, straight to the DDS writer.
+        """Publishes from a callback or a periodic callback, straight to the Zenoh publisher.
 
         Args:
             topic: The topic to publish on.
@@ -880,13 +958,7 @@ class Bus:
             raise ValueError(problem)
 
     def _wake(self) -> None:
-        condition = self._wake_condition
-        if condition is not None:
-            try:
-                condition.set(True)
-            except cyclonedds.core.DDSException:
-                # The bus is being closed: its receive thread has stopped already.
-                pass
+        self._woken.set()
 
     # ------------------------------------------------------------------------------------------------------------------
     # Introspection (from any thread)
@@ -899,18 +971,18 @@ class Bus:
 
     @property
     def domain_id(self) -> int:
-        """The DDS domain of the bus."""
+        """The domain of the bus."""
         return self._network.domain_id
 
     @property
     def discovery_peers(self) -> list[str]:
-        """The hosts the bus sends its discovery packets to: the distinct hosts of the network's nodes."""
+        """The hosts the bus connects to: the distinct hosts of the network's nodes."""
         return self._network.peer_hosts()
 
     @property
     def domain_config(self) -> str:
-        """The Cyclone DDS configuration the bus joined its domain with."""
-        return self._domain_config
+        """The Zenoh configuration the bus's session was opened with."""
+        return self._session_config
 
     @property
     def periodic_callback_errors(self) -> int:
@@ -947,19 +1019,17 @@ class Bus:
     # ------------------------------------------------------------------------------------------------------------------
 
     def _run(self) -> None:
-        """The receive thread: waits on the waitset, writes, drains and runs the due periodic callbacks."""
+        """The receive thread: waits to be woken, puts, drains and runs the due periodic callbacks."""
         self._io_thread_ident = threading.get_ident()
         try:
             while not self._stop_requested.is_set():
                 try:
-                    self._waitset.wait(self._wait_timeout_ns())
-                    self._wake_condition.take()
+                    self._woken.wait(self._wait_timeout())
+                    self._woken.clear()
                     self._send_queued()
-                    self._discover_topics()
+                    self._apply_token_events()
                     self._drain()
-                    now = time.monotonic()
-                    self._refresh_status_if_due(now)
-                    self._run_due_callbacks(now)
+                    self._run_due_callbacks(time.monotonic())
                 # pylint: disable-next=broad-exception-caught  # The outermost loop of the receive thread.
                 except Exception:
                     # Nothing escapes the receive thread.
@@ -970,7 +1040,7 @@ class Bus:
                     )
             try:
                 self._send_queued()
-                self._refresh_status_if_due(time.monotonic())
+                self._apply_token_events()
             # pylint: disable-next=broad-exception-caught  # The receive thread's last act; nothing escapes it.
             except Exception:
                 self._log.warning(
@@ -981,14 +1051,12 @@ class Bus:
         finally:
             self._io_thread_ident = None
 
-    def _wait_timeout_ns(self) -> int:
+    def _wait_timeout(self) -> float:
         wait = self._io_poll_period
         now = time.monotonic()
         for periodic in self._periodic_callbacks:
             wait = min(wait, periodic.next_deadline - now)
-        if wait <= 0:
-            return 0
-        return int(math.ceil(wait * _NANOSECONDS_PER_SECOND))
+        return max(wait, 0.0)
 
     def _send_queued(self) -> None:
         with self._queue_lock:
@@ -1006,7 +1074,7 @@ class Bus:
         return self._last_source_timestamp
 
     def _send(self, topic: str, type_name: str, payload: bytes) -> None:
-        """Writes one sample without waiting, and counts it as written or dropped.
+        """Puts one sample, and counts it as written or dropped.
 
         Args:
             topic: The topic.
@@ -1017,100 +1085,101 @@ class Bus:
             writer = self._writer_for(topic)
             sample = envelope.Envelope(
                 protocol_version=envelope.WIRE_PROTOCOL_VERSION,
+                writer_id=writer.writer_id,
                 sequence_number=writer.last_sequence + 1,
+                source_timestamp_ns=self._next_source_timestamp(),
                 type_name=type_name,
                 payload=payload,
             )
-            writer.writer.write(sample, timestamp=self._next_source_timestamp())
-        except cyclonedds.core.DDSException as error:
+            writer.publisher.put(sample.encode())
+        except zenoh.ZError as error:
             with self._statistics_lock:
                 self._statistics_of(topic).send_dropped += 1
             self._log.warning(
-                f"send:{topic}", f"writing on '{topic}' failed: {error}"
+                f"send:{topic}",
+                f"putting a sample on '{topic}' failed: {error}",
             )
             return
         writer.last_sequence = sample.sequence_number
         with self._statistics_lock:
             writer.statistics.written += 1
 
-    def _discover_topics(self) -> None:
-        """Creates a reader for each envelope topic a newly discovered publication writes (subscribe_all_topics())."""
-        if self._publications_reader is None:
-            return
-        for publication in self._publications_reader.take(
-            self._max_messages_per_drain
-        ):
-            name = getattr(publication, "topic_name", None)
-            if (
-                name is None
-                or name in self._all_topics_readers
-                or getattr(publication, "type_name", None)
-                != envelope.ENVELOPE_TYPE_NAME
-            ):
-                continue
-            self._all_topics_readers[name] = cyclonedds.sub.DataReader(
-                self._participant,
-                self._topic_for(name),
-                qos=_qos(
-                    qos_profile.QosProfile.LATEST,
-                    self._all_delivery_history_depth,
-                    cyclonedds.qos.Policy.DataRepresentation(
-                        use_cdrv0_representation=True,
-                        use_xcdrv2_representation=True,
-                    ),
-                ),
+    def _decode(self, topic: str, data: bytes) -> envelope.Envelope | None:
+        """The envelope of `data` when it is of this bus's wire protocol; logs why not."""
+        version = envelope.protocol_version_of(data)
+        if version != envelope.WIRE_PROTOCOL_VERSION:
+            self._log.warning(
+                f"protocol:{topic}",
+                f"a sample on '{topic}' speaks wire protocol {version}, but this"
+                f" bus speaks {envelope.WIRE_PROTOCOL_VERSION}; rebuild both"
+                " from the same checkout",
             )
-            self._waitset.attach(
-                cyclonedds.core.ReadCondition(
-                    self._all_topics_readers[name], _ANY_STATE
-                )
+            return None
+        try:
+            return envelope.decode(data)
+        except envelope.EnvelopeError as error:
+            self._log.warning(
+                f"envelope:{topic}", f"a sample on '{topic}': {error}"
             )
+            return None
 
     def _take(
         self,
-        reader: Any,
+        subscription: _Subscription,
         budget: int,
-        topic: str,
-        subscription: _Subscription | None,
         pending: list[_PendingMessage],
     ) -> int:
-        """Takes up to `budget` samples of `reader` into `pending`; returns how many it took."""
-        samples = reader.take(budget)
-        for sample in samples:
-            if not isinstance(sample, envelope.Envelope):
-                # A writer's disposal or unregistration has no sample.
-                continue
-            if subscription is None:
-                if sample.protocol_version == envelope.WIRE_PROTOCOL_VERSION:
-                    pending.append(
-                        _PendingMessage(
-                            sample.sample_info.source_timestamp,
-                            None,
-                            topic,
-                            sample,
-                        )
-                    )
-                continue
-            self._track_sequence(
-                subscription,
-                sample.sample_info.publication_handle,
-                sample.sequence_number,
+        """Takes up to `budget` samples of `subscription`'s queue into `pending`; returns how many it took."""
+        inbox = subscription.inbox
+        if inbox is None:
+            return 0
+        taken = inbox.take(budget)
+        for data in taken:
+            sample = self._decode(subscription.topic, data)
+            if sample is not None:
+                self._track_sequence(
+                    subscription, sample.writer_id, sample.sequence_number
+                )
+            accepted = sample is not None and self._accepts_type(
+                subscription, sample
             )
-            accepted = self._accepts(subscription, sample)
             with self._statistics_lock:
                 subscription.statistics.received += 1
                 if not accepted:
                     subscription.statistics.rejected += 1
-            if accepted:
+            if accepted and sample is not None:
                 pending.append(
-                    _PendingMessage(
-                        sample.sample_info.source_timestamp,
-                        subscription,
-                        topic,
-                        sample,
-                    )
+                    _PendingMessage(subscription, subscription.topic, sample)
                 )
-        return len(samples)
+        if len(inbox):
+            # What the budget left behind waits for the next drain, which comes at once.
+            self._wake()
+        return len(taken)
+
+    def _take_all_topics(
+        self, budget: int, pending: list[_PendingMessage]
+    ) -> int:
+        """Takes up to `budget` samples of the subscription to every topic into `pending`."""
+        inbox = self._all_topics_inbox
+        if inbox is None:
+            return 0
+        taken = inbox.take(budget)
+        for key_expr, data in taken:
+            key = key_exprs.parse_data_key_expr(self._network, key_expr)
+            if (
+                key is None
+                or envelope.protocol_version_of(data) != WIRE_PROTOCOL_VERSION
+            ):
+                continue
+            try:
+                pending.append(
+                    _PendingMessage(None, key.topic, envelope.decode(data))
+                )
+            except envelope.EnvelopeError:
+                continue
+        if len(inbox):
+            self._wake()
+        return len(taken)
 
     def _track_sequence(
         self, subscription: _Subscription, writer: int, sequence: int
@@ -1122,19 +1191,10 @@ class Bus:
             with self._statistics_lock:
                 subscription.statistics.missed += sequence - last - 1
 
-    def _accepts(
+    def _accepts_type(
         self, subscription: _Subscription, sample: envelope.Envelope
     ) -> bool:
-        """Whether `sample` is of this bus's wire protocol and of the subscription's type; logs why not."""
-        if sample.protocol_version != envelope.WIRE_PROTOCOL_VERSION:
-            self._log.warning(
-                f"protocol:{subscription.topic}",
-                f"a sample on '{subscription.topic}' speaks wire protocol"
-                f" {sample.protocol_version}, but this bus speaks"
-                f" {envelope.WIRE_PROTOCOL_VERSION}; rebuild both from the same"
-                " checkout",
-            )
-            return False
+        """Whether `sample` is of the subscription's type; logs why not."""
         if (
             subscription.expected_type
             and sample.type_name != subscription.expected_type
@@ -1158,18 +1218,10 @@ class Bus:
         for subscription in self._subscriptions.values():
             if budget <= 0:
                 break
-            budget -= self._take(
-                subscription.reader,
-                budget,
-                subscription.topic,
-                subscription,
-                pending,
-            )
-        for name, reader in self._all_topics_readers.items():
-            if budget <= 0:
-                break
-            budget -= self._take(reader, budget, name, None, pending)
-        pending.sort(key=lambda message: message.source_timestamp)
+            budget -= self._take(subscription, budget, pending)
+        if budget > 0:
+            self._take_all_topics(budget, pending)
+        pending.sort(key=lambda message: message.sample.source_timestamp_ns)
         self._coalesce_latest(pending)
         for message in pending:
             if message.superseded:
@@ -1202,7 +1254,7 @@ class Bus:
             callback(
                 message.topic,
                 message.sample.type_name,
-                bytes(message.sample.payload),
+                message.sample.payload,
             )
         # pylint: disable-next=broad-exception-caught  # A raising callback must not end the receive thread.
         except Exception:
@@ -1247,39 +1299,57 @@ class Bus:
                 exc_info=True,
             )
 
-    def _refresh_status_if_due(self, now: float) -> None:
-        """Copies the DDS status of the readers and writers into the statistics, at most every io_poll_period."""
-        if now < self._next_status_refresh:
+    def _apply_token_events(self) -> None:
+        """Applies the liveliness changes Zenoh delivered, and counts the peers again when there were any."""
+        events = self._token_events.take(len(self._token_events))
+        if not events:
             return
-        self._next_status_refresh = now + self._io_poll_period
-        requested: dict[str, int] = {}
-        for subscription in self._subscriptions.values():
-            reader = subscription.reader
-            lost = reader.get_sample_lost_status().total_count
-            rejected = reader.get_sample_rejected_status().total_count
-            incompatible = (
-                reader.get_requested_incompatible_qos_status().total_count
+        for key_expr, alive in events:
+            if not alive:
+                self._live_tokens.pop(key_expr, None)
+                continue
+            token = key_exprs.parse_endpoint_token_key_expr(
+                self._network, key_expr
             )
-            matched = reader.get_subscription_matched_status().current_count
-            requested[subscription.topic] = incompatible
-            with self._statistics_lock:
-                statistics = subscription.statistics
-                statistics.sample_lost = lost
-                statistics.sample_rejected = rejected
-                # The writer's offered count is added below, for a topic this bus also publishes.
-                statistics.incompatible_qos = incompatible
-                statistics.matched_writers = matched
+            if token is not None:
+                self._live_tokens[key_expr] = token
+        self._count_peers()
+
+    def _count_peers(self) -> None:
+        """Counts the matching and the incompatible tokens of each topic this bus publishes or subscribes."""
+        incompatible_of_writers: dict[str, int] = {}
         for name, writer in self._writers.items():
-            offered = (
-                writer.writer.get_offered_incompatible_qos_status().total_count
-            )
-            matched = (
-                writer.writer.get_publication_matched_status().current_count
+            readers = [
+                token
+                for token in self._live_tokens.values()
+                if token.role is key_exprs.EndpointRole.SUBSCRIBER
+                and token.topic == name
+            ]
+            matched = sum(token.profile is writer.profile for token in readers)
+            incompatible_of_writers[name] = len(readers) - matched
+            with self._statistics_lock:
+                writer.statistics.matched_readers = matched
+                writer.statistics.incompatible_qos = incompatible_of_writers[
+                    name
+                ]
+        for subscription in self._subscriptions.values():
+            writers = [
+                token
+                for token in self._live_tokens.values()
+                if token.role is key_exprs.EndpointRole.PUBLISHER
+                and token.topic == subscription.topic
+            ]
+            matched = sum(
+                token.profile is subscription.profile for token in writers
             )
             with self._statistics_lock:
-                statistics = writer.statistics
-                statistics.incompatible_qos = requested.get(name, 0) + offered
-                statistics.matched_readers = matched
+                subscription.statistics.matched_writers = matched
+                # A topic this bus both publishes and subscribes counts the incompatible tokens of both roles.
+                subscription.statistics.incompatible_qos = (
+                    incompatible_of_writers.get(subscription.topic, 0)
+                    + len(writers)
+                    - matched
+                )
 
     def _run_due_callbacks(self, now: float) -> None:
         """Calls each periodic callback whose deadline has passed, and schedules its next call."""

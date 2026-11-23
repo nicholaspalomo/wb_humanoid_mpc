@@ -28,7 +28,7 @@
 """The C++ visualization publisher, the bus and the Rerun bridge together: the contracts' entity paths are in the .rrd.
 
 The driver (VisualizationPublisherDriver.cpp) publishes the G1's scene and telemetry, computed by the publisher from
-synthetic observations, policies and robot/state samples, on the test's own DDS domain (a network file the test
+synthetic observations, policies and robot/state samples, on the test's own domain (a network file the test
 writes). The bridge subscribes to it, as on the laptop, with its save sink, and the recording is read back.
 """
 
@@ -71,7 +71,7 @@ class EndToEndTest(unittest.TestCase):
     """Runs the driver and the bridge once for the class; the tests read what the bridge recorded."""
 
     directory: str
-    # The test's own DDS network, which the driver joins as node "visualization".
+    # The test's own network, which the driver joins as node "visualization".
     network: robot_ipc.NetworkConfig
     model: urdf_model.RobotModel
     bridge: bridge_module.RerunBridge
@@ -94,7 +94,7 @@ class EndToEndTest(unittest.TestCase):
 
         # The driver's log goes to a file, so that a full pipe can never hold it up.
         driver_log_path = os.path.join(cls.directory, "driver.log")
-        # The test's own DDS domain, which the driver joins as node "visualization".
+        # The test's own domain, which the driver joins as node "visualization".
         cls.network = robot_ipc.isolated_test_network(["visualization"])
         network_path = os.path.join(cls.directory, "network.textproto")
         with open(network_path, "w", encoding="utf-8") as network_file:

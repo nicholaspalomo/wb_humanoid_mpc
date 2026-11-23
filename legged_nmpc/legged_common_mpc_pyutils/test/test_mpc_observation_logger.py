@@ -134,7 +134,7 @@ class WriterTest(unittest.TestCase):
 
 
 class BusTest(unittest.TestCase):
-    """The logger's subscription over a DDS bus of the test process, as `run` sets it up."""
+    """The logger's subscription over a Zenoh bus of the test process, as `run` sets it up."""
 
     def test_every_observation_published_reaches_the_file_in_order(
         self,
@@ -150,7 +150,7 @@ class BusTest(unittest.TestCase):
         robot.start()
         logger_bus.start()
 
-        # A VOLATILE reader misses what is written before it matched the writer: publish probes, of the same dimensions
+        # A subscriber misses what is put before its declaration reached the publisher: publish probes, of the same dimensions
         # and at negative times, until one arrives.
         def probe_arrived() -> bool:
             robot.publish(

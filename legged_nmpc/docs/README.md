@@ -98,7 +98,7 @@ One covers wheels:
 And the last covers how the controller runs as processes:
 
 * [distributed_runtime](distributed_runtime/README.md) - the robot process, the MPC node and the operator tools as
-  processes on a Cyclone DDS bus with Protocol Buffers messages: the realtime thread, the MPC link and its resets, the
+  processes on an Eclipse Zenoh bus with Protocol Buffers messages: the realtime thread, the MPC link and its resets, the
   visualization with Rerun, the launch files and the deployment of the robot side.
 
 ## 1. DCM terminal cost (`dcm_terminal_cost`)

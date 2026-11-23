@@ -32,7 +32,7 @@ files (the MuJoCo backend without a viewer), with a configuration store in the t
 bundled files, as docker-compose.robot.sim.yaml runs it. The laptop side is the GUI's own code: the MPC Parameters,
 Joint PD Gains and Command Limits tabs on a copy of the Atlas files below a robot_models/ directory of the test's
 (so that the copy's configuration identity is the robot's), saving through one robot_config_save.RobotConfigSaver
-on an operator_bus.OperatorBus. Both sides share a network file of this test's own DDS domain
+on an operator_bus.OperatorBus. Both sides share a network file of this test's own domain
 (robot_ipc.isolated_test_network()).
 
 What it holds: each tab's Save leaves exactly the laptop's bytes in the robot's store; a save the robot refuses (another
@@ -83,8 +83,8 @@ STORED_GAINS = os.path.join("controller", "joint_pd_gains.textproto")
 # How long the robot may take to start, and how long a save may wait for its answer [s].
 START_TIMEOUT_S = 60.0
 ANSWER_TIMEOUT_S = 20.0
-# The saver's timeout in this test [s]: a save whose first message the bus loses (the robot's reader still being
-# discovered) is saved again after it, as the operator would.
+# The saver's timeout in this test [s]: a save whose first message the bus loses (the robot's subscription not yet
+# declared to the saver's session) is saved again after it, as the operator would.
 SAVER_TIMEOUT_S = 1.0
 _Status = robot_config_save.SaveState
 
@@ -107,10 +107,10 @@ def stored_telemetry_rate(path: str) -> float:
 
 
 def write_loopback_network_file(path: str, nodes: tuple[str, ...]) -> None:
-    """Writes a network file of `nodes` on this test's own DDS domain, with the QoS of the topics the test uses.
+    """Writes a network file of `nodes` on this test's own domain, with the QoS of the topics the test uses.
 
-    The save and its status are one-off events: their writers exist from start-up (their publishers are listed), as in
-    the shipped network file, so that the first save does not race DDS discovery.
+    The save and its status are one-off events: their Zenoh publishers exist from start-up (their publishers are listed),
+    as in the shipped network file, so that the first save does not race the sessions meeting.
 
     Args:
         path: The file to write.

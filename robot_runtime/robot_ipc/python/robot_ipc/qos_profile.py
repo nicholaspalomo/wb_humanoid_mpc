@@ -26,13 +26,14 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-"""The DDS quality of service of a topic, chosen by name in the network file: the twin of robot_ipc/QosProfile.h.
+"""The quality of service of a topic, chosen by name in the network file: the twin of robot_ipc/QosProfile.h.
 
-Every profile is VOLATILE: a reader gets what is written after it matched the writer, never a history.
+Zenoh sends every sample over TCP; the profiles differ in what a publisher does when its link cannot take a sample at
+once, and in its priority. No profile keeps a history: a subscriber gets what is put after it was declared.
 
-    latest           BEST_EFFORT, KEEP_LAST 1      observations, robot state, velocity commands, telemetry
-    reliable_latest  RELIABLE, KEEP_LAST 1         policies, MPC status, FSM state, parameter documents
-    reliable_events  RELIABLE, KEEP_LAST 64        FSM commands, throws, configuration saves (the default)
+    latest           drop, data priority, express          observations, robot state, velocity commands, telemetry
+    reliable_latest  drop, data priority, batched          policies, MPC status, FSM state, parameter documents
+    reliable_events  block, interactive priority, express  FSM commands, throws, configuration saves (the default)
 """
 
 import dataclasses
@@ -51,36 +52,48 @@ class QosProfile(str, enum.Enum):
 # LINT.ThenChange(//robot_runtime/robot_ipc/src/QosProfile.cpp:qos_profile_names)
 
 
-class Reliability(enum.Enum):
-    """Whether DDS sends a lost sample (or fragment) again."""
+class CongestionControl(enum.Enum):
+    """What a Zenoh publisher does with a sample its link cannot take at once."""
 
-    BEST_EFFORT = "best_effort"
-    RELIABLE = "reliable"
+    DROP = "drop"
+    BLOCK = "block"
+
+
+class Priority(enum.Enum):
+    """The Zenoh priority of a profile's samples."""
+
+    INTERACTIVE_HIGH = "interactive_high"
+    DATA = "data"
 
 
 @dataclasses.dataclass(frozen=True)
 class QosPolicy:
-    """The DDS policies of a profile.
+    """The Zenoh publisher options of a profile.
 
     Attributes:
-        reliability: BEST_EFFORT or RELIABLE.
-        writer_history_depth: the writer's KEEP_LAST depth.
+        congestion_control: DROP or BLOCK.
+        priority: the samples' priority.
+        express: sent at once, not batched.
     """
 
-    reliability: Reliability
-    writer_history_depth: int
+    congestion_control: CongestionControl
+    priority: Priority
+    express: bool
 
 
-# LINT.IfChange(qos_profiles)
-RELIABLE_EVENTS_HISTORY_DEPTH = 64
+# LINT.IfChange(qos_policies)
 _POLICIES = {
-    QosProfile.LATEST: QosPolicy(Reliability.BEST_EFFORT, 1),
-    QosProfile.RELIABLE_LATEST: QosPolicy(Reliability.RELIABLE, 1),
+    QosProfile.LATEST: QosPolicy(
+        CongestionControl.DROP, Priority.DATA, express=True
+    ),
+    QosProfile.RELIABLE_LATEST: QosPolicy(
+        CongestionControl.DROP, Priority.DATA, express=False
+    ),
     QosProfile.RELIABLE_EVENTS: QosPolicy(
-        Reliability.RELIABLE, RELIABLE_EVENTS_HISTORY_DEPTH
+        CongestionControl.BLOCK, Priority.INTERACTIVE_HIGH, express=True
     ),
 }
-# LINT.ThenChange(//robot_runtime/robot_ipc/include/robot_ipc/QosProfile.h:qos_profiles)
+# LINT.ThenChange(//robot_runtime/robot_ipc/src/QosProfile.cpp:qos_policies)
 
 
 def parse_qos_profile(value: "str | QosProfile") -> QosProfile:
@@ -107,15 +120,15 @@ def parse_qos_profile(value: "str | QosProfile") -> QosProfile:
 
 
 def qos_policy(profile: QosProfile) -> QosPolicy:
-    """The DDS policies of `profile`."""
+    """The Zenoh publisher options of `profile`."""
     return _POLICIES[profile]
 
 
 __all__ = [
-    "RELIABLE_EVENTS_HISTORY_DEPTH",
+    "CongestionControl",
+    "Priority",
     "QosPolicy",
     "QosProfile",
-    "Reliability",
     "parse_qos_profile",
     "qos_policy",
 ]

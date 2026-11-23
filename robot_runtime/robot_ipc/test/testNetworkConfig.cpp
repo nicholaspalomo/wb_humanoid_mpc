@@ -31,9 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // reporting its line and column, that every invalid node, topic or field is an
 // error identifying it, that formatNetworkConfig() and parseNetworkConfig()
 // round-trip, that the shipped file is the network localhostNetworkConfig()
-// builds, and the Cyclone DDS configuration and ports DomainConfig.h derives
-// from a network.
+// builds, the Zenoh configuration and ports SessionConfig.h derives from a
+// network, the key expressions of KeyExprs.h and the envelope of
+// WireProtocol.h.
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -49,10 +52,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "robot_ipc/Delivery.h"
-#include "robot_ipc/DomainConfig.h"
+#include "robot_ipc/KeyExprs.h"
 #include "robot_ipc/NetworkConfig.h"
 #include "robot_ipc/NodeEndpoint.h"
 #include "robot_ipc/QosProfile.h"
+#include "robot_ipc/SessionConfig.h"
+#include "robot_ipc/WireProtocol.h"
 
 namespace robot::ipc {
 namespace {
@@ -63,8 +68,8 @@ constexpr char kShippedNetworkFile[] = "config/ipc/network.textproto";
 constexpr char kTwoMachineNetworkFile[] =
     "config/ipc/two_machine.example.textproto";
 constexpr char kSource[] = "test.textproto";
-// The largest UDP port.
-constexpr int kMaxUdpPort = 65535;
+// Where Linux's ephemeral ports start.
+constexpr int kFirstEphemeralPort = 32768;
 
 absl::StatusOr<NetworkConfig> parse(absl::string_view text) {
   return parseNetworkConfig(text, kSource);
@@ -83,7 +88,7 @@ nodes {
 topics { name: "mpc/policy" qos_profile: "reliable_latest" publishers: "mpc" }
 topics { name: "robot/state" qos_profile: "latest" publishers: ["robot"] }
 default_qos_profile: "latest"
-transport { max_message_size_bytes: 1400 lease_duration_ms: 2500 simulated_send_loss_per_mille: 5 }
+transport { socket_receive_buffer_bytes: 4096 lease_duration_ms: 2500 }
 )");
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_EQ(config->nodeNames(), (std::vector<std::string>{"robot", "mpc"}));
@@ -100,9 +105,8 @@ transport { max_message_size_bytes: 1400 lease_duration_ms: 2500 simulated_send_
             std::vector<std::string>{"mpc/policy"});
   EXPECT_EQ(config->peerHosts(),
             (std::vector<std::string>{"192.168.1.10", "laptop.local"}));
-  EXPECT_EQ(config->transport.maxMessageSizeBytes, 1400);
+  EXPECT_EQ(config->transport.socketReceiveBufferBytes, 4096);
   EXPECT_EQ(config->transport.leaseDuration, absl::Milliseconds(2500));
-  EXPECT_EQ(config->transport.simulatedSendLossPerMille, 5);
 }
 
 TEST(NetworkConfigTest,
@@ -122,20 +126,19 @@ TEST(NetworkConfigTest,
   EXPECT_EQ(example->domainId, shipped->domainId);
   EXPECT_EQ(example->peerHosts().size(), 2u)
       << "the robot's computer and the laptop";
-  // Wi-Fi: one datagram per frame, so that a lost frame costs one DDS fragment.
-  EXPECT_GT(example->transport.maxMessageSizeBytes, 0);
-  EXPECT_LE(example->transport.maxMessageSizeBytes, 1472);
+  // A peer that vanished is disconnected within seconds.
+  EXPECT_GT(example->transport.leaseDuration, absl::ZeroDuration());
+  EXPECT_LE(example->transport.leaseDuration, absl::Seconds(3));
 }
 
 TEST(NetworkConfigTest, TheShippedTopicsHaveTheProfilesOfTheirTraffic) {
   const NetworkConfig network = localhostNetworkConfig();
-  // A policy is hundreds of UDP fragments: one lost fragment would lose it
-  // under BEST_EFFORT.
+  // A policy is 0.5-0.75 MB: it may wait briefly for room in a busy link.
   EXPECT_EQ(network.qosProfileOf("mpc/policy"), QosProfile::kReliableLatest);
   // The observation stream comes again every control cycle: a lost sample is
   // replaced, not repaired.
   EXPECT_EQ(network.qosProfileOf("robot/mpc_observation"), QosProfile::kLatest);
-  // A one-off command must arrive, and the writer exists before it is written.
+  // A one-off command must arrive, and the publisher exists before it is put.
   EXPECT_EQ(network.qosProfileOf("operator/fsm_command"),
             QosProfile::kReliableEvents);
   const TopicQos* absl_nullable command =
@@ -229,6 +232,9 @@ INSTANTIATE_TEST_SUITE_P(
                       2, "hots"},
         MalformedFile{"the retired port of a node",
                       "nodes {\n  name: \"robot\"\n  port: 5600\n}", 3, "port"},
+        MalformedFile{"the retired DDS message size",
+                      "transport {\n  max_message_size_bytes: 1400\n}", 2,
+                      "max_message_size_bytes"},
         MalformedFile{"an unknown top-level field",
                       "# The nodes.\nhosts { name: \"robot\" }", 2, "hosts"},
         MalformedFile{"a quoted domain id", "domain_id: \"7\"", 1, ""},
@@ -322,10 +328,18 @@ INSTANTIATE_TEST_SUITE_P(
                     "nodes { name: \"robot\" host: \"127.0.0.1\" "
                     "}\ndomain_tag: \"a b\"",
                     "domain_tag"},
-        InvalidFile{"a topic that is no DDS name",
+        InvalidFile{"a topic that is no key expression chunk",
                     "nodes { name: \"robot\" host: \"127.0.0.1\" }\ntopics { "
                     "name: \"robot/a-b\" qos_profile: \"latest\" }",
                     "topics[0] (robot/a-b).name"},
+        InvalidFile{"a topic with an empty chunk",
+                    "nodes { name: \"robot\" host: \"127.0.0.1\" }\ntopics { "
+                    "name: \"robot//state\" qos_profile: \"latest\" }",
+                    "topics[0] (robot//state).name"},
+        InvalidFile{"a topic ending in a slash",
+                    "nodes { name: \"robot\" host: \"127.0.0.1\" }\ntopics { "
+                    "name: \"robot/\" qos_profile: \"latest\" }",
+                    "topics[0] (robot/).name"},
         InvalidFile{"a topic listed twice",
                     "nodes { name: \"robot\" host: \"127.0.0.1\" }\ntopics { "
                     "name: \"a\" qos_profile: \"latest\" }\n"
@@ -347,18 +361,10 @@ INSTANTIATE_TEST_SUITE_P(
                     "nodes { name: \"robot\" host: \"127.0.0.1\" "
                     "}\ndefault_qos_profile: \"fast\"",
                     "default_qos_profile"},
-        InvalidFile{"a message size out of range",
-                    "nodes { name: \"robot\" host: \"127.0.0.1\" }\ntransport "
-                    "{ max_message_size_bytes: 70000 }",
-                    "transport.max_message_size_bytes"},
         InvalidFile{"too many processes per host",
                     "nodes { name: \"robot\" host: \"127.0.0.1\" }\ntransport "
-                    "{ max_processes_per_host: 116 }",
+                    "{ max_processes_per_host: 101 }",
                     "transport.max_processes_per_host"},
-        InvalidFile{"a loss of every packet",
-                    "nodes { name: \"robot\" host: \"127.0.0.1\" }\ntransport "
-                    "{ simulated_send_loss_per_mille: 1000 }",
-                    "transport.simulated_send_loss_per_mille"},
         InvalidFile{"the second node invalid",
                     "nodes { name: \"robot\" host: \"127.0.0.1\" }\nnodes { "
                     "name: \"mpc\" host: \"*\" }",
@@ -420,7 +426,7 @@ TEST(DeliveryTest, NamesRoundTripAndUnknownNamesListTheValidOnes) {
       << unknown.status();
 }
 
-TEST(QosProfileTest, NamesRoundTripAndEachProfileHasItsReliability) {
+TEST(QosProfileTest, NamesRoundTripAndEachProfileHasItsCongestionControl) {
   for (const QosProfile profile : kAllQosProfiles) {
     const absl::StatusOr<QosProfile> parsed =
         parseQosProfile(qosProfileName(profile));
@@ -431,145 +437,201 @@ TEST(QosProfileTest, NamesRoundTripAndEachProfileHasItsReliability) {
   EXPECT_EQ(unknown.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(unknown.status().message(), "reliable_latest"))
       << unknown.status();
-  EXPECT_EQ(qosPolicy(QosProfile::kLatest).reliability,
-            Reliability::kBestEffort);
-  EXPECT_EQ(qosPolicy(QosProfile::kLatest).writerHistoryDepth, 1);
-  EXPECT_EQ(qosPolicy(QosProfile::kReliableLatest).reliability,
-            Reliability::kReliable);
-  EXPECT_EQ(qosPolicy(QosProfile::kReliableLatest).writerHistoryDepth, 1);
-  EXPECT_EQ(qosPolicy(QosProfile::kReliableEvents).reliability,
-            Reliability::kReliable);
-  EXPECT_EQ(qosPolicy(QosProfile::kReliableEvents).writerHistoryDepth,
-            kReliableEventsHistoryDepth);
+  // The latest values drop under congestion rather than build a backlog; the
+  // events wait for room, ahead of the data.
+  EXPECT_EQ(qosPolicy(QosProfile::kLatest).congestionControl,
+            CongestionControl::kDrop);
+  EXPECT_TRUE(qosPolicy(QosProfile::kLatest).express);
+  EXPECT_EQ(qosPolicy(QosProfile::kReliableLatest).congestionControl,
+            CongestionControl::kDrop);
+  EXPECT_EQ(qosPolicy(QosProfile::kReliableEvents).congestionControl,
+            CongestionControl::kBlock);
+  EXPECT_EQ(qosPolicy(QosProfile::kReliableEvents).priority,
+            Priority::kInteractiveHigh);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The Cyclone DDS configuration
+// The Zenoh configuration, the key expressions and the envelope
 // ---------------------------------------------------------------------------------------------------------------------
 
-TEST(DomainConfigTest, TheUnicastPortsFollowTheDdsiMappingAndStayBelow65536) {
+TEST(SessionConfigTest, TheTcpPortsStartAtZenohsPortAndStayBelowTheEphemeral) {
   NetworkConfig network = localhostNetworkConfig();
-  EXPECT_EQ(unicastPortRange(network),
-            (PortRange{.first = 7410, .last = 7449}));
+  EXPECT_EQ(tcpPortRange(network), (PortRange{.first = 7447, .last = 7466}));
   network.domainId = 1;
-  EXPECT_EQ(unicastPortRange(network),
-            (PortRange{.first = 7660, .last = 7699}));
-  // The largest domain with the default 20 processes per host still fits; more
-  // processes there do not.
+  EXPECT_EQ(tcpPortRange(network), (PortRange{.first = 7547, .last = 7566}));
+  // The largest domain with the most processes per host stays below the
+  // ephemeral ports, and the domains never overlap.
   network.domainId = NetworkConfig::kMaxDomainId;
+  network.transport.maxProcessesPerHost = kZenohDomainGain;
   EXPECT_TRUE(validateNetworkConfig(network).ok());
-  EXPECT_LE(unicastPortRange(network).last, kMaxUdpPort);
-  network.transport.maxProcessesPerHost = 115;
-  EXPECT_GT(unicastPortRange(network).last, kMaxUdpPort);
-  const absl::Status refused = validateNetworkConfig(network);
-  EXPECT_TRUE(absl::StartsWith(refused.message(), "domain_id")) << refused;
-  network.domainId = 0;
-  EXPECT_TRUE(validateNetworkConfig(network).ok());
-  EXPECT_LE(unicastPortRange(network).last, kMaxUdpPort);
+  EXPECT_LT(tcpPortRange(network).last, kFirstEphemeralPort);
+  const int last = tcpPortRange(network).last;
+  network.domainId = NetworkConfig::kMaxDomainId - 1;
+  EXPECT_EQ(tcpPortRange(network).last + kZenohDomainGain, last);
 }
 
-TEST(DomainConfigTest,
-     ALoopbackNetworkUsesTheLoopbackInterfaceAndUnicastDiscovery) {
-  const absl::StatusOr<std::string> config =
-      cycloneDomainConfig(localhostNetworkConfig(), "robot");
+TEST(SessionConfigTest, EveryProcessConnectsToEveryPortOfEveryNodeHost) {
+  NetworkConfig network;
+  network.nodes = {NodeEndpoint{.name = "robot", .host = "192.0.2.1"},
+                   NodeEndpoint{.name = "mpc", .host = "laptop.example"},
+                   NodeEndpoint{.name = "operator", .host = "laptop.example"}};
+  network.transport.maxProcessesPerHost = 2;
+  EXPECT_EQ(connectEndpoints(network),
+            (std::vector<std::string>{
+                "tcp/192.0.2.1:7447", "tcp/192.0.2.1:7448",
+                "tcp/laptop.example:7447", "tcp/laptop.example:7448"}));
+}
+
+TEST(SessionConfigTest, ALoopbackNetworkListensOnLoopbackWithoutMulticast) {
+  const absl::StatusOr<std::string> config = zenohSessionConfig(
+      localhostNetworkConfig(), "robot", /*listenPort=*/7450);
   ASSERT_TRUE(config.ok()) << config.status();
-  EXPECT_TRUE(
-      absl::StrContains(*config, R"(<NetworkInterface address="127.0.0.1"/>)"))
-      << *config;
-  EXPECT_TRUE(
-      absl::StrContains(*config, "<AllowMulticast>false</AllowMulticast>"))
-      << *config;
+  EXPECT_TRUE(absl::StartsWith(*config, R"({"mode":"peer",)")) << *config;
   EXPECT_TRUE(absl::StrContains(
-      *config,
-      R"(<Peers AddLocalhost="false"><Peer Address="127.0.0.1"/></Peers>)"))
+      *config, R"("listen":{"endpoints":["tcp/127.0.0.1:7450"],)"))
       << *config;
-  EXPECT_TRUE(absl::StrContains(
-      *config,
-      "<ParticipantIndex>auto</ParticipantIndex><MaxAutoParticipantIndex>19</"
-      "MaxAutoParticipantIndex>"))
+  EXPECT_TRUE(absl::StrContains(*config, R"("tcp/127.0.0.1:7447",)"))
       << *config;
-  EXPECT_TRUE(
-      absl::StrContains(*config, "<LeaseDuration>3000ms</LeaseDuration>"))
+  EXPECT_TRUE(absl::StrContains(*config, R"("tcp/127.0.0.1:7466"])"))
       << *config;
-  EXPECT_TRUE(
-      absl::StrContains(*config, "<MaxMessageSize>65500B</MaxMessageSize>"))
+  EXPECT_TRUE(absl::StrContains(*config, R"("multicast":{"enabled":false})"))
       << *config;
-  EXPECT_TRUE(absl::StrContains(
-      *config, R"(<SocketReceiveBufferSize min="default" max="8388608B"/>)"))
-      << *config;
-  EXPECT_TRUE(absl::StrContains(*config, "<WhcHigh>8388608B</WhcHigh>"))
-      << *config;
-  EXPECT_FALSE(absl::StrContains(*config, "<Tag>")) << *config;
-  EXPECT_FALSE(absl::StrContains(*config, "XmitLossiness")) << *config;
+  EXPECT_TRUE(absl::StrContains(*config, R"("lease":3000)")) << *config;
+  EXPECT_TRUE(absl::StrContains(*config, R"("so_rcvbuf":8388608)")) << *config;
+  EXPECT_FALSE(absl::StrContains(*config, "so_sndbuf")) << *config;
   // A subscriber of the same network gets the same configuration, so that both
-  // may share a process's domain.
-  const absl::StatusOr<std::string> subscriber =
-      cycloneDomainConfig(localhostNetworkConfig(), /*nodeName=*/"");
+  // may share a process's session.
+  const absl::StatusOr<std::string> subscriber = zenohSessionConfig(
+      localhostNetworkConfig(), /*nodeName=*/"", /*listenPort=*/7450);
   ASSERT_TRUE(subscriber.ok()) << subscriber.status();
   EXPECT_EQ(*subscriber, *config);
 }
 
-TEST(DomainConfigTest,
-     ANodeUsesItsHostsInterfaceOrRefusesAnotherMachinesAddress) {
+TEST(SessionConfigTest,
+     ANodeListensOnItsHostsAddressOrRefusesAnotherMachinesAddress) {
   NetworkConfig network;
   network.nodes = {NodeEndpoint{.name = "robot", .host = "192.0.2.1"},
                    NodeEndpoint{.name = "mpc", .host = "laptop.example"},
                    NodeEndpoint{.name = "local", .host = "127.0.0.1"}};
   EXPECT_EQ(interfaceAddressFor(network, "robot").status().code(),
             absl::StatusCode::kUnavailable);
+  EXPECT_EQ(
+      zenohSessionConfig(network, "robot", /*listenPort=*/7447).status().code(),
+      absl::StatusCode::kUnavailable);
   const absl::StatusOr<std::string> named = interfaceAddressFor(network, "mpc");
   ASSERT_TRUE(named.ok()) << named.status();
-  EXPECT_EQ(*named, "") << "a host name: Cyclone DDS picks the interface";
+  EXPECT_EQ(*named, "") << "a host name: every interface";
   const absl::StatusOr<std::string> local =
       interfaceAddressFor(network, "local");
   ASSERT_TRUE(local.ok()) << local.status();
   EXPECT_EQ(*local, "127.0.0.1");
-  // A subscriber on a machine that is no node's lets Cyclone DDS pick the
-  // interface.
+  // A subscriber on a machine that is no node's listens on every interface.
   const absl::StatusOr<std::string> subscriber =
       interfaceAddressFor(network, /*nodeName=*/"");
   ASSERT_TRUE(subscriber.ok()) << subscriber.status();
   EXPECT_EQ(*subscriber, "");
   const absl::StatusOr<std::string> config =
-      cycloneDomainConfig(network, "mpc");
+      zenohSessionConfig(network, "mpc", /*listenPort=*/7449);
   ASSERT_TRUE(config.ok()) << config.status();
-  EXPECT_TRUE(
-      absl::StrContains(*config, R"(<NetworkInterface autodetermine="true"/>)"))
-      << *config;
-  EXPECT_TRUE(absl::StrContains(
-      *config,
-      R"(<Peer Address="192.0.2.1"/><Peer Address="laptop.example"/><Peer Address="127.0.0.1"/>)"))
-      << *config;
+  EXPECT_TRUE(absl::StrContains(*config, R"(["tcp/0.0.0.0:7449"])")) << *config;
 }
 
-TEST(DomainConfigTest, TheTagAndTheTransportReachTheConfiguration) {
+TEST(SessionConfigTest, TheTransportReachesTheConfiguration) {
   NetworkConfig network;
   network.nodes = {NodeEndpoint{.name = "robot", .host = "127.0.0.1"}};
-  network.domainTag = "lab.robot-2";
   network.transport.maxProcessesPerHost = 4;
   network.transport.leaseDuration = absl::Milliseconds(1500);
   network.transport.socketSendBufferBytes = 1 << 20;
-  network.transport.writerUnackedBytesLimit = 1 << 22;
-  network.transport.simulatedSendLossPerMille = 20;
   const absl::StatusOr<std::string> config =
-      cycloneDomainConfig(network, "robot");
+      zenohSessionConfig(network, "robot", /*listenPort=*/7447);
   ASSERT_TRUE(config.ok()) << config.status();
-  EXPECT_TRUE(absl::StrContains(*config, "<Tag>lab.robot-2</Tag>")) << *config;
   EXPECT_TRUE(absl::StrContains(
-      *config, "<MaxAutoParticipantIndex>3</MaxAutoParticipantIndex>"))
-      << *config;
-  EXPECT_TRUE(
-      absl::StrContains(*config, "<LeaseDuration>1500ms</LeaseDuration>"))
-      << *config;
+      *config,
+      R"("connect":{"endpoints":["tcp/127.0.0.1:7448","tcp/127.0.0.1:7449","tcp/127.0.0.1:7450"],)"))
+      << *config << "every port but its own listener's";
   EXPECT_TRUE(absl::StrContains(
-      *config, R"(<SocketSendBufferSize min="default" max="1048576B"/>)"))
+      *config, R"("link":{"tx":{"lease":1500},"tcp":{"so_sndbuf":1048576}})"))
       << *config;
-  EXPECT_TRUE(absl::StrContains(*config, "<WhcHigh>4194304B</WhcHigh>"))
-      << *config;
-  EXPECT_TRUE(absl::StrContains(
-      *config, "<Test><XmitLossiness>20</XmitLossiness></Test>"))
-      << *config;
-  EXPECT_FALSE(absl::StrContains(*config, "MaxMessageSize")) << *config;
+}
+
+TEST(KeyExprsTest, TheDomainTagAndProfileKeepTopicsApart) {
+  NetworkConfig network;
+  network.nodes = {NodeEndpoint{.name = "robot", .host = "127.0.0.1"}};
+  network.domainId = 3;
+  network.domainTag = "lab.robot-2";
+  network.topics = {TopicQos{.topic = "mpc/policy",
+                             .profile = QosProfile::kReliableLatest,
+                             .publishers = {}}};
+  EXPECT_EQ(dataKeyExpr(network, "mpc/policy"),
+            "robot_ipc/3/tag_lab.robot-2/reliable_latest/mpc/policy");
+  EXPECT_EQ(dataKeyExpr(network, "unlisted"),
+            "robot_ipc/3/tag_lab.robot-2/reliable_events/unlisted");
+  EXPECT_EQ(allTopicsKeyExpr(network), "robot_ipc/3/tag_lab.robot-2/*/**");
+  EXPECT_EQ(
+      parseDataKeyExpr(network, dataKeyExpr(network, "mpc/policy")),
+      (DataKey{.profile = QosProfile::kReliableLatest, .topic = "mpc/policy"}));
+  EXPECT_EQ(parseDataKeyExpr(network, "robot_ipc/3/tag_/latest/a"),
+            std::nullopt)
+      << "another tag";
+  EXPECT_EQ(parseDataKeyExpr(network, "robot_ipc/3/tag_lab.robot-2/fast/a"),
+            std::nullopt)
+      << "no profile";
+  network.domainTag.clear();
+  EXPECT_EQ(dataKeyExpr(network, "mpc/policy"),
+            "robot_ipc/3/tag_/reliable_latest/mpc/policy");
+}
+
+TEST(KeyExprsTest, EndpointTokensRoundTrip) {
+  const NetworkConfig network = localhostNetworkConfig();
+  const EndpointToken token{.role = EndpointRole::kSubscriber,
+                            .profile = QosProfile::kLatest,
+                            .busId = "00000000deadbeef",
+                            .topic = "robot/state"};
+  const std::string keyExpr = endpointTokenKeyExpr(network, token);
+  EXPECT_EQ(keyExpr,
+            "robot_ipc_endpoints/0/tag_/subscriber/latest/00000000deadbeef/"
+            "robot/state");
+  EXPECT_EQ(parseEndpointTokenKeyExpr(network, keyExpr), token);
+  EXPECT_EQ(allEndpointTokensKeyExpr(network), "robot_ipc_endpoints/0/tag_/**");
+  EXPECT_EQ(parseEndpointTokenKeyExpr(
+                network, "robot_ipc_endpoints/0/tag_/owner/latest/1/a"),
+            std::nullopt);
+  EXPECT_EQ(parseEndpointTokenKeyExpr(network,
+                                      "robot_ipc_endpoints/0/tag_/publisher/"
+                                      "latest/1"),
+            std::nullopt)
+      << "no topic";
+}
+
+TEST(WireProtocolTest, AnEnvelopeRoundTripsAndATruncatedOneDoesNotDecode) {
+  const EnvelopeHeader header{.protocolVersion = kWireProtocolVersion,
+                              .writerId = 0x0102030405060708,
+                              .sequenceNumber = 42,
+                              .sourceTimestampNs = -5};
+  const std::string bytes =
+      encodeEnvelope(header, "pkg.Message", std::string("\x00\x01payload", 9));
+  ASSERT_EQ(bytes.size(), kEnvelopeHeaderBytes + 11 + 9);
+  // Little-endian: the version's low byte first.
+  EXPECT_EQ(bytes[0], static_cast<char>(kWireProtocolVersion));
+  EXPECT_EQ(envelopeProtocolVersion(bytes), kWireProtocolVersion);
+  const std::optional<EnvelopeView> envelope = decodeEnvelope(bytes);
+  ASSERT_TRUE(envelope.has_value());
+  EXPECT_EQ(envelope->header.writerId, header.writerId);
+  EXPECT_EQ(envelope->header.sequenceNumber, 42u);
+  EXPECT_EQ(envelope->header.sourceTimestampNs, -5);
+  EXPECT_EQ(envelope->typeName, "pkg.Message");
+  EXPECT_EQ(envelope->payload, std::string("\x00\x01payload", 9));
+
+  EXPECT_EQ(envelopeProtocolVersion("abc"), std::nullopt);
+  EXPECT_FALSE(
+      decodeEnvelope(bytes.substr(0, kEnvelopeHeaderBytes - 1)).has_value());
+  EXPECT_FALSE(
+      decodeEnvelope(bytes.substr(0, kEnvelopeHeaderBytes + 10)).has_value())
+      << "the type name runs past the end";
+  const std::optional<EnvelopeView> empty =
+      decodeEnvelope(bytes.substr(0, kEnvelopeHeaderBytes + 11));
+  ASSERT_TRUE(empty.has_value());
+  EXPECT_TRUE(empty->payload.empty());
 }
 
 }  // namespace

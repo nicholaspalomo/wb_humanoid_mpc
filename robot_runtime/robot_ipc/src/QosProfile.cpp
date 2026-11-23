@@ -75,15 +75,20 @@ absl::StatusOr<QosProfile> parseQosProfile(absl::string_view name) {
 
 QosPolicy qosPolicy(QosProfile profile) {
   switch (profile) {
+    // LINT.IfChange(qos_policies)
     case QosProfile::kLatest:
-      return QosPolicy{.reliability = Reliability::kBestEffort,
-                       .writerHistoryDepth = 1};
+      return QosPolicy{.congestionControl = CongestionControl::kDrop,
+                       .priority = Priority::kData,
+                       .express = true};
     case QosProfile::kReliableLatest:
-      return QosPolicy{.reliability = Reliability::kReliable,
-                       .writerHistoryDepth = 1};
+      return QosPolicy{.congestionControl = CongestionControl::kDrop,
+                       .priority = Priority::kData,
+                       .express = false};
     case QosProfile::kReliableEvents:
-      return QosPolicy{.reliability = Reliability::kReliable,
-                       .writerHistoryDepth = kReliableEventsHistoryDepth};
+      return QosPolicy{.congestionControl = CongestionControl::kBlock,
+                       .priority = Priority::kInteractiveHigh,
+                       .express = true};
+      // LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/qos_profile.py:qos_policies)
   }
   return QosPolicy{};
 }

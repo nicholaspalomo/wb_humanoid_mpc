@@ -33,7 +33,7 @@ Touch Ground button, the height slider, the joint target sliders, the Kp scale b
 contact estimator drop-down, the Save button, the Dodgeball tab's Throw button). The robot side is
 legged_centroidal_mpc_robot on the DRC Atlas files with the MuJoCo backend and no viewer, as
 docker-compose.robot.sim.yaml runs it. Both share the shipped network file's topics and QoS profiles
-(config/ipc/network.textproto) on a DDS domain of this test's own (robot_ipc.isolated_test_network()).
+(config/ipc/network.textproto) on a domain of this test's own (robot_ipc.isolated_test_network()).
 
 Each control is held to its effect on the robot, as the robot reports it (robot/fsm_state, and robot/state, which
 includes the control mode the controller runs, the joint action it applies and the base pose), never to the message the
@@ -97,7 +97,7 @@ NEW_CONTACT_ESTIMATOR = "always_in_contact"
 
 
 def write_network_file(path: str) -> None:
-    """Writes the shipped network file moved to this test's own DDS domain: its topics, QoS and transport, kept.
+    """Writes the shipped network file moved to this test's own domain: its topics, QoS and transport, kept.
 
     Args:
         path: The file to write.

@@ -1,6 +1,6 @@
 # tools/ipc
 
-Inspects the Cyclone DDS bus of the distributed runtime from the command line: the active topics, their messages and
+Inspects the Zenoh bus of the distributed runtime from the command line: the active topics, their messages and
 their rates.
 The bus itself is described in [`legged_nmpc/docs/distributed_runtime/README.md`](../../legged_nmpc/docs/distributed_runtime/README.md).
 
@@ -18,17 +18,17 @@ Or run the built binary directly: `.bazel/bin/tools/ipc/ipc_tool list`.
 ## How it listens
 
 The tool only receives. It reads the network file (`--network_config`, default `config/ipc/network.textproto`, looked
-up from the directory the tool was started in and then from the repository root) and joins its DDS domain as a bus
-that only subscribes (`robot_ipc.Bus("", network)`), with discovery sent to the host of **every** node, so it sees a
+up from the directory the tool was started in and then from the repository root) and joins its domain as a bus
+that only subscribes (`robot_ipc.Bus("", network)`), whose session connects to the host of **every** node, so it sees a
 topic whichever process publishes it, and processes may start before or after it. The file is read with the bus
 library's own loader (`robot_ipc.load_network_config`, see [`robot_runtime/robot_ipc`](../../robot_runtime/robot_ipc/README.md)),
 so the tool accepts exactly the files the processes accept and reports a malformed one alike, with its line and column.
-`list` discovers the topics from the DDS writers it sees, so it shows a topic from the first sample written after its
-writer was discovered; `echo` and `hz` subscribe to the one topic they are given.
+`list` subscribes to every key expression of the domain and tag, so it shows a topic from its first sample put after
+the tool's subscription reached the publisher; `echo` and `hz` subscribe to the one topic they are given.
 
-Every topic is a DDS topic of the same name whose samples are one `robot_ipc::Envelope`: the wire protocol's version
-(`kWireProtocolVersion`, `robot_runtime/robot_ipc/include/robot_ipc/WireProtocol.h`), the writer's sequence number,
-the full protobuf type name and the payload; a sample of another protocol version is counted as malformed and skipped.
+Every topic is the last chunks of a Zenoh key expression whose samples are one envelope: the wire protocol's version
+(`kWireProtocolVersion`, `robot_runtime/robot_ipc/include/robot_ipc/WireProtocol.h`), the writer's id and sequence
+number, the source timestamp, the full protobuf type name and the payload; a sample of another protocol version is counted as malformed and skipped.
 The tool imports every generated module of `legged_mpc_msgs` and of `legged_mpc_config` (the configuration files
 the tuning GUI publishes whole on `operator/mpc_parameters` and `operator/pd_gains`), so the protobuf default descriptor
 pool knows every message, and decodes a payload by the type name in its envelope. A message of a type outside
@@ -86,7 +86,7 @@ Exit status: 0 on success, 1 when the expected messages did not arrive (`echo` r
 | `bus_listener.py` | the network file (through `robot_ipc`) and `BusListener`, a subscribe-only bus feeding a queue |
 | `message_decoding.py` | decoding by type name, field paths, the output formats |
 | `topic_statistics.py` | `RateStatistics` for `hz`, `TopicCensus` for `list` |
-| `bus_test_publisher.py` | test-only: publishers of raw messages and envelopes on the test's own DDS domain, and its network file |
+| `bus_test_publisher.py` | test-only: publishers of raw messages and envelopes on the test's own domain, and its network file |
 
 `bazel test //tools/ipc/...` runs the tests; the end-to-end ones publish raw messages through a bus of the test
-process's own DDS domain and tag (`robot_ipc.isolated_test_network()`), so tests that run at once never see each other.
+process's own domain and tag (`robot_ipc.isolated_test_network()`), so tests that run at once never see each other.

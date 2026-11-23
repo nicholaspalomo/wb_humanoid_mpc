@@ -8,20 +8,20 @@
 #   make deploy-robot ROBOT=drc_atlas HOST=<robot> NETWORK=<this file>   # copied next to the robot's compose file
 #   make launch-drc-atlas-mpc NETWORK=<this file>                         # on the laptop
 #
-# Discovery is unicast to both hosts (Wi-Fi multicast is unreliable), and each process uses the network interface of its
-# node's host, which must be an address of its machine. Each machine must accept UDP from the other on the bus's ports:
-# 7410-7449 for domain 0 (7400 + 250 * domain_id + 10..49), e.g.
+# Every process connects to the bus's ports on both hosts (no multicast: Wi-Fi multicast is unreliable), and each
+# process listens on its node's host, which must be an address of its machine. Each machine must accept TCP from the
+# other on the bus's ports: 7447-7466 for domain 0 (7447 + 100 * domain_id + 0..19), e.g.
 #
-#   sudo ufw allow from <laptop address> to any port 7410:7449 proto udp    # on the robot
-#   sudo ufw allow from <robot address> to any port 7410:7449 proto udp     # on the laptop
+#   sudo ufw allow from <laptop address> to any port 7447:7466 proto tcp    # on the robot
+#   sudo ufw allow from <robot address> to any port 7447:7466 proto tcp     # on the laptop
 #
 # An address that changes (DHCP) needs a new file: give the robot a static address or a DHCP reservation. The kernels
 # must allow the receive buffer below: the Makefile's launch and deploy targets raise net.core.rmem_max to it on both
-# machines (sudo, once per machine; make udp-buffers NETWORK=<this file> [HOST=<robot>], tools/deploy/README.md).
+# machines (sudo, once per machine; make socket-buffers NETWORK=<this file> [HOST=<robot>], tools/deploy/README.md).
 
-# LINT.IfChange(dds_ports)
+# LINT.IfChange(zenoh_ports)
 domain_id: 0
-# LINT.ThenChange(//config/ipc/network.textproto:dds_ports, //tools/deploy/netem.sh:bus_ports, //docker-compose.bridge.yaml:bus_ports, //.devcontainer/README.md:bus_ports)
+# LINT.ThenChange(//config/ipc/network.textproto:zenoh_ports, //tools/deploy/netem.sh:bus_ports, //docker-compose.bridge.yaml:bus_ports, //.devcontainer/README.md:bus_ports)
 
 # LINT.IfChange(two_machine_nodes)
 nodes { name: "robot"        host: "192.168.1.10" }  # the robot's computer
@@ -50,6 +50,5 @@ topics { name: "operator/dodgeball_throw"          qos_profile: "reliable_events
 topics { name: "operator/config_save"              qos_profile: "reliable_events"  publishers: ["operator", "config_push"] }
 # LINT.ThenChange(//config/ipc/network.textproto:topic_qos)
 
-# Wi-Fi: datagrams within one 1500 B frame, so that a lost frame costs one DDS fragment, which RELIABLE sends again,
-# instead of a 14 kB datagram; a receive buffer of ten policies; a peer that vanished is unmatched after 3 s.
-transport { max_message_size_bytes: 1400 socket_receive_buffer_bytes: 8388608 lease_duration_ms: 3000 }
+# A TCP receive buffer of ten policies; a peer that vanished is disconnected after 3 s.
+transport { socket_receive_buffer_bytes: 8388608 lease_duration_ms: 3000 }

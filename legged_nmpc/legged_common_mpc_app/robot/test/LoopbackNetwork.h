@@ -45,7 +45,7 @@ namespace ocs2::legged::test_support {
 
 /**
  * Writes a network file at `path` that puts each of `nodes` on 127.0.0.1 in
- * this test process's own DDS domain (robot::ipc::isolatedTestNetwork()), with
+ * this test process's own domain (robot::ipc::isolatedTestNetwork()), with
  * the shipped topics' QoS, and loads it back, as the child processes of a test
  * read it (--network_config).
  */

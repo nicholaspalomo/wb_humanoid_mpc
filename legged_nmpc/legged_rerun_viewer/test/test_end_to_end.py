@@ -28,8 +28,8 @@
 """The bridge on a loopback bus: messages published with robot_ipc end up in an .rrd file, and the binary stops cleanly.
 
 Concurrent tests never see each other: every bus of this test, and the binary through the network file the test writes,
-joins this test process's own DDS domain and tag (robot_ipc.isolated_test_network()). Publishers repeat until the bridge
-has what it needs, which absorbs DDS discovery, and a publisher that restarts is discovered again.
+joins this test process's own domain and tag (robot_ipc.isolated_test_network()). Publishers repeat until the bridge
+has what it needs, which absorbs the time the sessions take to meet, and a publisher that restarts is reached again.
 """
 
 from collections.abc import Callable
@@ -112,7 +112,7 @@ def kill_quietly(pid: int) -> None:
 
 
 def isolated_network() -> robot_ipc.NetworkConfig:
-    """This test process's own DDS domain, with the publisher node."""
+    """This test process's own domain, with the publisher node."""
     return robot_ipc.isolated_test_network([PUBLISHER])
 
 
@@ -266,8 +266,8 @@ class LoopbackBusTest(unittest.TestCase):
         self.assertIn(blueprint.SCENE_VIEW_NAME, contents.view_names())
 
     def test_a_restarted_publisher_is_picked_up_again(self) -> None:
-        # DDS discovery matches the restarted publisher's writers: the bridge needs no restart when the visualization
-        # publisher restarts.
+        # The bridge's session reconnects to the restarted publisher's session: the bridge needs no restart when the
+        # visualization publisher restarts.
         recording = bridge.new_recording("test_end_to_end_restart")
         recording.save(os.path.join(self.directory, "restart.rrd"))
         the_bridge = bridge.RerunBridge(recording, None)
@@ -307,7 +307,7 @@ class BinaryTest(unittest.TestCase):
         self.urdf = synthetic_messages.write_sample_package(self.directory)
 
     def write_network_file(self) -> str:
-        """The network file of this test process's own DDS domain, for the binary."""
+        """The network file of this test process's own domain, for the binary."""
         path = os.path.join(self.directory, "network.textproto")
         with open(path, "w", encoding="utf-8") as network_file:
             network_file.write(

@@ -25,13 +25,13 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""A receive-only client of the IPC bus: a robot_ipc.Bus that only subscribes, on the network file's DDS domain.
+"""A receive-only client of the IPC bus: a robot_ipc.Bus that only subscribes, on the network file's domain.
 
-The bus (legged_nmpc/docs/distributed_runtime/README.md) has no broker: every topic is a DDS topic of the same name
-whose samples are one robot_ipc::Envelope (the wire protocol's version, the writer's sequence number, the full
-protobuf type name and the serialized message). The listener joins the domain of the network file as a subscriber, with
-discovery sent to the host of every node, so it sees every topic whichever process publishes it; listening to every
-topic, it discovers the topics from the DDS writers it sees.
+The bus (legged_nmpc/docs/distributed_runtime/README.md) has no broker: every topic is the last chunks of a Zenoh
+key expression whose samples are one envelope (the wire protocol's version, the writer's id and sequence number, the
+source timestamp, the full protobuf type name and the serialized message). The listener joins the domain of the network
+file as a subscriber whose session connects to the host of every node, so it sees every topic whichever process
+publishes it; listening to every topic, it subscribes to every key expression of the domain and tag.
 
 The network file is read with the bus library's loader (robot_ipc.load_network_config), so the tool accepts exactly
 the files the processes of the bus accept and reports their errors alike. It never publishes.
@@ -126,17 +126,17 @@ class BusMessage(NamedTuple):
 
 
 class BusListener:
-    """A subscribe-only bus on the network's DDS domain, receiving one topic or all of them, queued for the caller.
+    """A subscribe-only bus on the network's domain, receiving one topic or all of them, queued for the caller.
 
     The bus's receive thread puts every message into a queue that receive() and receive_pending() take from, so the
     caller reads at its own pace. Samples of another wire protocol version, another layout or that are not a message
     of the bus are dropped and counted in `malformed_messages` (for a single topic: the bus's rejected samples).
 
-    Usable as a context manager; closing stops the bus and deletes its DDS entities.
+    Usable as a context manager; closing stops the bus and closes its Zenoh subscribers.
 
     Attributes:
         topic: the topic listened to; None for every topic.
-        endpoints: where the listener listens, for messages: the DDS domain and its discovery peers.
+        endpoints: where the listener listens, for messages: the domain and the hosts its session connects to.
     """
 
     def __init__(
@@ -146,15 +146,15 @@ class BusListener:
 
         Args:
             network: The network file's network.
-            topic: The topic to receive, a DDS topic name; None for every topic.
+            topic: The topic to receive, a bus topic name; None for every topic.
 
         Raises:
-            ValueError: the topic is not a DDS topic name.
-            robot_ipc.BusError: DDS cannot join the domain.
+            ValueError: the topic is not a bus topic name.
+            robot_ipc.BusError: Zenoh cannot open the session of the domain.
         """
         self.topic = topic
         self.endpoints = [
-            f"DDS domain {network.domain_id} (peers"
+            f"domain {network.domain_id} (peers"
             f" {', '.join(network.peer_hosts())})"
         ]
         self._messages: "queue.Queue[BusMessage]" = queue.Queue()
@@ -208,7 +208,7 @@ class BusListener:
                 return messages
 
     def close(self) -> None:
-        """Stops the bus and deletes its DDS entities."""
+        """Stops the bus and closes its Zenoh subscribers."""
         self._bus.close()
 
     def __enter__(self) -> "BusListener":

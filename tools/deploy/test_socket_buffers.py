@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Tests of tools/deploy/udp_buffers.sh, run against a fake `sysctl` and `sudo`.
+"""Tests of tools/deploy/socket_buffers.sh, run against a fake `sysctl` and `sudo`.
 
 The script raises a kernel limit only below the network file's request, keeps it in sysctl.d, and never fails a launch.
 """
@@ -36,7 +36,7 @@ import tempfile
 import unittest
 
 RUNFILES = os.path.join(os.environ["TEST_SRCDIR"], "_main")
-SCRIPT = os.path.join(RUNFILES, "tools/deploy/udp_buffers.sh")
+SCRIPT = os.path.join(RUNFILES, "tools/deploy/socket_buffers.sh")
 SHIPPED_NETWORKS = (
     "config/ipc/network.textproto",
     "config/ipc/two_machine.example.textproto",

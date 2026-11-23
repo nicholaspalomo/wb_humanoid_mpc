@@ -23,11 +23,11 @@ services:
     # LINT.ThenChange(//docker-compose.yaml:network_mode, //.devcontainer/README.md:ports)
     ports:
       # LINT.IfChange(bus_ports)
-      # The DDS bus of domain 0 (config/ipc/network.textproto): UDP 7400 + 250 * domain_id + 10..49, a discovery and a
-      # data port for each of 20 processes. DDS tells its peers the container's own address, which the host cannot
-      # reach through this bridge, so a process outside the container does not join the bus (.devcontainer/README.md).
-      - "7410-7449:7410-7449/udp"
-      # LINT.ThenChange(//.devcontainer/README.md:bus_ports, //config/ipc/network.textproto:dds_ports)
+      # The Zenoh bus of domain 0 (config/ipc/network.textproto): TCP 7447 + 100 * domain_id + 0..19, the listen port of
+      # each of 20 processes. The processes of the shipped network file listen on the container's 127.0.0.1, which a
+      # published port does not reach, so a process outside the container does not join the bus (.devcontainer/README.md).
+      - "7447-7466:7447-7466/tcp"
+      # LINT.ThenChange(//.devcontainer/README.md:bus_ports, //config/ipc/network.textproto:zenoh_ports)
       # LINT.IfChange(rerun_ports)
       # Rerun: the bridge's gRPC server, which a viewer on the host connects to, and its web viewer
       # (--rerun_sink serve_web).

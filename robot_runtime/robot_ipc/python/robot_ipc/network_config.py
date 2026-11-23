@@ -64,8 +64,8 @@ TRANSPORT_FIELD = "transport"
 _NODE_NAME = re.compile(r"[A-Za-z0-9_-]+")
 # A domain tag is a run of letters, digits, '_', '-' and '.'.
 _DOMAIN_TAG = re.compile(r"[A-Za-z0-9_.-]*")
-# A DDS topic name is letters, digits, '_' and '/', not starting with a digit (Cyclone DDS's own rule).
-_TOPIC_NAME = re.compile(r"[A-Za-z_/][A-Za-z0-9_/]*")
+# A topic is letters, digits, '_' and '/', not starting with a digit, and its chunks between the '/' are not empty.
+_TOPIC_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z0-9_]+)*")
 # The hosts that represent every interface rather than a machine.
 _WILDCARD_HOSTS = ("0.0.0.0", "*")
 _LOCALHOST_NAME = "localhost"
@@ -75,16 +75,9 @@ _LOOPBACK_PREFIX = "127."
 _FIRST_HOST_CHARACTER = "!"
 _LAST_HOST_CHARACTER = "~"
 _HOST_REFUSED_PUNCTUATION = "/:"
-# The UDP payload sizes Cyclone DDS can send.
-MIN_MESSAGE_SIZE_BYTES = 1024
-MAX_MESSAGE_SIZE_BYTES = 65500
-# The largest process count per host whose unicast ports a domain's 250 ports leave room for.
-MAX_PROCESSES_PER_HOST = 115
-# Packets per thousand: 1000 drops every one.
-_PER_MILLE = 1000
+# The largest process count per host: a domain has 100 ports (session_config.ZENOH_DOMAIN_GAIN).
+MAX_PROCESSES_PER_HOST = 100
 # LINT.ThenChange(//robot_runtime/robot_ipc/src/NetworkConfig.cpp:network_rules)
-# The largest UDP port.
-_MAX_PORT = 65535
 _IPV4_ADDRESS = re.compile(r"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
 _MAX_OCTET = 255
 
@@ -126,9 +119,9 @@ class TopicQos:
     """One topic of the network file and its quality of service.
 
     Attributes:
-        topic: the bus topic, which is also the DDS topic name.
+        topic: the bus topic, the last chunks of its Zenoh key expression.
         profile: its QoS profile.
-        publishers: the nodes that publish it; their buses create its DDS writer at construction.
+        publishers: the nodes that publish it; their buses declare its Zenoh publisher at construction.
     """
 
     topic: str
@@ -138,30 +131,22 @@ class TopicQos:
 
 @dataclasses.dataclass(frozen=True)
 class TransportOptions:
-    """The DDS transport; every field is optional, 0 keeps its default (network_config.proto names them).
+    """The Zenoh transport; every field is optional, 0 keeps its default (network_config.proto names them).
 
     Attributes:
-        max_message_size_bytes: General/MaxMessageSize; 0: Cyclone's 14720 B.
-        socket_receive_buffer_bytes: Internal/SocketReceiveBufferSize max; 0: Cyclone's 1 MiB request.
-        socket_send_buffer_bytes: Internal/SocketSendBufferSize max; 0: the OS default.
-        writer_unacked_bytes_limit: Internal/Watermarks/WhcHigh; 0: DEFAULT_WRITER_UNACKED_BYTES_LIMIT.
-        max_processes_per_host: Discovery/MaxAutoParticipantIndex + 1; 0: DEFAULT_MAX_PROCESSES_PER_HOST.
-        lease_duration_ms: Discovery/LeaseDuration; 0: DEFAULT_LEASE_DURATION_MS.
-        simulated_send_loss_per_mille: Internal/Test/XmitLossiness, UDP packets dropped per 1000 sent, for tests and
-            rehearsals; 0 on a real network.
+        socket_receive_buffer_bytes: transport.link.tcp.so_rcvbuf; 0: the OS default.
+        socket_send_buffer_bytes: transport.link.tcp.so_sndbuf; 0: the OS default.
+        max_processes_per_host: the TCP ports of the domain on one machine; 0: DEFAULT_MAX_PROCESSES_PER_HOST.
+        lease_duration_ms: transport.link.tx.lease; 0: DEFAULT_LEASE_DURATION_MS.
     """
 
-    max_message_size_bytes: int = 0
     socket_receive_buffer_bytes: int = 0
     socket_send_buffer_bytes: int = 0
-    writer_unacked_bytes_limit: int = 0
     max_processes_per_host: int = 0
     lease_duration_ms: int = 0
-    simulated_send_loss_per_mille: int = 0
 
 
 # LINT.IfChange(transport_defaults)
-DEFAULT_WRITER_UNACKED_BYTES_LIMIT = 8 << 20
 DEFAULT_MAX_PROCESSES_PER_HOST = 20
 DEFAULT_LEASE_DURATION_MS = 3000
 # LINT.ThenChange(//robot_runtime/robot_ipc/include/robot_ipc/NetworkConfig.h:transport_defaults)
@@ -169,15 +154,15 @@ DEFAULT_LEASE_DURATION_MS = 3000
 
 @dataclasses.dataclass(frozen=True)
 class NetworkConfig:
-    """The DDS network of the bus: its nodes, domain, topic QoS and transport.
+    """The Zenoh network of the bus: its nodes, domain, topic QoS and transport.
 
     Attributes:
         nodes: the nodes, in the order of the file.
-        domain_id: the DDS domain, in [0, MAX_DOMAIN_ID].
+        domain_id: the domain, in [0, MAX_DOMAIN_ID]: the TCP ports and the first chunks of the key expressions.
         domain_tag: Discovery/Tag: only processes with the same tag discover each other. Empty: none.
         topics: the topics the file lists, each at most once.
         default_qos_profile: the profile of a topic that `topics` does not list.
-        transport: the DDS transport.
+        transport: the Zenoh transport.
     """
 
     nodes: tuple[NodeEndpoint, ...]
@@ -221,31 +206,8 @@ class NetworkConfig:
         ]
 
     def peer_hosts(self) -> list[str]:
-        """The distinct hosts of the nodes, in order: the unicast discovery peers."""
+        """The distinct hosts of the nodes, in order: the hosts every bus connects to."""
         return list(dict.fromkeys(node.host for node in self.nodes))
-
-
-# The DDSI port mapping (DDSI-RTPS 2.5, 9.6.1.1), which Cyclone DDS applies with its defaults.
-# LINT.IfChange(dds_ports)
-DDS_PORT_BASE = 7400
-DDS_DOMAIN_GAIN = 250
-DDS_PARTICIPANT_GAIN = 2
-DDS_UNICAST_DISCOVERY_OFFSET = 10
-DDS_UNICAST_DATA_OFFSET = 11
-# LINT.ThenChange(//robot_runtime/robot_ipc/include/robot_ipc/DomainConfig.h:dds_ports)
-
-
-@dataclasses.dataclass(frozen=True)
-class PortRange:
-    """A closed range of UDP ports.
-
-    Attributes:
-        first: the first port.
-        last: the last port.
-    """
-
-    first: int
-    last: int
 
 
 def max_processes_per_host(network: NetworkConfig) -> int:
@@ -253,27 +215,6 @@ def max_processes_per_host(network: NetworkConfig) -> int:
     return (
         network.transport.max_processes_per_host
         or DEFAULT_MAX_PROCESSES_PER_HOST
-    )
-
-
-def unicast_port_range(network: NetworkConfig) -> PortRange:
-    """The unicast UDP ports the processes of one machine use on `network` (DomainConfig.h unicastPortRange()).
-
-    Process index i (Cyclone DDS picks the lowest free one) listens on 7400 + 250 * domain_id + 10 + 2 * i (discovery)
-    and on the port after it (data), for i below max_processes_per_host. Domain 0 with 20 processes: 7410-7449.
-
-    Args:
-        network: The network.
-
-    Returns:
-        The range of the ports.
-    """
-    domain_base = DDS_PORT_BASE + DDS_DOMAIN_GAIN * network.domain_id
-    return PortRange(
-        first=domain_base + DDS_UNICAST_DISCOVERY_OFFSET,
-        last=domain_base
-        + DDS_UNICAST_DATA_OFFSET
-        + DDS_PARTICIPANT_GAIN * (max_processes_per_host(network) - 1),
     )
 
 
@@ -308,13 +249,13 @@ def _validate_host(key: str, host: str) -> None:
 
 
 def topic_name_problem(topic: str) -> str | None:
-    """Why `topic` is not a DDS topic name, or None when it is one."""
+    """Why `topic` is not a bus topic, or None when it is one."""
     if not topic:
         return "the topic is empty"
     if not _TOPIC_NAME.fullmatch(topic):
         return (
-            f"'{topic}' is not a DDS topic name: letters, digits, '_' and '/',"
-            " not starting with a digit"
+            f"'{topic}' is not a bus topic: letters, digits, '_' and '/', not"
+            " starting with a digit, without an empty chunk between the '/'"
         )
     return None
 
@@ -371,21 +312,10 @@ def _validate_topics(config: NetworkConfig) -> None:
 
 def _validate_transport(transport: TransportOptions) -> None:
     """Raises NetworkConfigError reporting the first transport value out of range."""
-    size = transport.max_message_size_bytes
-    if (
-        size != 0
-        and not MIN_MESSAGE_SIZE_BYTES <= size <= MAX_MESSAGE_SIZE_BYTES
-    ):
-        raise NetworkConfigError(
-            f"{TRANSPORT_FIELD}.max_message_size_bytes: {size} is not 0 (the"
-            f" default) or in [{MIN_MESSAGE_SIZE_BYTES},"
-            f" {MAX_MESSAGE_SIZE_BYTES}]"
-        )
     if (
         min(
             transport.socket_receive_buffer_bytes,
             transport.socket_send_buffer_bytes,
-            transport.writer_unacked_bytes_limit,
         )
         < 0
     ):
@@ -402,12 +332,6 @@ def _validate_transport(transport: TransportOptions) -> None:
         raise NetworkConfigError(
             f"{TRANSPORT_FIELD}.lease_duration_ms: must be >= 0 (0: the"
             " default)"
-        )
-    loss = transport.simulated_send_loss_per_mille
-    if not 0 <= loss < _PER_MILLE:
-        raise NetworkConfigError(
-            f"{TRANSPORT_FIELD}.simulated_send_loss_per_mille: {loss} is not in"
-            f" [0, {_PER_MILLE})"
         )
 
 
@@ -436,14 +360,6 @@ def validate_network_config(config: NetworkConfig) -> None:
         )
     _validate_topics(config)
     _validate_transport(config.transport)
-    ports = unicast_port_range(config)
-    if ports.last > _MAX_PORT:
-        raise NetworkConfigError(
-            f"domain_id: domain {config.domain_id} with"
-            f" {ports.last - ports.first + 1} ports per host reaches UDP port"
-            f" {ports.last}, beyond {_MAX_PORT}: a smaller domain_id or"
-            " transport.max_processes_per_host"
-        )
 
 
 def _profile(key: str, name: str) -> qos_profile.QosProfile:
@@ -488,13 +404,10 @@ def _from_proto(message: network_config_pb2.NetworkConfig) -> NetworkConfig:
         topics=tuple(topics),
         default_qos_profile=default_profile,
         transport=TransportOptions(
-            max_message_size_bytes=transport.max_message_size_bytes,
             socket_receive_buffer_bytes=transport.socket_receive_buffer_bytes,
             socket_send_buffer_bytes=transport.socket_send_buffer_bytes,
-            writer_unacked_bytes_limit=transport.writer_unacked_bytes_limit,
             max_processes_per_host=transport.max_processes_per_host,
             lease_duration_ms=transport.lease_duration_ms,
-            simulated_send_loss_per_mille=transport.simulated_send_loss_per_mille,
         ),
     )
     validate_network_config(config)
@@ -621,13 +534,11 @@ def format_network_config(config: NetworkConfig) -> str:
 __all__ = [
     "DEFAULT_LEASE_DURATION_MS",
     "DEFAULT_MAX_PROCESSES_PER_HOST",
-    "DEFAULT_WRITER_UNACKED_BYTES_LIMIT",
     "LOOPBACK_HOST",
     "MAX_DOMAIN_ID",
     "NetworkConfig",
     "NetworkConfigError",
     "NodeEndpoint",
-    "PortRange",
     "TopicQos",
     "TransportOptions",
     "format_network_config",
@@ -636,6 +547,5 @@ __all__ = [
     "load_network_config",
     "parse_network_config",
     "topic_name_problem",
-    "unicast_port_range",
     "validate_network_config",
 ]

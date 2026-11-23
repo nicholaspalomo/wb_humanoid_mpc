@@ -28,7 +28,7 @@
 
 """The BusBridge's writer thread: a handler that blocks (a Rerun sink that takes no data) never blocks the bus.
 
-A stand-in bridge, whose handlers record what they are given and can be made to block, is fed over a DDS bus of the test process.
+A stand-in bridge, whose handlers record what they are given and can be made to block, is fed over a Zenoh bus of the test process.
 """
 
 from collections.abc import Callable
@@ -117,7 +117,7 @@ class StandInBridge:
 
 
 def isolated_network() -> robot_ipc.NetworkConfig:
-    """This test process's own DDS domain (robot_ipc.isolated_test_network()), which every bus of it shares."""
+    """This test process's own domain (robot_ipc.isolated_test_network()), which every bus of it shares."""
     return robot_ipc.isolated_test_network([PUBLISHER])
 
 
@@ -148,7 +148,7 @@ class WriterThreadTest(unittest.TestCase):
         )
 
     def publish_until(self, condition: Callable[[], bool]) -> bool:
-        """Publishes an MpcStatus every 10 ms until `condition` holds, which absorbs DDS discovery."""
+        """Publishes an MpcStatus every 10 ms until `condition` holds, which absorbs the time the sessions take to meet."""
 
         def published() -> bool:
             if condition():

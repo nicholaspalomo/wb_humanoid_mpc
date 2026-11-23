@@ -26,18 +26,19 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-"""robot_ipc: the Cyclone DDS bus of the distributed runtime, in Python (the twin of robot_runtime/robot_ipc in C++).
+"""robot_ipc: the Zenoh bus of the distributed runtime, in Python (the twin of robot_runtime/robot_ipc in C++).
 
 See robot_runtime/robot_ipc/README.md and legged_nmpc/docs/distributed_runtime/README.md.
 """
 
 from robot_ipc import bus
 from robot_ipc import codec
-from robot_ipc import domain_config
 from robot_ipc import envelope
 from robot_ipc import isolated_network
+from robot_ipc import key_exprs
 from robot_ipc import network_config
 from robot_ipc import qos_profile
+from robot_ipc import session_config
 
 # The package's API, so that callers import the package and write `robot_ipc.Bus` (Python style 2.2.4: they import a
 # module, not its names).
@@ -47,14 +48,13 @@ Delivery = bus.Delivery
 parse_delivery = bus.parse_delivery
 TopicStatistics = bus.TopicStatistics
 WIRE_PROTOCOL_VERSION = envelope.WIRE_PROTOCOL_VERSION
-ENVELOPE_TYPE_NAME = envelope.ENVELOPE_TYPE_NAME
 Envelope = envelope.Envelope
 decode = codec.decode
 message_class = codec.message_class
 UnknownMessageTypeError = codec.UnknownMessageTypeError
-cyclone_domain_config = domain_config.cyclone_domain_config
-InterfaceError = domain_config.InterfaceError
-unicast_port_range = network_config.unicast_port_range
+zenoh_session_config = session_config.zenoh_session_config
+InterfaceError = session_config.InterfaceError
+tcp_port_range = session_config.tcp_port_range
 isolated_test_network = isolated_network.isolated_test_network
 format_network_config = network_config.format_network_config
 load_network_config = network_config.load_network_config
@@ -74,7 +74,6 @@ __all__ = [
     "Bus",
     "BusError",
     "Delivery",
-    "ENVELOPE_TYPE_NAME",
     "Envelope",
     "InterfaceError",
     "LOOPBACK_HOST",
@@ -88,7 +87,6 @@ __all__ = [
     "TransportOptions",
     "UnknownMessageTypeError",
     "WIRE_PROTOCOL_VERSION",
-    "cyclone_domain_config",
     "decode",
     "format_network_config",
     "isolated_test_network",
@@ -97,6 +95,7 @@ __all__ = [
     "parse_delivery",
     "parse_network_config",
     "parse_qos_profile",
-    "unicast_port_range",
+    "tcp_port_range",
     "validate_network_config",
+    "zenoh_session_config",
 ]

@@ -25,10 +25,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""End-to-end tests of the ipc_tool subcommands against publishers of raw messages on the test's own DDS domain.
+"""End-to-end tests of the ipc_tool subcommands against publishers of raw messages on the test's own domain.
 
 Each test writes the network file of the test process's domain and runs ipc_tool.main() on it, as the command line
-would. The publishers write the messages repeatedly, so that the tool has discovered them whenever it joins.
+would. The publishers write the messages repeatedly, so that the tool receives them whenever it joins.
 """
 
 import contextlib

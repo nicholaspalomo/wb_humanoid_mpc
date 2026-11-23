@@ -31,7 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // network of --network_config as node
 // --node and, for every "<input>=<output>" pair of --echo, publishes every
 // TestSample of the input topic back on the output topic with origin set to
-// kOrigin. It prints "CONFIG <its Cyclone DDS configuration>" and "READY" once
+// kOrigin. It prints "CONFIG <its Zenoh configuration>" and "READY" once
 // it runs, and when its standard input closes it stops and prints, for each
 // input topic, "STATS <topic> received=<n> delivered=<n> rejected=<n>
 // missed=<n>".

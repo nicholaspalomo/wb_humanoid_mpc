@@ -284,8 +284,8 @@ command before it ends.
 
 Neither may run next to a GUI that publishes walking commands: start the GUI with `--walking_commands=off`, or untick its
 checkbox (above). The MPC keeps the last command it received, so each publisher ends with the stop command, and waits
-for the bus to write it before closing (`teleop.close_after_stop()`): the walking command is a BEST_EFFORT DDS topic
-(`latest`), so a sample still queued when the bus closes is lost. A publisher killed with SIGKILL, or a laptop cut off from the robot, sends nothing, and
+for the bus to write it before closing (`teleop.close_after_stop()`): the walking command is a `latest` topic
+(dropped under congestion), so a sample still queued when the bus closes is lost. A publisher killed with SIGKILL, or a laptop cut off from the robot, sends nothing, and
 the task file's `interface.walking_command_timeout`, which the MPC node reads, is the guard against that
 (legged_nmpc/docs/distributed_runtime/README.md).
 

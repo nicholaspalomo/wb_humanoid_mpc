@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Raises a machine's kernel limits on UDP socket buffers to what a network file asks the DDS bus for, and keeps them
+# Raises a machine's kernel limits on socket buffers to what a network file asks the Zenoh bus for, and keeps them
 # across reboots:
 #
-#   udp_buffers.sh --network config/ipc/two_machine.example.textproto [--host <ssh host>|localhost]
+#   socket_buffers.sh --network config/ipc/two_machine.example.textproto [--host <ssh host>|localhost]
 #
 # A network file's `transport { socket_receive_buffer_bytes: N }` (and socket_send_buffer_bytes) is a request that the
 # kernel caps at net.core.rmem_max (net.core.wmem_max), which is not namespaced: it is the host's limit, and no
-# container can raise it. Cyclone DDS takes the smaller buffer when the kernel caps it and the bus still works, with
-# more retransmissions of large policies, so this script never fails a launch: where it cannot raise a limit (inside a
+# container can raise it. The kernel then grants the smaller TCP buffer and the bus still works, with a slower window
+# for large policies, so this script never fails a launch: where it cannot raise a limit (inside a
 # container, or sudo refused) it says how to and exits 0.
 #
 # A limit is only ever raised, never lowered, and only when it is below the request. Raising it runs
@@ -25,7 +25,7 @@ sysctl_dir="${WB_SYSCTL_DIR:-/etc/sysctl.d}"
 dockerenv="${WB_DOCKERENV:-/.dockerenv}"
 
 usage() {
-    echo "usage: udp_buffers.sh --network <network file> [--host <ssh host>|localhost]" >&2
+    echo "usage: socket_buffers.sh --network <network file> [--host <ssh host>|localhost]" >&2
     exit 2
 }
 
@@ -40,7 +40,7 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "${network}" ] || usage
 if [ ! -f "${network}" ]; then
-    echo "udp_buffers.sh: --network ${network}: no such file" >&2
+    echo "socket_buffers.sh: --network ${network}: no such file" >&2
     exit 2
 fi
 
@@ -66,7 +66,7 @@ ensure_limit() {
     local key="$1" bytes="$2" field="$3" current
     [ "${bytes}" -gt 0 ] || return 0
     if ! current="$(on_host "${sysctl_command} -n ${key}")"; then
-        echo "Warning: udp_buffers.sh: cannot read ${key} on ${host}; the bus works with the kernel's limit." >&2
+        echo "Warning: socket_buffers.sh: cannot read ${key} on ${host}; the bus works with the kernel's limit." >&2
         return 0
     fi
     current="$(echo "${current}" | tr -d '[:space:]')"
@@ -77,17 +77,17 @@ ensure_limit() {
     local hint="sudo sysctl -w ${key}=${bytes}, and keep it in ${sysctl_dir}/60-wb-humanoid-${key}.conf"
     if [ "${host}" = "localhost" ] && [ -f "${dockerenv}" ]; then
         echo "Warning: ${key} is ${current} B here, below the ${bytes} B of ${field} in ${network}, and a container cannot" \
-            "raise the host's limit. On the host run: ${hint} (or make udp-buffers there)." >&2
+            "raise the host's limit. On the host run: ${hint} (or make socket-buffers there)." >&2
         return 0
     fi
     echo "${key} on ${host} is ${current} B, below the ${bytes} B of ${field} in ${network}: raising it (sudo)."
     local conf="${sysctl_dir}/60-wb-humanoid-${key}.conf"
     if on_host "${sudo_command} ${sysctl_command} -w ${key}=${bytes} > /dev/null &&
-            printf '# Set by tools/deploy/udp_buffers.sh for the DDS bus (${field} of the network file).\n%s = %s\n' \
+            printf '# Set by tools/deploy/socket_buffers.sh for the Zenoh bus (${field} of the network file).\n%s = %s\n' \
                 '${key}' '${bytes}' | ${sudo_command} tee '${conf}' > /dev/null"; then
         echo "${key} on ${host} is now ${bytes} B, kept in ${conf}."
     else
-        echo "Warning: udp_buffers.sh: could not raise ${key} on ${host}; the bus works with ${current} B. Run: ${hint}." >&2
+        echo "Warning: socket_buffers.sh: could not raise ${key} on ${host}; the bus works with ${current} B. Run: ${hint}." >&2
     fi
 }
 

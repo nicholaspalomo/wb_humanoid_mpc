@@ -454,7 +454,7 @@ py_test(
 )
 
 # Every control of the operator GUI against the robot process of the simulation (legged_centroidal_mpc_robot on the
-# DRC Atlas files, MuJoCo without a viewer) over the shipped network file's topics on a DDS domain of the test's own:
+# DRC Atlas files, MuJoCo without a viewer) over the shipped network file's topics on a domain of the test's own:
 # the FSM cycle, the gantry, the height slider, joint targets, PD gains, the contact estimator, Save and the dodgeball.
 py_test(
     name = "test_gui_controls_end_to_end",

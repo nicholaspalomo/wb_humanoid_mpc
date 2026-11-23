@@ -10,15 +10,15 @@ module(
 # ==============================================================================
 
 # protobuf 36 requires rules_cc >= 0.2.18.
-bazel_dep(name = "rules_cc", version = "0.2.18")
+bazel_dep(name = "rules_cc", version = "0.2.22")
 bazel_dep(name = "rules_foreign_cc", version = "0.14.0")
-bazel_dep(name = "rules_python", version = "1.7.0")
+bazel_dep(name = "rules_python", version = "1.8.0")
 bazel_dep(name = "googletest", version = "1.17.0")
-bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "abseil-cpp", version = "20250814.1")
 
 # ==============================================================================
-# IPC: Protocol Buffers messages over Cyclone DDS (legged_nmpc/docs/distributed_runtime)
+# IPC: Protocol Buffers messages over Eclipse Zenoh (legged_nmpc/docs/distributed_runtime)
 # ==============================================================================
 # Bazel 9 with protobuf >= 34 uses the prebuilt protoc of the release (the prefer_prebuilt_protoc flag defaults to
 # true), so protoc itself is not compiled. The C++ generator (protoc-gen-cpp) and the C++ runtime are, so that the
@@ -30,12 +30,22 @@ bazel_dep(name = "abseil-cpp", version = "20250814.1")
 bazel_dep(name = "protobuf", version = "36.0.bcr.1")
 # LINT.ThenChange(//tools/python/operator_requirements.txt:protobuf_version)
 
-# Cyclone DDS (Eclipse), the bus's transport: the C library ddsc, linked statically, and idlc, the IDL compiler that
-# generates the C type support of robot_runtime/robot_ipc/idl/Envelope.idl. The BCR module builds both from source with
-# this repository's toolchain, without patches. The Python bus uses the cyclonedds wheel of the same release.
-# LINT.IfChange(cyclonedds_version)
-bazel_dep(name = "cyclonedds", version = "11.0.1")
-# LINT.ThenChange(//tools/python/operator_requirements.txt:cyclonedds_version)
+# Eclipse Zenoh, the bus's transport: zenoh-c, the C API of the Rust implementation, linked statically. The BCR module
+# builds it from source with rules_rs, which needs the Rust toolchain registered below (zenoh-c registers its own only
+# as a dev dependency). The Python bus uses the eclipse-zenoh wheel of the same release.
+# LINT.IfChange(zenoh_version)
+bazel_dep(name = "zenoh-c", version = "1.10.1.bcr.1")
+# LINT.ThenChange(//tools/python/operator_requirements.txt:zenoh_version)
+bazel_dep(name = "rules_rs", version = "0.0.109")
+
+rust_toolchains = use_extension("@rules_rs//rs/toolchains:module_extension.bzl", "toolchains")
+rust_toolchains.toolchain(
+    edition = "2021",
+    version = "1.97.1",
+)
+use_repo(rust_toolchains, "default_rust_toolchains")
+
+register_toolchains("@default_rust_toolchains//...")
 
 # ==============================================================================
 # MuJoCo web viewer: offscreen EGL rendering streamed over HTTP (robot_runtime/web_viewer)

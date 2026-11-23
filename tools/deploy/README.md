@@ -219,21 +219,21 @@ on the host's network, as `docker-compose.yaml` creates it. `in_dev_container.sh
 for the network, and each says so.
 
 The robot computer needs Docker with the compose plugin (v2) and, for `SERVICE=`, systemd and sudo. Nothing else: no
-checkout, no Bazel, and no DDS installation: Cyclone DDS (`@cyclonedds//:ddsc`) is linked statically into the robot
-binaries, so `collect_runtime_libraries.sh` finds no `libddsc` to copy, and the bus reads all of its DDS
-configuration from the network file (`robot_ipc/DomainConfig.h`; `CYCLONEDDS_URI` is not read).
+checkout, no Bazel, and no Zenoh installation: zenoh-c (`@zenoh-c`) is linked statically into the robot binaries, so
+`collect_runtime_libraries.sh` finds no `libzenohc` to copy, and the network file is the bus's whole Zenoh
+configuration (`robot_ipc/SessionConfig.h`; `ZENOH_CONFIG` is not read).
 
-The bus is UDP: both machines must accept it on the DDS ports of the network file's domain (domain 0: 7410-7449,
+The bus is TCP: both machines must accept it on the TCP ports of the network file's domain (domain 0: 7447-7466,
 `config/ipc/two_machine.example.textproto`). A network file that asks for an 8 MiB socket receive buffer (the example's
 `transport { socket_receive_buffer_bytes: 8388608 }`, a few policies) gets it only up to the kernel's limit, which is
 not namespaced and so is the host's, not the container's. The Makefile raises it: every launch target and
-`deploy-robot` first run `tools/deploy/udp_buffers.sh`, which reads the network file's `socket_receive_buffer_bytes`
+`deploy-robot` first run `tools/deploy/socket_buffers.sh`, which reads the network file's `socket_receive_buffer_bytes`
 (and `socket_send_buffer_bytes`), raises `net.core.rmem_max` (`wmem_max`) on that machine with `sudo sysctl -w` only
 when it is below the request (on the laptop for `launch-<robot>-sim|dummy-sim|mpc`, on `HOST` over ssh for
 `deploy-robot` and `launch-<robot>-robot`), and keeps it in `/etc/sysctl.d/60-wb-humanoid-<key>.conf`, so sudo asks
-once per machine. `make udp-buffers [NETWORK=] [HOST=]` does it on its own. From inside a container it cannot (the
-limit is the host's) and says what to run on the host. It never fails a target: Cyclone DDS takes a smaller buffer
-when the kernel caps it, and the bus works, with more retransmissions of large policies.
+once per machine. `make socket-buffers [NETWORK=] [HOST=]` does it on its own. From inside a container it cannot (the
+limit is the host's) and says what to run on the host. It never fails a target: the kernel grants a smaller TCP buffer
+when it caps the request, and the bus works, with a smaller window for large policies.
 
 ## Running it
 
@@ -315,14 +315,12 @@ A start is confirmed once its realtime loop has run 10 s.
 `NETEM="delay 3ms 1ms loss 0.5%"` (any `tc-netem` parameters) on `make launch-<robot>-sim` or `make deploy-robot` adds
 `docker-compose.robot.netem.yaml` (`NET_ADMIN`) and makes the entry point run `netem.sh apply <NETEM_INTERFACE>` before
 the robot process and `netem.sh clear` after it. `netem.sh` replaces the interface's root qdisc with a prio qdisc whose
-fourth band is netem and filters only UDP packets (IPv4 and IPv6, matched on the IP protocol and the ports) from or to
-the bus's DDS ports (7168-7679, covering 7410-7449 of domain 0 and the ports of domain 1) into it, discovery and data
-alike; everything else is untouched. A lost packet costs one DDS fragment: `reliable_latest` and `reliable_events`
-topics send it again, `latest` topics wait for their next sample. With host networking the interface is the host's: on
-`lo` (the default, for simulation) every bus packet on the machine is shaped in both directions; on a network interface
-only what the robot sends. For a rehearsal without `tc`, a network file's `transport { simulated_send_loss_per_mille: N }`
-drops N of every 1000 packets each process sends (Cyclone DDS's Internal/Test/XmitLossiness). A container
-killed before it could clear it leaves the qdisc; `make kill-sims` removes it, or `tc qdisc del dev lo root`. Off by
+fourth band is netem and filters only TCP packets (IPv4 and IPv6, matched on the IP protocol and the ports) from or to
+the bus's TCP ports (7424-7679, holding 7447-7466 of domain 0 and 7547-7566 of domain 1) into it; everything else is
+untouched. TCP sends a lost packet again, so loss shows as latency, and as samples that the dropping profiles
+(`latest`, `reliable_latest`) give up when the link backs up; `reliable_events` samples wait. With host networking the
+interface is the host's: on `lo` (the default, for simulation) every bus packet on the machine is shaped in both
+directions; on a network interface only what the robot sends. A container killed before it could clear it leaves the qdisc; `make kill-sims` removes it, or `tc qdisc del dev lo root`. Off by
 default.
 
 ## Realtime in a container

@@ -31,7 +31,7 @@ bazel_indexed := cd $(current_path) && $(bazel_indexed_in_repo)
         test-pinocchio-model-atlas test-pinocchio-model-r1 test-pinocchio-model-sa01 test-pinocchio-model-anymal-b \
         test-pinocchio-model-tron1 test-pinocchio-model-anymal-c-wheels \
         start-vnc stop-vnc kill-sims check-zombies \
-        deploy-robot robot-images udp-buffers rerun-viewer rerun-web ipc-list ipc-echo ipc-hz \
+        deploy-robot robot-images socket-buffers rerun-viewer rerun-web ipc-list ipc-echo ipc-hz \
         closed-loop-metrics benchmark-mpc-solve compare-closed-loop \
         run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules install-hooks train-acom-jupyter
 # The launch targets are declared .PHONY where the robot table below generates them.
@@ -484,11 +484,11 @@ network_file = $(call checkout_relative,NETWORK,$(NETWORK))
 dev_run := $(current_path)tools/deploy/in_dev_container.sh
 session := $(current_path)tools/deploy/session.sh
 deploy_robot := $(current_path)tools/deploy/deploy_robot.sh
-# Raises a machine's net.core.rmem_max / wmem_max to the socket buffers its network file asks the DDS bus for, and keeps
-# them in /etc/sysctl.d (sudo, only when a limit is below the request): $(call udp_buffers,<network file>,<host>).
-# The launch and deployment targets run it first; it never fails them (tools/deploy/udp_buffers.sh).
+# Raises a machine's net.core.rmem_max / wmem_max to the socket buffers its network file asks the Zenoh bus for, and keeps
+# them in /etc/sysctl.d (sudo, only when a limit is below the request): $(call socket_buffers,<network file>,<host>).
+# The launch and deployment targets run it first; it never fails them (tools/deploy/socket_buffers.sh).
 shipped_network := config/ipc/network.textproto
-udp_buffers = $(current_path)tools/deploy/udp_buffers.sh --network $(current_path)$(1) --host $(2)
+socket_buffers = $(current_path)tools/deploy/socket_buffers.sh --network $(current_path)$(1) --host $(2)
 deploy_flags = --host $(HOST) --deploy_dir $(DEPLOY_DIR) \
 	$(if $(NETWORK),--network $(network_file)) $(if $(REGISTRY),--registry $(REGISTRY)) \
 	$(if $(TAG),--tag $(TAG)) $(if $(IMAGE_SOURCE),--image_source $(IMAGE_SOURCE)) \
@@ -546,24 +546,24 @@ define robot_launch_targets
 	launch-$(call field,$(1),1)-mpc-vnc
 
 launch-$(call field,$(1),1)-sim: kill-sims
-	@$(call udp_buffers,$(shipped_network),localhost)
+	@$(call socket_buffers,$(shipped_network),localhost)
 	@$(session) sim --robot $(call field,$(1),2) --launch_file $(call field,$(1),3)/launch/mpc.textproto \
 		--build "$(mpc_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets) \
 		$$(if $$(NETEM),--netem "$$(NETEM)") $$(sim_viewer) \
 		$$(if $$(PLOT_CONFIG),--plot_config "$$(PLOT_CONFIG)")
 
 launch-$(call field,$(1),1)-dummy-sim: kill-sims
-	@$(call udp_buffers,$(shipped_network),localhost)
+	@$(call socket_buffers,$(shipped_network),localhost)
 	@$(session) laptop --launch_file $(call field,$(1),3)/launch/dummy_sim.textproto \
 		--build "$(dummy_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets)
 
 launch-$(call field,$(1),1)-robot:
-	@$$(call udp_buffers,$$(or $$(network_file),$(shipped_network)),$$(HOST))
+	@$$(call socket_buffers,$$(or $$(network_file),$(shipped_network)),$$(HOST))
 	@$(deploy_robot) up --robot $(call field,$(1),2) --host $$(HOST) --deploy_dir $$(DEPLOY_DIR)
 
 launch-$(call field,$(1),1)-mpc: kill-sims
 	@$$(if $$(NETWORK),,$$(error launch-$(call field,$(1),1)-mpc needs NETWORK=<network file> with the robot's address, e.g. a copy of config/ipc/two_machine.example.textproto))
-	@$$(call udp_buffers,$$(network_file),localhost)
+	@$$(call socket_buffers,$$(network_file),localhost)
 	@$(session) laptop --launch_file $(call field,$(1),3)/launch/mpc.textproto \
 		--build "$(mpc_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets) \
 		--set network_file=$$(network_file)
@@ -621,7 +621,7 @@ define multi_contact_dummy_sim_targets
 .PHONY: launch-drc-atlas-$(call field,$(1),1)-dummy-sim launch-drc-atlas-$(call field,$(1),1)-dummy-sim-vnc
 
 launch-drc-atlas-$(call field,$(1),1)-dummy-sim: kill-sims
-	@$(call udp_buffers,$(shipped_network),localhost)
+	@$(call socket_buffers,$(shipped_network),localhost)
 	@$(session) laptop --launch_file $(multi_contact_launch_file) --build "$(multi_contact_binaries)" $$(rerun_sets) \
 		--set scenario=$(call field,$(1),2) --set plan_dir=$(MULTI_CONTACT_PLAN_DIR) \
 		--set playback=$(call multi_contact_playback,$(call field,$(1),1))
@@ -664,14 +664,14 @@ $(foreach scenario,$(MULTI_CONTACT_SCENARIOS),$(eval $(call multi_contact_plan_t
 ## REGISTRY=ghcr.io/<owner> TAG=<branch>-arm64 deploys CI's arm64 image instead of building one here.
 deploy-robot:
 	@$(if $(ROBOT),,$(error deploy-robot needs ROBOT=<robot configuration>: anymal_b, anymal_c_wheels, drc_atlas, engineai_sa01, tron1, unitree_g1, unitree_g1_wb or unitree_r1))
-	@$(call udp_buffers,$(or $(network_file),$(shipped_network)),$(HOST))
+	@$(call socket_buffers,$(or $(network_file),$(shipped_network)),$(HOST))
 	@$(deploy_robot) deploy --robot $(ROBOT) --service $(SERVICE) $(deploy_flags)
 
-## Raise this machine's (or HOST='s, over ssh) kernel limits on UDP socket buffers to what the network file asks the DDS
-## bus for, and keep them across reboots: make udp-buffers [NETWORK=<file>] [HOST=<ssh host>]. The launch and deploy
-## targets do this first; sudo asks only while a limit is below the request (tools/deploy/udp_buffers.sh).
-udp-buffers:
-	@$(call udp_buffers,$(or $(network_file),$(shipped_network)),$(HOST))
+## Raise this machine's (or HOST='s, over ssh) kernel limits on socket buffers to what the network file asks the Zenoh
+## bus for, and keep them across reboots: make socket-buffers [NETWORK=<file>] [HOST=<ssh host>]. The launch and deploy
+## targets do this first; sudo asks only while a limit is below the request (tools/deploy/socket_buffers.sh).
+socket-buffers:
+	@$(call socket_buffers,$(or $(network_file),$(shipped_network)),$(HOST))
 
 ## Build the robot bundle and the robot-runtime and robot-sim images, without deploying them
 robot-images:
@@ -730,7 +730,7 @@ help:
 	@echo "  playback-drc-atlas-<scenario>   that plan played kinematically in Rerun (RERUN_SINK=, default serve_web)"
 	@echo "Deployment: deploy-robot ROBOT= HOST= NETWORK= [SERVICE=install|enable] [REGISTRY=] [PLATFORM=] [BACKEND=]"
 	@echo "            [MEMORY_LIMIT=], robot-images"
-	@echo "            udp-buffers [NETWORK=] [HOST=]: the kernel's UDP buffer limits the network file asks for (sudo,"
+	@echo "            socket-buffers [NETWORK=] [HOST=]: the kernel's socket buffer limits the network file asks for (sudo,"
 	@echo "            once per machine; the launch and deploy targets run it first)"
 	@echo "Viewers and the bus: rerun-viewer, rerun-web [ROBOT=] [NETWORK=], ipc-list, ipc-echo TOPIC=, ipc-hz TOPIC="
 	@echo "Validation (legged_nmpc/legged_mpc_validation): closed-loop-metrics ROBOT= LABEL= [SCENARIO=] [BASELINE=]"

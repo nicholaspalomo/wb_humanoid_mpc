@@ -225,14 +225,14 @@ bool waitFor(absl::FunctionRef<bool()> condition,
              absl::Duration timeout = kTimeout);
 
 /**
- * A publishing bus of node `name` on this test process's DDS domain number
+ * A publishing bus of node `name` on this test process's domain number
  * `domainIndex` (robot::ipc::isolatedTestNetwork()): the buses of one domain
  * reach each other, those of two domains never do.
  */
 std::unique_ptr<robot::ipc::Bus> createNodeBus(absl::string_view name,
                                                int domainIndex = 0);
 
-/** A bus that only subscribes, on this test process's DDS domain number
+/** A bus that only subscribes, on this test process's domain number
  * `domainIndex`. */
 std::unique_ptr<robot::ipc::Bus> createSubscriberBus(int domainIndex = 0);
 
