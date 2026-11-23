@@ -72,7 +72,7 @@ class RobotController {
   // ------------------------------------------------------------------ the
   // realtime thread
 
-  /** Hands the controller the mode and the JOINT_PD posture of this cycle, in
+  /** Passes the controller the mode and the JOINT_PD posture of this cycle, in
    * the order the formulation's sim did. */
   virtual void prepareCycle(
       absl::string_view controlMode,
@@ -98,8 +98,8 @@ class RobotController {
    * to the controller's contact set (ModelSettings::contactNames) from
    * construction on, so its size() is the controller's contact count. */
   virtual const ContactMask& measuredContactFlags() const = 0;
-  /** requestMpcReset(): the policy in use carries the robot until a new one is
-   * in use. */
+  /** requestMpcReset(): the active policy controls the robot until a new one
+   * is in use. */
   virtual void requestMpcReset() = 0;
   /** requestMpcResetAndHold(): WB_MPC holds the robot in JOINT_PD until a
    * post-reset policy is in use. */

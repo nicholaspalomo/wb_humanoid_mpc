@@ -155,8 +155,8 @@ TEST(RealtimeEventLog,
 
 TEST(RealtimeEventLog, ARefusedContactEstimateIsLoggedOnceAsAWarning) {
   // The controller's control thread refuses an estimate of one flag on every
-  // cycle; the communication thread logs one warning naming the estimator and
-  // both counts.
+  // cycle; the communication thread logs one warning identifying the estimator
+  // and both counts.
   RealtimeEventLog log;
   ContactEstimateIntake intake("CentroidalMpcMrtJointController",
                                /*numContacts=*/2);

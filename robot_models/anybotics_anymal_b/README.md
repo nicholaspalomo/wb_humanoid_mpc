@@ -5,7 +5,7 @@ base's x axis), hip flexion/extension (`HFE`, y) and knee flexion/extension (`KF
 and `RH` (left/right, front/hind). Each leg ends in a rubber ball foot, which the MPC models as a 3-DoF point contact on
 the URDF's `<leg>_FOOT` frame. It is the first robot of this repository that is not a biped.
 
-This directory holds two Bazel packages, each with its own README:
+This directory contains two Bazel packages, each with its own README:
 
 | Package | Contents |
 | --- | --- |

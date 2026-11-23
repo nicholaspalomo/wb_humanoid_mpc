@@ -87,7 +87,7 @@ struct NearestPrimitive {
  */
 class TerrainModel {
  public:
-  /** Validates `scene` and builds its model. InvalidArgument names the
+  /** Validates `scene` and builds its model. InvalidArgument identifies the
    * primitive and the field at fault: no primitive, a duplicate or empty name,
    * a friction coefficient that is not positive, a vector of the wrong size, a
    * quaternion that is not unit, a half extent or radius that is not positive,
@@ -106,7 +106,7 @@ class TerrainModel {
   const TerrainPrimitive& primitive(int index) const {
     return primitives_[index];
   }
-  /** The index of the primitive `name`; NotFound names the scene. */
+  /** The index of the primitive `name`; NotFound identifies the scene. */
   absl::StatusOr<int> primitiveIndex(absl::string_view name) const;
 
   /** The exact query of one primitive; requires 0 <= index < numPrimitives().

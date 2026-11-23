@@ -28,9 +28,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // The conversions of every test message allocate nothing once the objects they
-// convert into have the value's shape, and the message side keeps that capacity
+// convert into have the value's size, and the message side keeps that capacity
 // when a repeated field shrinks. A binary of its own, because the allocation
-// counter replaces malloc for the whole process.
+// counter replaces malloc for the process.
 
 // The generated conversion headers marked IWYU pragma: keep declare the
 // ToProto() / FromProto() that the test templates call by argument-dependent

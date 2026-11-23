@@ -79,8 +79,9 @@ struct OrientationCompensationParameters {
  * This is the heuristic that most needs the per-node seam. Bledt found it by
  * regressing the optimizer's chosen pitch against the gait phase and recovering
  * a sinusoid at exactly the step frequency (section 4.2, equation 4.13, figure
- * 4-6), which over a one-second horizon is two or three whole cycles -
- * something the three-knot target trajectory could not carry even in principle.
+ * 4-6), which over a one-second horizon is two or three full cycles -
+ * something the three-knot target trajectory could not represent even in
+ * principle.
  *
  * `phaseRate` is in radians per unit of gait phase, and the phase runs 0 to 1
  * over one LEFT-RIGHT CYCLE, so 2*pi is one period per cycle and 4*pi is one
@@ -88,7 +89,7 @@ struct OrientationCompensationParameters {
  * shapes are pre-wired so that only the amplitude has to be found.
  *
  * Phase [0, 0.5) is LEFT STANCE (right foot in the air) and [0.5, 1) its mirror
- * - the mode names LF and RF name the foot in CONTACT. That is what
+ * - the mode names LF and RF identify the foot in CONTACT. That is what
  * `phaseOffset` is measured against.
  */
 struct PeriodicOrientationParameters {
@@ -200,7 +201,7 @@ struct CapturePointParameters {
  * world by the measured base yaw.
  *
  * The lateral offset `a0` is signed per foot, so one number widens both sides
- * of the stance rather than shifting the whole robot to the left.
+ * of the stance rather than shifting the robot to the left.
  */
 struct TranslationalSteppingParameters {
   scalar_t forwardPerForwardVelocityGain = 0.0;  // a1 [m s/m], Bledt's constant
@@ -229,7 +230,7 @@ struct TranslationalSteppingParameters {
  * The forward term is signed per foot, because a foot to the LEFT of a body
  * turning counter-clockwise travels BACKWARDS (its velocity is omega x r) while
  * the right foot travels forwards: the two fore-aft displacements must be equal
- * and opposite. The implementation carries that sign, so a POSITIVE coefficient
+ * and opposite. The implementation applies that sign, so a POSITIVE coefficient
  * places each foot further along the direction its own hip is traveling - it
  * leads the hips into the turn, which is what the heuristic is for.
  */
@@ -306,8 +307,8 @@ struct ImpulseScalingParameters {
  * The only heuristic of the ten whose force is HORIZONTAL, which is what makes
  * it the only one that has to be written through
  * MpcRobotModelBase::setForceContactEwrtWorld(): under the basis-vector
- * input parameterization the input lives in the local contact frame, and a
- * horizontal world-frame force has to be rotated into it by the foot's
+ * input parameterization the input is expressed in the local contact frame, and
+ * a horizontal world-frame force has to be rotated into it by the foot's
  * orientation. That rotation is a forward-kinematics pass per node, which is
  * why WrenchHeuristic asks each heuristic whether it needs one and only this
  * one says yes.

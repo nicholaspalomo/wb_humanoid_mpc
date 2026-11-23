@@ -48,7 +48,7 @@ from legged_rerun_viewer import telemetry_contract
 
 JOINTS = ("left_hip_pitch_joint", "left_knee_joint", "right_hip_pitch_joint")
 # The display coordinates (the base's Euler angles), and the velocity's entries (the world linear and the body angular
-# velocity), as getBaseDofNames() and getBaseVelocityDofNames() name the base's.
+# velocity), as getBaseDofNames() and getBaseVelocityDofNames() list the base's.
 DOFS = (
     "base_x",
     "base_y",
@@ -124,7 +124,7 @@ def _add_pose_link_rt_world(
     yaw_link_rt_world: float,
 ) -> None:
     pose_link_rt_world = robot.pose_links_rt_world.add()
-    # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
+    # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field specifies the frames
     pose_link_rt_world.position.x = pos_link_rt_world_ewrt_world_x
     pose_link_rt_world.position.y = 0.1
     pose_link_rt_world.position.z = 0.8

@@ -22,7 +22,7 @@ cc_library(
     ],
 )
 
-# Files of the repository - robot descriptions, task files - from the Bazel runfiles of the running test or binary.
+# Files of the repository (robot descriptions, task files) from the Bazel runfiles of the running test or binary.
 # A target of its own, so the realtime libraries that depend on robot_core do not link the runfiles library.
 cc_library(
     name = "resource_paths",

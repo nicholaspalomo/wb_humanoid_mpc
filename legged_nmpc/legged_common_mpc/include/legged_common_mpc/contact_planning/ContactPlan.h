@@ -211,12 +211,12 @@ struct ContactPlan {
 
   /**
    * Contact flags at `time`: of the continuous-time phase containing it when
-   * the plan carries one (phaseContacts), of the interval containing it
+   * the plan includes one (phaseContacts), of the interval containing it
    * otherwise; clamped to the plan.
    */
   BipedFeetArray<bool> contactsAtTime(scalar_t time) const;
 
-  /** Whether the plan carries its gait in continuous time (phaseContacts /
+  /** Whether the plan stores its gait in continuous time (phaseContacts /
    * phaseStartTimes, consistent sizes). */
   bool hasContinuousPhases() const {
     return !phaseContacts.empty() &&
@@ -237,22 +237,22 @@ struct ContactPlan {
    * rounds to the nearest node, so `liftOffTime - 0.5 * dt` rounds back UP to
    * the lift-off node itself
    * (`lround(k - 0.5) == k`), and any smaller nudge is a guess about where the
-   * lift-off sits between two nodes.
+   * lift-off falls between two nodes.
    *
    * Reading the lift-off node instead of the one before it is not a harmless
    * rounding difference, because the two planners disagree about what the
-   * lift-off node holds. Under `lip_miqp` the foothold state has not jumped
-   * yet, so node k is still the stance. Under `hlip` - the shipped default -
+   * lift-off node stores. Under `lip_miqp` the foothold state has not jumped
+   * yet, so node k is still the stance. Under `hlip` (the shipped default),
    * HlipContactPlanner computes the landing spot of a swing BEFORE stamping
    * `plan.desPosFeetRtWorldEwrtWorldXyTraj` over every node of that
-   * single-support phase, so node k already carries the LANDING position.
+   * single-support phase, so node k already stores the LANDING position.
    * Reading it there makes a swing's start equal its target, which collapses
-   * the whole swing reference to a constant with zero commanded velocity.
+   * the swing reference to a constant with zero commanded velocity.
    *
    * Node k-1 is a contact node for the foot under BOTH planners, so this one
    * accessor is correct for both. The nearest node is resolved with the same
    * rounding rule HlipContactPlanner uses for its phase boundaries, so a
-   * lift-off that does not sit exactly on the node grid still resolves to a
+   * lift-off that does not fall exactly on the node grid still resolves to a
    * node the foot is standing on.
    */
   std::optional<vector2_t> getPrevDesPosFootRtWorldEwrtWorldXy(
@@ -318,7 +318,7 @@ struct ContactPlan {
       scalar_t time) const;
 
   /**
-   * Moves the whole plan by `shift` seconds (start time, commit boundary and
+   * Shifts the plan by `shift` seconds (start time, commit boundary and
    * continuous phase times). Used when the executed schedule is re-timed after
    * the plan was made (late touch-down, cadence modulation) so that the plan's
    * later events keep their timing relative to the re-timed switch.

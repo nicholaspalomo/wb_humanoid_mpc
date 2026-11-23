@@ -76,7 +76,7 @@ struct RobotConfiguration {
 };
 
 /** Returns the configuration of the files of `directory`
- * (RobotConfigDirectory::files()); the errors name the file. */
+ * (RobotConfigDirectory::files()); errors report the file. */
 absl::StatusOr<RobotConfiguration> loadRobotConfiguration(
     const RobotConfigDirectory& directory);
 
@@ -120,9 +120,9 @@ RobotProcess::Hooks robotProcessHooks(
  * contacts block), which is where the MPC model's contact frame is. A rolling
  * contact is an estimation::ContactPointKind::kRolling point on its wheel link
  * at the wheel center, with the wheel radius, which the `kalman` estimator
- * refuses. Each point carries its contact's name. Parses the URDF once.
+ * refuses. Each point stores its contact's name. Parses the URDF once.
  *
- * @return InvalidArgument naming a 6-DoF contact without a parent joint, the
+ * @return InvalidArgument reporting a 6-DoF contact without a parent joint, the
  * errors of childLinkNamesOfJoints() and of contactCenterPointFromConfig().
  */
 absl::StatusOr<std::vector<estimation::ContactPointSpec>>

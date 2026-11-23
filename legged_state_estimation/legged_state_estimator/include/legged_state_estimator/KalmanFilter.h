@@ -264,13 +264,13 @@ class KalmanFilter {
    * where A, B and Q are assembled from the per-channel process models, as
    * KalmanFilterProcessModel describes, and Q_u from the noise of the inputs.
    * Each state channel takes at most one process model. An input that no
-   * controlInputMatrix block names has no effect.
+   * controlInputMatrix block references has no effect.
    *
    * Fails without changing the estimate before reset(), and when a model or a
-   * block names a state channel or an input that does not exist, when a block
-   * or a covariance has the wrong size, when a value is not finite, or when a
-   * covariance is not symmetric or has a negative variance or a correlation
-   * outside [-1, 1].
+   * block references a state channel or an input that does not exist, when a
+   * block or a covariance has the wrong size, when a value is not finite, or
+   * when a covariance is not symmetric or has a negative variance or a
+   * correlation outside [-1, 1].
    */
   virtual absl::Status predict(
       absl::Span<const KalmanFilterProcessModel> processModel,
@@ -290,8 +290,8 @@ class KalmanFilter {
    *
    * Fails without changing the estimate before reset(), and when a measurement
    * has an empty or repeated name, an empty or non-finite value, no observation
-   * block, a block that names an unknown state channel or has the wrong size,
-   * or a missing or invalid noise covariance (checked as in predict()). It also
+   * block, a block that references an unknown state channel or has the wrong
+   * size, or a missing or invalid noise covariance (checked as in predict()). It also
    * fails when S is not numerically positive definite, i.e. when a Cholesky
    * pivot of S falls below machine epsilon times its largest variance, which
    * takes a noise-free measurement of a direction the estimate is already
@@ -325,7 +325,7 @@ class KalmanFilter {
                                          absl::string_view colStateName) const;
 
  private:
-  /// Where a state channel lives in the stacked state, and its position in
+  /// Offset of a state channel in the stacked state, and its position in
   /// stateNames_.
   struct ChannelBlock {
     Eigen::Index offset = 0;

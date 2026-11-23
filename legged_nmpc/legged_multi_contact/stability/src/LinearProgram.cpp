@@ -150,7 +150,7 @@ absl::StatusOr<LinearProgramSolution> solveDenseQp(
   const int equalities = static_cast<int>(program.equalityMatrix.rows());
   const int inequalities = static_cast<int>(program.inequalityMatrix.rows());
 
-  // Every variable carries a box constraint; the masks drop the infinite sides.
+  // Every variable has a box constraint; the masks drop the infinite sides.
   std::vector<int> boxIndices(variables);
   for (int i = 0; i < variables; ++i) boxIndices[i] = i;
   MaskedBounds lower = masked(program.lowerBound);

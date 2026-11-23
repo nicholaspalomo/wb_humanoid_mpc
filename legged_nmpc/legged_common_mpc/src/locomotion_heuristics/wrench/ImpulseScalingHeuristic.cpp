@@ -104,7 +104,7 @@ vector3_t ImpulseScalingHeuristic::computeOffsetForceFootEwrtWorld(
   // Clamped ABOVE by what the legs and the friction cone can deliver, and BELOW
   // at zero because a contact force reference that pulls the robot down through
   // the floor is not a reference any foot can track. The lower clamp is what
-  // makes a negative `scale` - which validate() also rejects - harmless rather
+  // makes a negative `scale` (which validate() also rejects) harmless rather
   // than inverted.
   refForceFootEwrtWorldZ = std::clamp(
       refForceFootEwrtWorldZ, 0.0,

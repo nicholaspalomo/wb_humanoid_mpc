@@ -50,8 +50,8 @@ namespace ocs2::legged {
  * with FootCollisionConstraint::Config's own contact and collision-point
  * frames.
  *
- * @return The configuration; InvalidArgument naming a radius that is not a
- * finite positive number, or an ankle or knee frame the block leaves empty.
+ * @return The configuration; InvalidArgument identifying a radius that is not
+ * a finite positive number, or an ankle or knee frame the block leaves empty.
  * Whether the frames exist in the model is checkFootCollisionFramesExist()'s.
  */
 absl::StatusOr<FootCollisionConstraint::Config>
@@ -60,8 +60,9 @@ footCollisionConstraintConfigFromConfig(
 
 /**
  * OK when every frame of `config` (the ankles, the knees, the foot centers and
- * collision points) is a frame of `model`; otherwise InvalidArgument naming the
- * first that is not. The constraint looks its frames up by name and would read
+ * collision points) is a frame of `model`; otherwise InvalidArgument
+ * identifying the first that is not. The constraint looks its frames up by name
+ * and would read
  * past the model's frames for a name the model lacks, so its factory checks
  * them before it builds it.
  */

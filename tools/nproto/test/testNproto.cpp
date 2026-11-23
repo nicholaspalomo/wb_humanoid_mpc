@@ -114,7 +114,7 @@ using test_support::ProtoEquals;
 template <typename Member, typename Expected>
 constexpr bool kIs = std::is_same_v<Member, Expected>;
 
-// The option names the struct; the protobuf class of the same message is
+// The option specifies the struct; the protobuf class of the same message is
 // another type.
 static_assert(std::is_class_v<Scalars> &&
               !std::is_same_v<Scalars, nproto_test::Scalars>);
@@ -227,11 +227,11 @@ static_assert(kIs<decltype(Editions::name), std::optional<std::string>>);
 static_assert(kIs<decltype(Editions::scalars), Scalars>);
 // A message field with (nproto.optional_message) keeps its presence.
 static_assert(kIs<decltype(Editions::maybe_scalars), std::optional<Scalars>>);
-// Retired fields are options only: the struct holds the live fields.
+// Retired fields are options only: the struct contains the live fields.
 static_assert(kIs<decltype(Retired::step_width), double> &&
               kIs<decltype(Retired::block), Retired::Block>);
 
-// Members named like types: the generated code names the types fully qualified.
+// Members named like types: the generated code uses fully qualified type names.
 static_assert(kIs<decltype(Shadowing::Scalars), Scalars>);
 static_assert(kIs<decltype(Shadowing::Outer), Outer::Kind>);
 
@@ -596,7 +596,7 @@ TEST(EnumTest, AnUndefinedNumberIsAnError) {
   EXPECT_EQ(status.message(), "99 is not a value of nproto_test.Severity");
 }
 
-// The error of FromProto() names the field path down to the enum.
+// The error of FromProto() includes the field path down to the enum.
 void expectError(const absl::Status& status, absl::string_view message) {
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
   EXPECT_EQ(status.message(), message);

@@ -244,7 +244,7 @@ struct JointDrift {
  * the explicit limit 2 M_jj / dt on the lightest link: it takes out the swing
  * of the catch, which the scene's own joint damping (zero on the G1 and the
  * SA01) does not, and the simulator no longer adds damping of its own while the
- * torques are on. Returns the joints' largest excursions over the whole run
+ * torques are on. Returns the joints' largest excursions over the full run
  * from where they were caught, and over `seconds` from where they were after
  * `settleSeconds`.
  */
@@ -397,7 +397,7 @@ TEST(SimGantry,
   // DRC Atlas's heavy torso then settles slowest, by 2 mrad over 8 s on its
   // back pitch joint; the others hold to 1e-5 rad within the first second.
   // Settled, every joint holds to the fourth decimal.
-  constexpr double kCatch = 0.01;    // [rad], 0.6 deg over the whole run: the
+  constexpr double kCatch = 0.01;    // [rad], 0.6 deg over the full run: the
                                      // swing of the catch and the settling
   constexpr double kHover = 1.0e-4;  // [rad], 0.006 deg over 3 s, settled
   for (const WeldedScene& robot : weldedScenes()) {

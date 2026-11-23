@@ -97,7 +97,7 @@ absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(
       !std::filesystem::exists(std::filesystem::path(file), error)) {
     return std::nullopt;
   }
-  // The parser's errors name the file, the line and the column already.
+  // The parser's errors already report the file, line, and column.
   ASSIGN_OR_RETURN(const mpc_config::JointPdGainsFile typed,
                    loadJointPdGainsFile(file));
   absl::StatusOr<JointPdGains> gains =

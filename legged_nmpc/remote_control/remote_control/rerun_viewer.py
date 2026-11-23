@@ -29,7 +29,7 @@
 
 The bridge (legged_nmpc/legged_rerun_viewer; legged_nmpc/docs/distributed_runtime/README.md, "Visualization with
 Rerun") subscribes to viz/scene and viz/telemetry on the bus and spawns the viewer. The launch files start another
-bridge next to the MPC, which serves the web viewer and holds the bridge's default gRPC port (9876); the button's bridge
+bridge next to the MPC, which serves the web viewer and uses the bridge's default gRPC port (9876); the button's bridge
 spawns its viewer on GUI_RERUN_GRPC_PORT instead, because rerun-sdk's spawn takes whatever listens on its port for a
 viewer and would then open none. The button is for a native window next to the web viewer, one that was closed, or a
 session started without a bridge. It runs the binary Bazel has built in the checkout, and says how to build it when it
@@ -115,7 +115,7 @@ class RerunViewerLauncher:
     """Starts the Rerun bridge as a child process of the GUI, and stops it when the GUI closes.
 
     Args:
-        repo_root: the source checkout whose build output holds the bridge.
+        repo_root: the source checkout whose build output contains the bridge.
         network_config: the network file the bridge subscribes with (an absolute path).
         urdf_file: the robot's URDF, whose meshes the bridge draws; empty: the bridge draws no robot.
         popen: starts the process (subprocess.Popen); the tests pass a fake one.

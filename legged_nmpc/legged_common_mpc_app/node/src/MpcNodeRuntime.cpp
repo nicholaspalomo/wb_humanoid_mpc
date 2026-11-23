@@ -157,7 +157,7 @@ absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> MpcNodeRuntime::Create(
                      components.attachVisualization(*runtime->bus_));
   }
   // On the solver thread, before the solve: the observation it starts from,
-  // whose input carries the measured joint velocities the motion manager's
+  // whose input contains the measured joint velocities the motion manager's
   // exact base twist needs (ProceduralMpcMotionManager::observe()).
   // LINT.IfChange(observation_hand_over)
   hooks.preSolveObserver = [motionManager = components.motionManager](

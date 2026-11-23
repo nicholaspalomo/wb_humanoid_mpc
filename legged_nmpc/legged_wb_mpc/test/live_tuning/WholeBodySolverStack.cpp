@@ -112,7 +112,7 @@ WholeBodySolverStack::WholeBodySolverStack(const mpc_config::TaskFile& task,
       interface.getOptimalControlProblem(), interface.getInitializer());
   mpc_->getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   if (updater == Updater::kRegistered) {
-    // No file is watched: the tests hand the updater typed files.
+    // No file is watched: the tests pass the updater typed files.
     absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> created =
         makeWholeBodyMpcParameterUpdater(mpc_.get(), interface, /*taskFile=*/"",
                                          /*referenceFile=*/"",

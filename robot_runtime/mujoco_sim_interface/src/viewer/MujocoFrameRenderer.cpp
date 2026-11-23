@@ -262,7 +262,7 @@ void MujocoFrameRenderer::resetCamera() {
   // The body the camera follows, by the names the robots of this repository
   // give their floating base. Body 1 is the fallback: it is the first child of
   // the world and therefore the floating base of every model here, which is
-  // what a robot naming its base something else entirely still gets.
+  // what a robot with a different base name still gets.
   static constexpr std::array<const char* absl_nonnull, 4>
       kFloatingBaseCandidates = {"pelvis", "pelvis_link", "torso", "base_link"};
   int trackbodyid = 1;

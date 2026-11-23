@@ -46,7 +46,7 @@ namespace ocs2::legged {
 namespace {
 
 /**
- * An MpcLinkFactory that hands over the link it owns on the first call and
+ * An MpcLinkFactory that transfers the link it owns on the first call and
  * returns nullptr after that. Not thread-safe; move-only.
  */
 class LinkHandOver {

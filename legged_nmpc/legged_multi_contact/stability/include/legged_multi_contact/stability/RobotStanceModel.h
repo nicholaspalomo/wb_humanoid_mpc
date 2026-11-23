@@ -99,7 +99,7 @@ class RobotStanceModel {
   /**
    * Builds the model of the URDF at `urdfPath` for the candidates of
    * `contacts` (copied). InvalidArgument when Pinocchio cannot read the URDF;
-   * NotFound naming the candidate when its parent joint is not a joint of the
+   * NotFound identifying the candidate when its parent joint is not a joint of the
    * URDF (or "root_joint").
    */
   static absl::StatusOr<std::unique_ptr<RobotStanceModel>> Create(

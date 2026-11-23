@@ -75,7 +75,7 @@ class VisualizationConfigTest : public ::testing::Test {
     robot_ = nullptr;
   }
 
-  /** `text`, below the header that names the schema, written to a task file of
+  /** `text`, below the header that specifies the schema, written to a task file of
    * its own in the test's temporary directory; its path. */
   static std::string writeTaskFile(absl::string_view text) {
     const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
@@ -94,7 +94,7 @@ class VisualizationConfigTest : public ::testing::Test {
                                    robot_->modelSettings());
   }
 
-  /** `text` refused by the conversion, naming the task file and `field`. */
+  /** `text` refused by the conversion, identifying the task file and `field`. */
   void expectRefused(absl::string_view text, absl::string_view field) const {
     const absl::StatusOr<VisualizationConfig> config = load(text);
     ASSERT_FALSE(config.ok()) << text;
@@ -236,7 +236,7 @@ TEST_F(VisualizationConfigTest, AModelThatIsNotTheMpcsIsRefused) {
             absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(TelemetryBuilder::Create(model, *config).status().code(),
             absl::StatusCode::kInvalidArgument);
-  // The whole URDF on a free-flyer root: the joints the MPC fixes are in its
+  // The full URDF on a free-flyer root: the joints the MPC fixes are in its
   // configuration and velocity.
   PinocchioInterface::Model freeFlyerModel;
   pinocchio::urdf::buildModel(robot_->urdfFile(),

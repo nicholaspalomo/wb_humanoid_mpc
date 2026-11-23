@@ -49,7 +49,7 @@ from legged_mpc_msgs import fsm_state_pb2
 
 from remote_control import legged_finite_state_machine
 
-#: The mode names a message may carry.
+#: The mode names a message may contain.
 _MODE_NAMES = frozenset(
     control_mode.value
     for control_mode in legged_finite_state_machine.ControlMode

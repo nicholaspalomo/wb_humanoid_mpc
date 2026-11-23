@@ -92,7 +92,7 @@ class EndEffectorDynamicsAccelerationsConstraint final
    * @param [in] numConstraints: The number of constraints {1, 2, 3, 4, 5, 6}
    * @param [in] config: The constraint coefficients, g = b + Ax [p; e] + Av
    * d/dt [p; e] + Aa d2/dt2 [p; e]
-   * @return InvalidArgument naming the end effectors when `endEffectorDynamics`
+   * @return InvalidArgument listing the end effectors when `endEffectorDynamics`
    * has other than one; InvalidArgument when numConstraints is not between 1
    * and 6, or `config` is not empty (to be set by configure()) and `config.b`
    *         does not have numConstraints rows or one of Ax, Av, Aa is neither

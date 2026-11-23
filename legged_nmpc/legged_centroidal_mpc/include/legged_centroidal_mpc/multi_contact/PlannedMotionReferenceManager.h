@@ -96,7 +96,7 @@ class PlannedMotionReferenceManager final
    * `swingTrajectoryPtr` are the base's (SwitchedModelReferenceManager), which
    * this manager does not read.
    *
-   * A std::shared_ptr because OCS2's solver holds its reference manager by
+   * A std::shared_ptr because OCS2's solver stores its reference manager as
    * one (SolverBase::setReferenceManager()).
    *
    * @return PlannedMotion::Create()'s errors (an active contact the MPC does

@@ -157,7 +157,7 @@ absl::Status DummySimLoop::run(const SystemObservation& initialObservation,
       period, robot::realtime::OverrunPolicy::kSkipMissedPeriods);
   SystemObservation observation = initialObservation;
   if (!synchronized) {
-    // The first rollout needs a policy in use; the buffer holds one, and
+    // The first rollout needs a policy in use; the buffer contains one, and
     // updatePolicy() takes it unless the IO thread is moving a newer one in at
     // this very moment.
     while (!link_->updatePolicy()) {

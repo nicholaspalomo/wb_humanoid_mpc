@@ -198,7 +198,7 @@ class ComAndAcomTrackingCostTest : public ::testing::Test {
 
   /**
    * A state with the base off level at the ZYX Euler angles
-   * `eulerzyxBaseRtWorld` (so a tangent map left out would matter), stored as
+   * `eulerzyxBaseRtWorld` (so an omitted tangent map is detectable), stored as
    * the quaternion scaled by `quaternionCoefficientsScale`, and the joints bent
    * by `jointOffset`.
    */
@@ -489,7 +489,7 @@ TEST_F(ComAndAcomTrackingCostTest, EachQacomRowWeightsItsOwnHeadingTiltRow) {
 }
 
 /**
- * A turn of the whole robot about the vertical moves the yaw row alone: adding
+ * A turn of the robot about the vertical moves the yaw row alone: adding
  * alpha to the base's ZYX yaw rotates the base, and so the ACoM, by alpha about
  * the world z axis, which adds alpha to the twist heading and leaves the tilt
  * of the heading frame unchanged - at a tilted base and bent joints, where the
@@ -601,11 +601,11 @@ TEST_F(ComAndAcomTrackingCostTest, CreateRejectsARobotWithoutANetwork) {
 
 /**
  * The runtime joint check on the model the cost is actually built on. The task
- * file is the shipped one with a different fourth joint fixed - neck_ry instead
- * of r_arm_wrx - so the MPC model still has 24 joints, and a check that only
+ * file is the shipped one with a different fourth joint fixed (neck_ry instead
+ * of r_arm_wrx), so the MPC model still has 24 joints, and a check that only
  * counted them would pass. The network was trained with the head active, so
  * from index 7 on every joint it is fed is a different one; Create has to
- * refuse, and name the first joint that differs.
+ * refuse and report the first joint that differs.
  */
 TEST_F(ComAndAcomTrackingCostTest,
        CreateRejectsAModelWithADifferentFixedJointSet) {
@@ -649,8 +649,8 @@ TEST_F(ComAndAcomTrackingCostTest,
 
 /**
  * The base-pose weights the factory and the live updater drop while this cost
- * runs are exactly the tuning rows whose error this cost re-expresses -
- * pos_base_rt_world_ewrt_world and eulerzyx_base_rt_world - and nothing else.
+ * runs are exactly the tuning rows whose error this cost re-expresses
+ * (pos_base_rt_world_ewrt_world and eulerzyx_base_rt_world) and nothing else.
  */
 TEST_F(ComAndAcomTrackingCostTest,
        ZeroBasePoseWeightsClearsExactlyTheBasePoseBlock) {
@@ -783,7 +783,7 @@ TEST_F(
  * derivative of getValue along the retraction x (+) dx and J_t' Q J_t of the
  * residuals' tangent Jacobians, at a tilted base with bent joints. The cost
  * reads the quaternion through xi / |xi|, so its ambient gradient has no radial
- * part, g' xi = 0, and a stored quaternion of any length - or its negative -
+ * part, g' xi = 0, and a stored quaternion of any length (or its negative)
  * gives the same value.
  */
 TEST_F(ComAndAcomTrackingCostTest,
@@ -874,7 +874,7 @@ TEST_F(ComAndAcomTrackingCostTest,
 /**
  * The cost reads the state only through the robot model, which must therefore
  * read the Pinocchio model the cost evaluates: a model of one joint fewer is
- * refused, naming both sets of dimensions.
+ * refused, reporting both sets of dimensions.
  */
 TEST_F(ComAndAcomTrackingCostTest,
        CreateRejectsARobotModelOfAnotherPinocchioModel) {

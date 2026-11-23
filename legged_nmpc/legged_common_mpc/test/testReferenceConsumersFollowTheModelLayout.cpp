@@ -290,7 +290,7 @@ class ProbeRobotModel final : public MpcRobotModelBase<scalar_t> {
         quaternionFromEulerZyx(eulerzyxBaseRtWorld);
   }
 
-  // The centroidal state holds no base velocity (MpcRobotModelBase); nothing
+  // The centroidal state has no base velocity (MpcRobotModelBase); nothing
   // tested here reads one.
   vector3_t getAngvelBaseRtWorldEwrtBase(
       const vector_t& /*state*/) const override {

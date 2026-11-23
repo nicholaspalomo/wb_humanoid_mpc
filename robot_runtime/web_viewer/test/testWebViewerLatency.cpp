@@ -336,7 +336,7 @@ TEST(WebViewerLatencyTest,
       ASSERT_TRUE(absl::SimpleAtoi(
           reply->header("X-Frame-Sequence").value_or(""), &after));
       ++frames;
-      // The first answer also carries the connection's start.
+      // The first answer also includes the connection's start.
       if (frames > 1) {
         worstLag = std::max(
             worstLag, lagBeyondTransfer(received, publisher.publishTime(after),

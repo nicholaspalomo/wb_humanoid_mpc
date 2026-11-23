@@ -86,24 +86,24 @@ namespace ocs2::legged {
  * whole-body MPC, and not the planner, owns the contact decision. The execution
  * rules are NOT part of what is replaced: ContactPlanningReferenceManager
  * applies `formulation.execution` under either planner, and
- * planned_com_override, which hands this planner's center-of-mass roll-out to
+ * planned_com_override, which passes this planner's center-of-mass roll-out to
  * the whole-body MPC, is mandatory.
  *
  * The plan is a ContactPlan on the node grid of `planner.dt`, like the
  * mixed-integer planner's, so everything downstream reads it the same way. The
  * cadence and the reduced model are continuous, and so is the mode schedule:
- * the plan carries its gait in continuous time as well
+ * the plan stores its gait in continuous time as well
  * (ContactPlan::phaseContacts / phaseStartTimes), which
  * ContactPlan::toModeSchedule() takes its events from, so every executed single
  * support lasts `hlip.sspDuration` and every executed double support
  * `hlip.dspDuration` - the durations the deadbeat gain is computed for. The
  * per-node quantities are the gait sampled onto the grid: every phase boundary
- * is assigned to a node once (GaitPhase::endNode)
- * - the committed window on the nodes the executed schedule was sampled on,
- * every later boundary to the nearest node - and the contacts, footholds and
- * ZMP follow those nodes, while the deadbeat step and the center of mass are
- * evaluated at the continuous times. `planner.dt` should be small (0.025 s is a
- * millisecond-scale plan, since nothing is solved).
+ * is assigned to a node once (GaitPhase::endNode; the committed window uses the
+ * nodes the executed schedule was sampled on, and every later boundary uses the
+ * nearest node), and the contacts, footholds and ZMP follow those nodes, while
+ * the deadbeat step and the center of mass are evaluated at the continuous
+ * times. `planner.dt` should be small (0.025 s is a millisecond-scale plan,
+ * since nothing is solved).
  *
  * Not thread-safe: plan() and setConfig() must not run concurrently with each
  * other or with the const methods. The const methods may be called concurrently
@@ -145,7 +145,7 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * Builds the planner of a configuration. Returns the Status of
    * ContactPlanningConfig::validateStatus() when the configuration does not
    * validate, the H-LIP model's when its cadence or pendulum is out of
-   * bounds, and an InvalidArgument naming the planner when
+   * bounds, and an InvalidArgument identifying the planner when
    * shared.numContacts is not two: the gait is a left and a right foot
    * stepping in turn (checkTwoContactCount()).
    */
@@ -180,9 +180,9 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * The lateral step the deadbeat law demands of the first step out of a
    * standstill, in meters, before any clip.
    *
-   * This is the quantity that decides whether the gait can start cleanly, and
-   * it is not obvious from the cadence. A robot standing still has its center
-   * of mass half a step width from either foot with no lateral velocity, so
+   * This is the quantity that determines whether the gait can start without
+   * clipping, and it is not obvious from the cadence. A robot standing still
+   * has its center of mass half a step width from either foot with no lateral velocity, so
    * once the first foot leaves the ground it falls sideways fast: at the
    * shipped height it reaches the pre-impact instant far outside the orbit, and
    * catching it takes a step much wider than the nominal one. If that step does
@@ -201,9 +201,9 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * shared.nomPosComRtFeetmeanEwrtWorldZ resolves to) it drops from 0.47 m at a
    * 0.35 s single support to 0.39 m at 0.25 s, which against a 0.45 m reach is
    * the difference between not fitting and fitting. The double support and the
-   * pendulum have to be named with the figures because both enter the deadbeat
-   * gain: at 0.35 s the demand is 0.45 m with dspDuration 0 and 0.49 m with
-   * 0.1, and on the 0.85 m pendulum the Atlas was once hand-set to it was 0.52
+   * pendulum must be specified alongside the figures because both enter the
+   * deadbeat gain: at 0.35 s the demand is 0.45 m with dspDuration 0 and 0.49 m
+   * with 0.1, and on the 0.85 m pendulum the Atlas was once hand-set to it was
    * m at 0.35 s / 0.05 s.
    */
   static absl::StatusOr<scalar_t> startUpLateralStep(

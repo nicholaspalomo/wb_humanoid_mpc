@@ -65,8 +65,8 @@ struct SirenLayerWeights {
  * Neither block depends on the base orientation, only on the joints.
  */
 struct AcomAttitudeTangentJacobian {
-  /** R(Delta_theta)^T, 3 x 3: the adjoint that carries a body perturbation of
-   * the base into the frame of the ACoM. */
+  /** R(Delta_theta)^T, 3 x 3: the adjoint that maps a body perturbation of the
+   * base into the frame of the ACoM. */
   matrix3_t baseTangent;
   /** J_r(Delta_theta) J_Delta_theta(q_j), 3 x n_j: the right Jacobian of SO(3)
    * times the network's joint Jacobian. */
@@ -121,9 +121,9 @@ class AngularCenterOfMass {
    * checks it against the model it will be fed.
    *
    * The network is a function of a VECTOR of joint angles, so it is only
-   * meaningful when `modelJointNames` - the MPC model's joints, in the order
-   * the MPC hands them over (ModelSettings::mpcModelJointNames, or equivalently
-   * the reduced Pinocchio model's joints after the floating base) - is exactly
+   * meaningful when `modelJointNames` (the MPC model's joints, in the order
+   * the MPC passes them via ModelSettings::mpcModelJointNames, or equivalently
+   * the reduced Pinocchio model's joints after the floating base) is exactly
    * the joint list recorded in the weight header at training time. A
    * permutation, or a different set of fixed joints of the same size, keeps
    * every dimension check green while the network silently evaluates a
@@ -132,7 +132,7 @@ class AngularCenterOfMass {
    *
    * @return NotFound if no network is registered for `robotName`, listing the
    * registered names; FailedPrecondition if the joint list differs from the one
-   * the network was trained on, naming the robot and the first joint that
+   * the network was trained on, identifying the robot and the first joint that
    * differs.
    */
   static absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> Create(

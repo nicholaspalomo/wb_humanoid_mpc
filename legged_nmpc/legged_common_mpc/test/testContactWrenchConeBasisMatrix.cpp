@@ -63,7 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * Tests of the wrench-cone generator bases used by the basis-vector contact
  * input formulation.
  *
- * Two properties matter, and both are checked against the rows
+ * Two properties are checked against the rows
  * ContactWrenchConeConstraint enforces in wrench mode
  * (buildLocalWrenchConeRows), never against a hand-written expectation of what
  * each column contains:
@@ -444,7 +444,7 @@ TEST(ContactWrenchConeBasisRegistryTest,
   }
 }
 
-// ==================== Configuration errors name the key to change
+// ==================== Configuration errors identify the key to change
 // ====================
 
 void expectInvalidArgumentNaming(
@@ -492,7 +492,7 @@ TEST(ContactWrenchConeBasisValidationTest, ConfigurationErrorsNameTheirKey) {
 
 /**
  * validateConfig() is the one definition of the cone's ranges, and each refusal
- * names the task-file key to change. It is what
+ * identifies the task-file key to change. It is what
  * ContactWrenchConeConstraint::Create() checks for a Config built in code,
  * which never passes through loadConfig()'s own checks
  * (//legged_nmpc/legged_wb_mpc:testWBContactWrenchConeCreate covers that
@@ -635,7 +635,7 @@ TEST(ContactWrenchConeBasisSoundnessTest,
             << generatorSet << " " << describe(c) << " generator " << j
             << " leaves the cone";
         // The contact-implicit load indicator sums the scalings, which is the
-        // normal force only if every column carries a unit normal force
+        // normal force only if every column has a unit normal force
         // (legged_nmpc/docs/contact_implicit_mpc/README.md).
         EXPECT_NEAR(B(/*row=*/2, j), 1.0, kTol)
             << generatorSet << " " << describe(c) << " generator " << j;
@@ -943,7 +943,7 @@ TEST(ContactWrenchConeConservativeSetTest, LayoutMatchesTheDocumentation) {
   const ContactWrenchConeRows rows =
       buildLocalWrenchConeRows(config, rectangle);
   // Columns 0..N-1: friction-pyramid edges, each tight on the two friction
-  // facets it sits between.
+  // facets it lies between.
   for (size_t k = 0; k < N; ++k) {
     const vector_t coneValues =
         rows.evaluateCone(vector6_t(B.col(static_cast<Eigen::Index>(k))));
@@ -1005,7 +1005,7 @@ TEST(ContactWrenchConeBasisAlgebraTest,
     const matrix_t& Bpinv = basis.getBasisMatrixPseudoInverse();
     const matrix_t& P = basis.getNullSpaceProjector();
     const Eigen::Index n = B.cols();
-    // B has full row rank, so B B+ is the identity on the whole wrench space.
+    // B has full row rank, so B B+ is the identity on the full wrench space.
     EXPECT_TRUE((B * Bpinv).isApprox(matrix_t::Identity(6, 6), 1.0e-10))
         << generatorSet;
     ASSERT_EQ(P.rows(), n);

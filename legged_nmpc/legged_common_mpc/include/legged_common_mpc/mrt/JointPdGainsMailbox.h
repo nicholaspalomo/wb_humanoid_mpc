@@ -43,7 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged {
 
 /**
- * Hands JointPdGains from the threads that parse them (the robot process's
+ * Passes JointPdGains from the threads that parse them (the robot process's
  * communication thread, with the GUI's operator/pd_gains and the gains file
  * watcher) to the realtime control thread of an MRT joint controller.
  *
@@ -55,11 +55,11 @@ namespace ocs2::legged {
  * control cycle. The control thread sees the newest gains posted since its last
  * receive(), or none; gains posted in between are superseded.
  *
- * "Newest" is the order in which the documents were handed in, not the order in
+ * "Newest" is the order in which the documents were submitted, not the order in
  * which their parses finished: a producer takes a ticket (takeTicket()) when a
  * document arrives, before it reads or parses it, and posts the gains with it.
  * Gains whose ticket is older than that of gains already posted are dropped, so
- * a document handed in earlier but slower to parse never overwrites a newer
+ * a document submitted earlier but slower to parse never overwrites a newer
  * one.
  */
 class JointPdGainsMailbox {

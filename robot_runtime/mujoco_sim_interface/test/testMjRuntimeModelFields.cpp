@@ -101,7 +101,7 @@ MjModelPtr copyOf(const mjModel* absl_nonnull model) {
   return MjModelPtr(mj_copyModel(/*dest=*/nullptr, model));
 }
 
-/** True when the arrays of the two models, which have one layout, hold the same
+/** True when the arrays of the two models, which have one layout, contain the same
  * bytes. */
 bool sameArrays(const mjModel* absl_nonnull first,
                 const mjModel* absl_nonnull second) {

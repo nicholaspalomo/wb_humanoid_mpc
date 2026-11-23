@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The feet of a biped, without the Eigen, OCS2 and CppAD headers of
  * legged_common_mpc/common/Types.h.
  *
- * Code that is meaningful for any contact set holds one value per contact in
+ * Code that is meaningful for any contact set stores one value per contact in
  * a ContactArray and the active contacts in a ContactMask
  * (common/ContactArray.h, common/ContactMask.h), sized from
  * ModelSettings::numContacts(). BipedFeetArray is for the code written for a

@@ -53,7 +53,7 @@ BLACK: Rgb = (0.25, 0.25, 0.25)
 CONTACT_COLORS: tuple[Rgb, ...] = (PURPLE, ORANGE, BLUE, GREEN, YELLOW)
 # LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/visualization/include/legged_common_mpc_app/visualization/SceneContract.h:marker_palette)
 
-# The color of a URDF visual that names no material.
+# The color of a URDF visual that specifies no material.
 DEFAULT_MESH_COLOR: Rgb = (0.7, 0.7, 0.7)
 
 # The ground grid: light gray, alpha 0.9.

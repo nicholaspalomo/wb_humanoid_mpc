@@ -43,7 +43,7 @@ using std::chrono::microseconds;
 using std::chrono::milliseconds;
 using std::chrono::nanoseconds;
 
-// Holds the thread busy, as a cycle's computation would, without sleeping.
+// Keeps the thread busy, as a cycle's computation would, without sleeping.
 void busyWaitFor(nanoseconds duration) {
   const nanoseconds end = monotonicNow() + duration;
   while (monotonicNow() < end) {

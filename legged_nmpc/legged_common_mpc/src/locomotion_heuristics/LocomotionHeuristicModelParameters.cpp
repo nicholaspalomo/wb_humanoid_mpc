@@ -153,16 +153,16 @@ absl::StatusOr<vector2_t> findPosHipRtWorldEwrtWorldXy(
  * from the frame placements in `data` at the nominal posture, where the
  * contacts stand at `posContactsRtWorldEwrtWorld`. r_hip is the landmark
  * hip_centered_stepping places the foot under. A leg's hip is the frame
- * ModelSettings::Leg::hipFrameName names (the task file's hip_frame_name, or
- * the derived hip joint, which a default biped leg has). Without one - a set
- * without legs, or a default leg whose foot names no joint - walk up the
- * kinematic tree from the joint that carries the leg's first contact to the
- * LAST joint before the floating base: that joint is the hip, however the URDF
- * happens to name it. Its placement in the world at the nominal posture,
- * expressed relative to the base and with the vertical dropped, is r_hip. A
- * joint's frame sits at the joint, so a default biped leg gets the same r_hip
- * either way. FailedPrecondition naming a hip frame that is not a frame of
- * `model`.
+ * specified by ModelSettings::Leg::hipFrameName (the task file's
+ * hip_frame_name, or the derived hip joint, which a default biped leg has).
+ * Without one (a set without legs, or a default leg whose foot specifies no
+ * joint), walk up the kinematic tree from the parent joint of the leg's first
+ * contact to the LAST joint before the floating base: that joint is the hip,
+ * however the URDF happens to name it. Its placement in the world at the
+ * nominal posture, expressed relative to the base and with the vertical
+ * dropped, is r_hip. A joint's frame is at the joint, so a default biped leg
+ * gets the same r_hip either way. FailedPrecondition reporting a hip frame that
+ * is not a frame of `model`.
  */
 absl::StatusOr<std::vector<vector2_t>> computePosHipsRtBaseEwrtHeadingXy(
     const pinocchio::Model& model,

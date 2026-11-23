@@ -69,13 +69,13 @@ constexpr scalar_t kMinVerticalAxisComponent = 0.9;
  * The axis an unaligned revolute joint (bounded or unbounded) rotates about, in
  * the joint's own frame, read through pinocchio's generic joint interface: the
  * motion subspace of a revolute joint is the single unit twist about its axis,
- * so the angular part of its one column is the axis the joint model carries,
+ * so the angular part of its one column is the axis the joint model stores,
  * copied verbatim.
  *
  * JointModelRevoluteUnaligned and JointModelRevoluteUnboundedUnaligned are two
- * UNRELATED alternatives of pinocchio's joint variant - the unbounded one is
- * not a subclass of the bounded one, it merely carries a Vector3 axis of its
- * own - so asking the variant for one alternative cannot serve both. Asking
+ * UNRELATED alternatives of pinocchio's joint variant (the unbounded one is
+ * not a subclass of the bounded one; it simply stores its own Vector3 axis),
+ * so asking the variant for one alternative cannot serve both. Asking
  * only for the bounded alternative, which an earlier version did while
  * admitting both shortnames, made the second name dead code: for a continuous
  * off-axis joint the axis came back empty, the walk up the kinematic tree ran

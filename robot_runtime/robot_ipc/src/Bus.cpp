@@ -691,7 +691,7 @@ absl::Status Bus::Impl::enqueue(OutgoingMessage outgoing) {
     wasEmpty = queue_.empty();
     queue_.push_back(std::move(outgoing));
   }
-  // The IO thread empties the whole queue on one wake-up, so only the first
+  // The IO thread empties the queue on one wake-up, so only the first
   // message needs to wake it.
   if (wasEmpty) {
     wake();
@@ -921,7 +921,7 @@ size_t Bus::Impl::take(Subscription& subscription, size_t budget) {
   subscription.taken = static_cast<size_t>(taken);
   for (size_t index = 0; index < subscription.taken; ++index) {
     const dds_sample_info_t& info = subscription.infos[index];
-    // A writer's disposal or unregistration carries no sample.
+    // A writer's disposal or unregistration contains no sample.
     if (!info.valid_data || subscription.samples[index] == nullptr) {
       continue;
     }

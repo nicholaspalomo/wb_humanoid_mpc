@@ -77,7 +77,7 @@ TEST(LoopTimingStatsTest,
       closingCycles.push_back(k);
     }
     if (k == 50) {
-      // The first window holds the cycles that started at 0 ms through 100 ms:
+      // The first window contains the cycles that started at 0 ms through 100 ms:
       // 51 cycles and 50 periods.
       const LoopTimingSnapshot& first = stats.lastSnapshot();
       EXPECT_EQ(first.window, 1u);
@@ -165,7 +165,7 @@ TEST(LoopTimingStatsTest, anOverrunIsAComputeTimeLongerThanThePeriod) {
     start += period;
   }
   // The cycle at 8 ms closed the window that opened at 0 ms, so the window
-  // holds all five.
+  // contains all five.
   const LoopTimingSnapshot& snapshot = stats.lastSnapshot();
   ASSERT_EQ(snapshot.window, 1u);
   EXPECT_EQ(snapshot.windowOverruns, 2u);

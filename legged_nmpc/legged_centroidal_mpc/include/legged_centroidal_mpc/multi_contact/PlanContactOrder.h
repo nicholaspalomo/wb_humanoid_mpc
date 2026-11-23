@@ -99,7 +99,7 @@ class PlanContactOrder {
 
   /**
    * The MPC mode number of the plan's contact mode `mask`: for every active
-   * candidate, the bit of its MPC contact. InvalidArgument naming the
+   * candidate, the bit of its MPC contact. InvalidArgument identifying the
    * candidate when one that is active has no MPC contact, or when `mask` sets
    * a bit beyond the candidates.
    */
@@ -107,7 +107,7 @@ class PlanContactOrder {
 
   /**
    * The plan's contact mode of the MPC mode number `mode`. InvalidArgument
-   * naming the contact when an active MPC contact is no candidate of the
+   * identifying the contact when an active MPC contact is no candidate of the
    * plan's set, or when `mode` sets a bit beyond the MPC contacts.
    */
   absl::StatusOr<multi_contact::ContactMask> maskOf(size_t mode) const;

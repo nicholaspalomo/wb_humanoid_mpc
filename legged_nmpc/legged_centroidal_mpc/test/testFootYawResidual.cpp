@@ -560,7 +560,7 @@ TEST(FootCostParameters,
   EXPECT_EQ(values[0], 0.0);
   ASSERT_GT(values[1], 0.0)
       << "the foot's velocity equals its reference, so nothing was checked";
-  // The cost is quadratic in the residual, whose two rows carry the sqrt
+  // The cost is quadratic in the residual, whose two rows include the sqrt
   // weight: linear in the weight.
   EXPECT_NEAR(values[2] / values[1], weights[2] / weights[1], 1.0e-9);
 }

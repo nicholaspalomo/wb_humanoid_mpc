@@ -44,7 +44,7 @@ namespace robot::ipc {
  * field given twice is an InvalidArgument error "<source>:<line>:<column>:
  * <problem>", with 1-based line and column. What the parser would only warn
  * about (a field marked deprecated) is an error too, so that a file still
- * naming a field on its way out fails at once. `message` is cleared first; on
+ * referencing a field on its way out fails at once. `message` is cleared first; on
  * error its contents are unspecified.
  */
 absl::Status parseTextproto(absl::string_view text,

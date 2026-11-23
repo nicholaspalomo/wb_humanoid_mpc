@@ -73,7 +73,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * FourPointContactSet.h, described by their legs LF, RF, LH and RH: the
  * swing-foot cost and the hard normal-velocity servo run on every contact.
  *  - checkCentroidalContactSet() accepts them on the legged set.
- *  - A point contact's foot cost carries no orientation or angular-velocity
+ *  - A point contact's foot cost has no orientation or angular-velocity
  *    weight, after construction and after a hot reload of
  *    task_space_foot_cost.
  *  - On a trot, each contact's swing height rises in its own swing and stays
@@ -114,7 +114,7 @@ CentroidalMpcConfig swingTermsConfig() {
   return config;
 }
 
-/** The interface, built once for the whole suite: it generates the CppAD
+/** The interface, built once for the suite: it generates the CppAD
  * libraries of the dynamics, the contact frames and the four foot costs. */
 class PointContactSwingTermsTest : public ::testing::Test {
  protected:

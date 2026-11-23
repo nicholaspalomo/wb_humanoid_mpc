@@ -68,11 +68,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /**
  * ContactWrenchConeConstraint::Create() on a real wrench-space model, the G1
  * whole-body one. A Config built in code never passes through loadConfig()'s
- * checks, and Create() used to hand it to the constructor, whose range checks
+ * checks, and Create() used to pass it to the constructor, whose range checks
  * were assert()s that the optimized build compiles out: a cone with two
  * friction facets, a negative friction coefficient or a NaN offset was built
  * and enforced. Create() now refuses it with the InvalidArgument of
- * ContactWrenchConeConstraint::validateConfig(), naming the task-file field to
+ * ContactWrenchConeConstraint::validateConfig(), identifying the task-file field to
  * change (testContactWrenchConeBasisMatrix pins validateConfig() itself).
  */
 namespace ocs2::legged {
@@ -94,9 +94,9 @@ std::string withoutCaseAndUnderscores(absl::string_view text) {
 }
 
 /**
- * Whether `message` names the field `field` of the contact wrench cone block of
+ * Whether `message` identifies the field `field` of the contact wrench cone block of
  * the task file (contacts.contact_wrench_cone_soft_constraint). The test pins
- * that the refusal names the field, not how it spells it: compared without case
+ * that the refusal identifies the field, not how it spells it: compared without case
  * and underscores, frictionCoefficient and friction_coefficient are the same
  * field.
  */
@@ -175,7 +175,7 @@ class WBContactWrenchConeCreateTest : public ::testing::Test {
 
 TEST_F(WBContactWrenchConeCreateTest,
        aConfigOutOfRangeIsRefusedNamingItsField) {
-  // Positive control: a Config in range - the boundary values included - builds
+  // Positive control: a Config in range (the boundary values included) builds
   // the cone on this model, so each refusal below is the value's.
   const ContactWrenchConeConstraint::Config valid;
   const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> built =

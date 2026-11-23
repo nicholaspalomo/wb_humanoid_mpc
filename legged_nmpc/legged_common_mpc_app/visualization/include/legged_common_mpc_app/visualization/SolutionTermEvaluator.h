@@ -49,7 +49,7 @@ namespace ocs2::legged::visualization {
 /** The values of one MPC solution that the mpc_solution telemetry groups plot
  * (SolutionTermEvaluator). */
 struct SolutionTerms {
-  /** The solver's performance index of the solution, over the whole horizon
+  /** The solver's performance index of the solution, over the full horizon
    * (OCS2's PerformanceIndex). */
   PerformanceIndex performance;
   /**

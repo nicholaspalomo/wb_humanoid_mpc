@@ -237,8 +237,8 @@ cc_test(
     ],
 )
 
-# Constructs the whole-body MPC from the shipped G1 task file - compiling every CppAD library it tapes - and evaluates
-# the assembled problem once; and checks that the swing-foot costs carry the shipped weights and do not read the
+# Constructs the whole-body MPC from the shipped G1 task file (compiling every CppAD library it tapes) and evaluates
+# the assembled problem once; and checks that the swing-foot costs use the shipped weights and do not read the
 # solver's target.
 cc_test(
     name = "testWBMpcConstruction",
@@ -324,8 +324,8 @@ cc_test(
 )
 
 # The path forms of WBMpcInterface::Create() and CreateControllerModels() on a missing task, URDF or reference file:
-# NotFound naming the path, before anything reads the files; on a file that does not parse or convert: InvalidArgument
-# naming the file. Builds no CppAD model.
+# NotFound reporting the path, before anything reads the files; on a file that does not parse or convert:
+# InvalidArgument reporting the file. Builds no CppAD model.
 cc_test(
     name = "testWBMpcInterfaceInputFiles",
     size = "small",
@@ -347,8 +347,8 @@ cc_test(
 )
 
 # LeggedCostConstraintFactory::makeContactWrenchConeConstraint() on the G1 whole-body model: a barrier mu or delta that
-# is not a finite positive number is refused naming its field, and a word in its place by the parser. Builds no CppAD
-# model.
+# is not a finite positive number is refused, reporting its field, and a word in its place by the parser. Builds no
+# CppAD model.
 cc_test(
     name = "testContactWrenchConeBarrierRange",
     size = "small",
@@ -373,7 +373,7 @@ cc_test(
     ],
 )
 
-# ContactWrenchConeConstraint::Create() on the G1 whole-body model: a Config out of range is refused naming its
+# ContactWrenchConeConstraint::Create() on the G1 whole-body model: a Config out of range is refused, reporting its
 # task-file field. Builds no CppAD model.
 cc_test(
     name = "testWBContactWrenchConeCreate",
@@ -401,7 +401,7 @@ cc_test(
 # The whole-body MRT joint controller's modes and reset contract around a scripted solver: it can be destroyed, JOINT_PD
 # holds the nominal posture, entering WB_MPC resets and holds, and repeated failures back off and hold JOINT_PD.
 # The controller's observation, passive modes and WB_MPC hold allocate nothing; a binary of its own, because the
-# allocation counter replaces malloc for the whole binary.
+# allocation counter replaces malloc for the binary.
 cc_test(
     name = "testWBMpcMrtJointControllerAllocations",
     size = "small",
@@ -501,7 +501,7 @@ cc_test(
 )
 
 # The joint PD gains of WBMpcMrtJointController set from other threads (see testMrtJointControllerPdGains). A target of
-# its own, because the allocation counter replaces malloc for the whole binary.
+# its own, because the allocation counter replaces malloc for the binary.
 cc_test(
     name = "testWBMpcMrtJointControllerPdGains",
     size = "small",
@@ -537,7 +537,7 @@ cc_test(
 # state manifold, the tuning layout through the Euler boundary, the Euler accessors modulo 2 pi and the rotation of any
 # stored quaternion, the slerped interpolation, the twist heading, the stored body rate, the base twist and a knot's
 # command, the tangent maps (Pinocchio's included) and the allocation-free measurement helpers, on the G1. Builds no
-# CppAD library. Linked statically: the allocation counter replaces malloc for the whole binary.
+# CppAD library. Linked statically: the allocation counter replaces malloc for the binary.
 cc_test(
     name = "testWBRobotModelBoundary",
     size = "small",
@@ -1012,7 +1012,7 @@ cc_test(
 
 # The names of the CppAD-taped costs: the term names the parameter updater finds them by and the library names, pinned
 # apart so that a renamed term fails here instead of regenerating a library; and the CppAD library name of
-# JointTorqueCostCppAd carries the version of the inverse dynamics it tapes, so that no library taped from the former
+# JointTorqueCostCppAd includes the version of the inverse dynamics it tapes, so that no library taped from the former
 # computeJointTorques is loaded from the cache. Builds no CppAD model.
 cc_test(
     name = "testJointTorqueCostLibraryName",
@@ -1028,8 +1028,8 @@ cc_test(
 )
 
 # The (state, input) overloads of computeJointTorques and computeBaseHeldJointTorques on the G1 whole-body model: they
-# hand the (q, v, qdd_j, wrenches) functions the state's and the input's pieces, and the base-held one - the gantry
-# feedforward - is g_j(q) for a robot hanging at rest. With the contact frames renamed, the base acceleration and the
+# pass the (q, v, qdd_j, wrenches) functions the state's and the input's pieces, and the base-held one (the gantry
+# feedforward) is g_j(q) for a robot hanging at rest. With the contact frames renamed, the base acceleration and the
 # torques are RNEA's with the wrenches at the configured frames. Builds no CppAD model.
 cc_test(
     name = "testJointTorqueStateInputOverloads",
@@ -1089,7 +1089,7 @@ cc_test(
 # fed nothing changes nothing, and a reload of the file the MPC started from reproduces it. The one binary of the
 # package that generates CppAD libraries for live tuning: every case shares one generation per library, the terms
 # loading them by the MPC's own model names. Large, with the longest timeout Bazel has, as test_wb_mpc_node: it tapes
-# and compiles the G1 whole-body MPC and the variant that carries the joint torque cost.
+# and compiles the G1 whole-body MPC and the variant that includes the joint torque cost.
 cc_test(
     name = "test_wb_live_tuning",
     size = "large",

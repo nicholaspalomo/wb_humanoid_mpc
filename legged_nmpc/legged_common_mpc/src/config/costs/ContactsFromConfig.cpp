@@ -165,8 +165,8 @@ absl::StatusOr<vector3_t> unitVector(absl::string_view block,
 /**
  * parent_R_contact of a surface pad: z = -normal_pad_ewrt_link, x =
  * x_axis_pad_ewrt_link made
- * orthogonal to z, y = z x x. InvalidArgument naming the field of an axis that
- * is not unit, or of an x axis not orthogonal to the normal.
+ * orthogonal to z, y = z x x. InvalidArgument identifying the field of an axis
+ * that is not unit, or of an x axis not orthogonal to the normal.
  */
 absl::StatusOr<matrix3_t> parseRotmatPadRtLink(
     absl::string_view block,

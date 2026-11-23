@@ -90,7 +90,7 @@ class ContactPlanningTermFactory {
    * order, finalized (layout composed, terms bound and configured). A
    * formulation the problem cannot be assembled from is returned as the
    * InvalidArgument of ContactPlanningFormulation::validateStatus(), which
-   * names the list and the term.
+   * reports the list and the term.
    *
    * The builders configure the terms with the configuration's parameter values
    * as they are: the values are checked by
@@ -107,7 +107,7 @@ class ContactPlanningTermFactory {
    * The listed execution rules, configured, in list order. Besides what the
    * formulation's validation rejects, a rule that only the reference manager
    * can build (it needs the robot model) and `extra` does not build is an
-   * InvalidArgument naming the rule.
+   * InvalidArgument identifying the rule.
    */
   static absl::StatusOr<TermCollection<ExecutionRule>>
   buildExecutionRulesStatus(const ContactPlanningConfig& config,

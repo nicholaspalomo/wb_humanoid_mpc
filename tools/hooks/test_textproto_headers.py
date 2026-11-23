@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-"""Tests for textproto_headers.py: every .textproto names its schema, and the schema exists."""
+"""Tests for textproto_headers.py: every .textproto specifies its schema, and the schema exists."""
 
 import os
 import tempfile

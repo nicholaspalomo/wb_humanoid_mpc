@@ -174,7 +174,7 @@ inline constexpr size_t kRotationTuningDim = 3;
 
 /** One block of a TuningLayout. */
 struct TuningSegment {
-  /** Names the block in error messages and in tuningSegmentStart(), e.g.
+  /** Identifies the block in error messages and in tuningSegmentStart(), e.g.
    * "joint_positions". */
   std::string name;
   TuningSegmentKind kind = TuningSegmentKind::kEuclidean;
@@ -203,7 +203,7 @@ struct TuningSegment {
  * only maps a vector to itself.
  */
 struct TuningLayout {
-  /** Names the layout in error messages, e.g. "centroidal". */
+  /** Identifies the layout in error messages, e.g. "centroidal". */
   std::string name;
   std::vector<TuningSegment> segments;
 };
@@ -225,8 +225,8 @@ size_t getTuningLayoutStateDim(const TuningLayout& layout);
 
 /**
  * The first tuning row of the segment named `name`: where the task file's block
- * of that name sits in the tuning vector and in Q. NotFound, naming the layout
- * and its blocks, when no segment has that name.
+ * of that name starts in the tuning vector and in Q. NotFound, listing the
+ * layout and its blocks, when no segment has that name.
  */
 absl::StatusOr<size_t> tuningSegmentStart(const TuningLayout& layout,
                                           absl::string_view name);
@@ -242,10 +242,10 @@ std::string describeTuningLayout(const TuningLayout& layout);
  * The state of a tuning-layout vector, e.g. the task file's initial_state, on a
  * layout that placeTuningLayout() placed: kEuclidean rows are copied bit for
  * bit, (yaw, pitch, roll) become quaternionFromEulerZyx, and (w_z, w_y, w_x)
- * become (w_x, w_y, w_z). An InvalidArgumentError, naming the layout with each
- * block and its size, when the vector does not have getTuningLayoutDim(layout)
- * entries, a rotation block does not have 3 rows, or the layout is not where
- * placeTuningLayout() places it.
+ * become (w_x, w_y, w_z). An InvalidArgumentError, reporting the layout with
+ * each block and its size, when the vector does not have
+ * getTuningLayoutDim(layout) entries, a rotation block does not have 3 rows, or
+ * the layout is not where placeTuningLayout() places it.
  */
 absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector,
                                                const TuningLayout& layout);
@@ -254,7 +254,7 @@ absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector,
  * The inverse of stateFromTuningLayout, for display and for writing a state
  * back in the tuning layout: the quaternion becomes eulerZyxFromQuaternion of
  * its safe normalization. An exact inverse for yaw and roll in (-pi, pi] and a
- * pitch of less than 90 degrees. An InvalidArgumentError, naming the layout,
+ * pitch of less than 90 degrees. An InvalidArgumentError, reporting the layout,
  * when the state does not have getTuningLayoutStateDim(layout) entries, a
  * rotation block does not have 3 rows, or the layout is not where
  * placeTuningLayout() places it (as stateFromTuningLayout).

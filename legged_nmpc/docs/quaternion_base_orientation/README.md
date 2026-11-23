@@ -1,7 +1,7 @@
 # Quaternion base orientation
 
 Both legged MPCs, the centroidal and the whole-body one, store the attitude of the floating base as a unit quaternion
-and solve on the state manifold it lives on. The task files, the tuning GUI and every human-facing input and output keep
+and solve on its state manifold. The task files, the tuning GUI and every human-facing input and output keep
 Euler angles, and one mapping layer converts them. This document is the formulation's reference: why quaternions, the
 data flow, the derivation, the layouts, the tuning map, the conversion points, the CppAD libraries, the bus and the
 runtime, the display, the tolerances, the tests and what they prove, and the risks that remain.
@@ -16,7 +16,7 @@ example), so they are kept stable.
 |---|---|
 | 1 | why, the block diagram, the requirements, the decisions and their reasons |
 | 2 | the formulation: algebra, root joint, layouts (2.3), manifold, dynamics, taping, SQP, costs, references, the tuning map (2.10), the runtime state, the identities the equivalence tests use |
-| 3 | where the code lives, the CppAD libraries, the bus and the realtime path, the display, live tuning |
+| 3 | package layout, the CppAD libraries, the bus and the realtime path, the display, live tuning |
 | 4 | what the formulation does not have, the conversion points (4.2), how it is verified (4.3), the tolerances (4.4), the closed-loop bands (4.5), the real-time gate (4.6), the reference behavior (4.7), what to watch in MuJoCo (4.8) |
 | 5 | the Euler side of the tests, the equivalence suites and the test map by Bazel target |
 | 6 | the risks that remain and the decisions still open |
@@ -31,7 +31,7 @@ example), so they are kept stable.
   `cfg/` = `legged_nmpc/legged_mpc_config`, `val/` = `legged_nmpc/legged_mpc_validation`,
   `rr/` = `legged_nmpc/legged_rerun_viewer`;
 - `ocs2/` = `lib/ocs2`, `cm/` = `lib/ocs2/pinocchio/centroidal_model`;
-- `common/<dir>/` names a module of `common/` by its directory: its header in `include/legged_common_mpc/<dir>/` and its
+- `common/<dir>/` refers to a module of `common/` by its directory: its header in `include/legged_common_mpc/<dir>/` and its
   source in `src/<dir>/` (`common/orientation/`, `common/cost/`, `common/common/`, ...).
 
 Code is cited by symbol and Bazel target, not by line.
@@ -46,7 +46,7 @@ Code is cited by symbol and Bazel target, not by line.
   `I_G^W·T_W(Θ)` and the whole-body rotational Schur complement `T_Bᵀ·I·T_B` become singular, and every Jacobian through
   them grows as `1/cos θ` before it.
 - The Euler yaw wraps: the state stored the yaw as an angle. The measured yaw comes `atan2`-wrapped into
-  (−π, π], the warm start and the references carry it unwrapped, so where the heading crosses ±π the SQP's initial
+  (−π, π], the warm start and the references store it unwrapped, so where the heading crosses ±π the SQP's initial
   gap `δx₀` jumps by 2π. On the whole-body Unitree G1 turning in place through 720°, the Euler formulation's gap
   reached 2π (6.285 rad) at each of the two crossings and decayed below π/2 within 0.17 s, and the tilt peaked at
   0.10 to 0.15 rad shortly after, depending on the gait phase at the crossing. A quaternion state stores no angle: the
@@ -104,7 +104,7 @@ Code is cited by symbol and Bazel target, not by line.
 ```
 
 The live path and the start-up path share every step from the converters on: the same functions produce the
-tuning-layout matrices and hand them to the same setters, so the cost's `TuningLayoutDeviation` is the single map from
+tuning-layout matrices and pass them to the same setters, so the cost's `TuningLayoutDeviation` is the single map from
 the Euler-written rows to the quaternion residual at start-up and live alike (section 3.5).
 
 ### 1.3 Requirements
@@ -131,9 +131,9 @@ the Euler-written rows to the quaternion residual at start-up and live alike (se
 | D10 | Targets are stored as quaternions in the solver layout and interpolated by shortest-path slerp through the robot model (`interpolateStateTrajectory()`). Velocity and pose commands are cut so that consecutive knots are at most π/2 apart in yaw. | Slerp between level knots is linear in yaw, so it reproduces the Euler layout's linear interpolation; the subdivision keeps "+270° turns +270°". |
 | D11 | `ManifoldLinearController`: `u = u*_k + K_k·(x ⊖ x̄_k)`, blended between nodes, `ControllerType::MANIFOLD_LINEAR` in OCS2 (enum value 3, not a wire format) and `CONTROLLER_TYPE_MANIFOLD_LINEAR = 3` on the bus (`msgs/controller_type.proto`; the `controller_types` IFTTT pair, `ipc/` maps the two). | `LinearController` computes `uff + K·x`, undefined with a `nu×ndx` K and `x ∈ ℝ^nx`. Atlas and SA01 run `use_feedback_policy: true`. |
 | D12 | No hemisphere alignment anywhere. | Every consumer is double-cover invariant: the shortest-path `Log` in `⊖`, shortest slerp, the heading-tilt residual, the rotation-based residuals, the equivariant flow; `−ξ` tests on every term and on both MRTs (section 5(c)). Two cut loci of measure zero keep the inversion instead: `Log` at an exact half turn (section 2.1) and the tilt exactly upside down (section 2.8.1). |
-| D13 | Cost classes `TuningQuadraticStateInputCost` and `TuningQuadraticStateCost` (`common/cost/`) derive from `ocs2::StateInputCost` / `StateCost` with their own weight setters; `StateInputQuadraticCost`, `StateQuadraticCost` and `BasePoseShapedQuadraticStateCost` are built on them; `InputQuadraticCost` is input-only. Every hot-reload cast moved with them. | OCS2's `QuadraticStateInputCost` / `QuadraticStateCost` have `final` approximations. `Collection::get` is a `dynamic_cast`: a stale cast would throw `bad_cast`, which `updateTermIfPresent()` (`OcpTermUpdates.h`) turns into a WARNING, silently disabling a hot field. The live-equals-fresh tests compare the weights the running costs hold. |
-| D14 | CppAD libraries live in a layout-tagged folder `cppad_code_gen/cppad_<mpc><robot>/<kStateLayoutTag>`, and `CppAdInterface` refuses a loaded library whose domain or range differs, naming the folder (section 3.2). | Every task file ships `model_settings.recompile_libraries_cpp_ad: false`, and a library was reused whenever its `.so` existed. |
-| D17 | The single-rigid-body branch of the centroidal model is ported, not refused. | It is a model option (`model_settings.centroidal_model: "single_rigid_body_dynamics"`), not an Euler path; every robot ships `"full_centroidal_dynamics"`, so the port is tested against the full model at the nominal posture (`testSrbdQuaternion`). |
+| D13 | Cost classes `TuningQuadraticStateInputCost` and `TuningQuadraticStateCost` (`common/cost/`) derive from `ocs2::StateInputCost` / `StateCost` with their own weight setters; `StateInputQuadraticCost`, `StateQuadraticCost` and `BasePoseShapedQuadraticStateCost` are built on them; `InputQuadraticCost` is input-only. Every hot-reload cast moved with them. | OCS2's `QuadraticStateInputCost` / `QuadraticStateCost` have `final` approximations. `Collection::get` is a `dynamic_cast`: a stale cast would throw `bad_cast`, which `updateTermIfPresent()` (`OcpTermUpdates.h`) turns into a WARNING, silently disabling a hot field. The live-equals-fresh tests compare the weights stored in the running costs. |
+| D14 | CppAD libraries are stored in a layout-tagged folder `cppad_code_gen/cppad_<mpc><robot>/<kStateLayoutTag>`, and `CppAdInterface` refuses a loaded library whose domain or range differs, reporting the folder in the error (section 3.2). | Every task file ships `model_settings.recompile_libraries_cpp_ad: false`, and a library was reused whenever its `.so` existed. |
+| D17 | The single-rigid-body branch of the centroidal model is ported. | It is a model option (`model_settings.centroidal_model: "single_rigid_body_dynamics"`) independent of the orientation parameterization; every robot ships `"full_centroidal_dynamics"`, so the port is tested against the full model at the nominal posture (`testSrbdQuaternion`). |
 | D18 | The whole-body `initial_state.angvel_base_rt_world_ewrt_base { yaw pitch roll }` rows are the body angular velocity in (z, y, x) order, matching the weight rows. | The rows of the values and of the weights mean the same; at a level attitude they equal the ZYX rates (`state_values.proto`). The shipped values are 0. |
 
 ## 2. Formulation
@@ -227,7 +227,7 @@ the identity quaternion) and the visualization's root link.
   (`contact_input_parameterization`). Unchanged; `getJointVelocitiesStartindex()` is an input index.
 - Pinocchio vectors: `q = [p_W, ξ̂, q_j]` (`getGeneralizedCoordinates()`), and
   `v = [v_b, q̇_j]` with `v_b = [ṗ_W, ω_B] = A_b⁻¹(q)·(m·h̄ − A_j(q)·q̇_j)` (`CentroidalModelPinocchioMapping`).
-  `CentroidalModelInfo` carries `configurationDim` (nq), `velocityDim` (nv), `stateDim = 6 + nq` and
+  `CentroidalModelInfo` stores `configurationDim` (nq), `velocityDim` (nv), `stateDim = 6 + nq` and
   `stateTangentDim = 6 + nv`; the joints start at 13 (`cm/.../AccessHelperFunctions.h`: `getPosBaseRtWorldEwrtWorld`,
   `getQuatBaseRtWorldXyzw`, `getJointAngles`).
 
@@ -251,7 +251,7 @@ the identity quaternion) and the visualization's root link.
 (`common/config/weights/StateInputLayout.h`) from the schema's field names and placed on the state by
 `placeTuningLayout(layout)`: each `TuningSegment` has its `stateStart` and `stateDim`,
 the segments consecutive in the state in tuning order, every one as many state rows as tuning rows but the
-orientation, which has 4. The robot models hold the placed layout (`getTuningLayout()`), and `tuningDimension()` of a
+orientation, which has 4. The robot models store the placed layout (`getTuningLayout()`), and `tuningDimension()` of a
 `StateInputLayout` is `getStateTangentDim()`. `stateManifoldOf()` (`common/common/StateManifoldFactory.h`) builds the
 product manifold from the same placement.
 
@@ -265,7 +265,7 @@ documented preconditions):
 | Euler boundary (section 4.2) | `getPoseeulerzyxBaseRtWorld` / `setPoseeulerzyxBaseRtWorld` (`[x, y, z, yaw, pitch, roll]`), `getEulerzyxBaseRtWorld` / `setEulerzyxBaseRtWorld`, `setTurnAngvelBaseRtWorldEwrtBase`; the getters wrap the yaw into (−π, π] and clamp the pitch, the setters take any yaw |
 | Whole-body velocity | `getAngvelBaseRtWorldEwrtBase` / `setAngvelBaseRtWorldEwrtBase`, `getJacobianAngvelBaseRtWorldEwrtBase` |
 | Motion and commands | `getTwistBaseRtWorldEwrtWorld(state, jointVelocities)` (exact; centroidal `A_b⁻¹(m h̄ − A_j q̇_j)`), `getRefPlanarMotion(targetState, inertiaComEwrtWorldZz)` |
-| Tuning | `getTuningLayout()`, `stateFromTuning` / `tuningFromState` (`absl::StatusOr<vector_t>`, InvalidArgument on a wrong size, naming the layout) |
+| Tuning | `getTuningLayout()`, `stateFromTuning` / `tuningFromState` (`absl::StatusOr<vector_t>`, InvalidArgument on a wrong size, reporting the layout) |
 | Interpolation | `getDesiredState(targets, t)`, `interpolateStateTrajectory(t, times, states)` (the orientation block slerped the shorter way, the manifold's `interpolate()` at LinearInterpolation's weight `1 - alpha` bit for bit; every other row `LinearInterpolation`'s, bit for bit with `TargetTrajectories::getDesiredState`, which can differ from the manifold's `(1 - a) x0 + a x1` in the last bit), `getNeutralState()` |
 | Tangent maps | `getBaseRotationTangentJacobian` (3×4 `E⁺(ξ)`), `getPinocchioTangentJacobian` (nv×nx) |
 | Realtime measurement | `fillGeneralizedCoordinatesFromMeasurement`, `fillGeneralizedVelocitiesFromMeasurement` (into preallocated buffers; no allocation, check, log or exception) |
@@ -282,7 +282,7 @@ documented preconditions):
 
 ### 2.4 The state manifold
 
-The state lives on a product manifold (`ProductStateManifold`, `ocs2/core/include/ocs2_core/manifold/`) of Euclidean
+The state lies on a product manifold (`ProductStateManifold`, `ocs2/core/include/ocs2_core/manifold/`) of Euclidean
 segments and one unit-quaternion segment (ambient 4, tangent 3): centroidal `[E(9), Q, E(nj)]`, whole body
 `[E(3), Q, E(2nj + 6)]`. `stateManifoldOf(model)` builds it from the model's placed tuning layout and refuses any other
 placement; the interfaces set it on the problem (`stateManifoldPtr`), the rollout and the MRT, and expose it as
@@ -422,7 +422,7 @@ B_k=\mathcal J(b_k)\,E^+(\hat F)\,\Pi'(\Phi)\,B_a
   fall. A warm start with a state without a rotation (as above) is dropped the same way: it reads as no rotation away
   from `x_init`, so the quarter-turn rule alone would keep it.
 - No state re-anchoring exists or is needed: every iterate lies on M and every difference is intrinsic. The policy
-  gain is the one quantity carried from the pre-step to the post-step iterate (below).
+  gain is the one quantity reused from the pre-step iterate at the post-step iterate (below).
 - Solver: the SQP is the fork's only solver (`lib/ocs2/README.md`); it builds no value function.
 - Unchanged: HPIPM (its sizes from the tangent `dfdx.cols()`; `δx₀` eliminated), the projection of state-input
   equality constraints and `remapProjectedGain`, `PerformanceIndexComputation`, the filter line search. No state-only
@@ -585,7 +585,7 @@ L=\tfrac12 r^\top Q r+\tfrac12\delta u^\top R\,\delta u,\qquad
 cross term is unused on every shipped robot and is dropped.
 
 - `TuningQuadraticStateInputCost` (running, `ocs2::StateInputCost`) and `TuningQuadraticStateCost` (terminal,
-  `ocs2::StateCost`) hold Q (n_t square) and R; `setStateWeights()` / `setInputWeights()` refuse a wrong size,
+  `ocs2::StateCost`) store Q (n_t square) and R; `setStateWeights()` / `setInputWeights()` refuse a wrong size,
   asymmetry or a non-finite entry (`validateQuadraticWeights()`), and their approximations are `final`.
   `StateInputQuadraticCost`, `StateQuadraticCost` and `BasePoseShapedQuadraticStateCost` derive from them;
   `InputQuadraticCost` is input-only (`setInputWeights()`), which removed the old `zeroQ` sizing hazard.
@@ -650,7 +650,7 @@ These read `q`, `v` and `a` through the accessors, and their residuals do not re
 | Torso `EndEffectorKinematicsQuadraticCost` | the rotation vector `Log(q_r ⊗ q⁻¹) = θn` in world axes (`computeTaskSpaceErrors()`), so `task_space_costs[].weights.rotvec_{x,y,z}` are per rad² about the world axes. It replaced `quaternionDistance`, the half-angle sine `sin(θ/2)n`; a weight `w` on that is `w/4` on `θn` at small angles, and the shipped weights were divided by 4 (G1 and R1 100 → 25), which keeps the closed loop at small errors. The reference is the forward kinematics of the slerped, shaped `x_r`. |
 | `CentroidalMpcEndEffectorFootCost` | plane distance and half-angle foot yaw; the plane-normal yaw is `getYawBaseRtWorld(x_r)`. |
 | `EndEffectorDynamicsFootCost` (whole body) | unchanged; the accelerations come from the ω-state flow. |
-| `EndEffectorKinematicsTwistConstraint` (the centroidal zero-velocity constraints) | unchanged (`rotationMatrixDistanceToPlane`, `M(R, ω)`). Its value is `b + A_x·[p; e] + A_v,lin·v + A_v,ang·M(x)·ω`, `ω` the foot's world-frame angular velocity and `M = ∂e/∂ω` (plus `½·n·v_nᵀ` under `position_and_orientation`, `v_n` the foot normal), and `getLinearApproximation()` holds `M` at its value at the point: its state Jacobian is the derivative less exactly `D = A_v,ang·(∂M/∂x)·ω` (along the retraction `D_i = A_v,ang·(d/ds M(x ⊕ s·e_i))·ω`; a soft form's gradient lacks `p'(f)ᵀ·D`), and its input Jacobian is exact, since `M` reads no input. `testQuaternionRootTermDerivatives` computes `D` independently (`M` differenced along the retraction, `ω` the twist's own value) and holds the reported Jacobian plus `D` to the differences of the value at every point, entry by entry within their error bound, which rejects `D` with one entry moved by 1e-6: the residual is at most 2e-12 of the Jacobian's scale on every centroidal robot, so `D` is the whole difference; the soft form, which no shipped robot lists, is held the same way through a soft wrapper of one stance foot's constraint that the test adds to its copy of the problem (`D` contracted with `p'(f)`); it also holds the tilt rows of `M·ω` to the rate of `e` along the flow map, `(∂e/∂x)·f_a`, to round-off (section 4.4). `D` is linear in `ω`, up to about 5 % of the Jacobian's scale per rad/s of the foot on the SA01, G1 and R1 (`K_d` = 1) and 0.1 % on the Atlas (`K_d` = 0.01): 0 at rest, at most 1 % at the points built from the walk (feet turning at 0.05–0.26 rad/s), and at `random_0` 0.18 % on the Atlas (2.3 rad/s), 2 % on the SA01 (0.7 rad/s), 2.8 % on the R1 (0.8 rad/s) and 64 % on the G1, whose draw of the normalized angular momentum (within 0.2 m²/s per axis) spins it at 13.5 rad/s about the vertical, its lightest axis (`I_zz/m` ≈ 0.0135 m² against ≈ 0.1 m² about the horizontal ones) - a stress point for the derivatives, not a stance the MPC visits. At a solution the stance rows hold `K_p·e + K_d·M·ω = 0`, so a flat foot (`e = 0`) has `M·ω = 0`: `ω = 0` and `D = 0` under `position_and_orientation` (Atlas), while `position_and_tilt` (SA01, G1, R1) leaves the pivot rate `ω_n` about the foot normal to the other terms, and then `D = −ω_n·A_v,ang·M·∂v_n/∂x` (from `M(x)·v_n(x) = 0`); a tilted foot turns at about `(K_p/K_d)·tilt`. The value is exact, so a converged iterate is feasible; `D` enters only the linearization, and at a fixed point it leaves the exact Lagrangian's state gradient at `Dᵀλ` instead of 0. The whole body's `ZeroAccelerationConstraintCppAd` maps `ω` through the same `M` but tapes the rates themselves, the map included (section 2.8.6): its Jacobian is held exact at every point. |
+| `EndEffectorKinematicsTwistConstraint` (the centroidal zero-velocity constraints) | unchanged (`rotationMatrixDistanceToPlane`, `M(R, ω)`). Its value is `b + A_x·[p; e] + A_v,lin·v + A_v,ang·M(x)·ω`, `ω` the foot's world-frame angular velocity and `M = ∂e/∂ω` (plus `½·n·v_nᵀ` under `position_and_orientation`, `v_n` the foot normal), and `getLinearApproximation()` holds `M` at its value at the point: its state Jacobian is the derivative less exactly `D = A_v,ang·(∂M/∂x)·ω` (along the retraction `D_i = A_v,ang·(d/ds M(x ⊕ s·e_i))·ω`; a soft form's gradient lacks `p'(f)ᵀ·D`), and its input Jacobian is exact, since `M` reads no input. `testQuaternionRootTermDerivatives` computes `D` independently (`M` differenced along the retraction, `ω` the twist's own value) and checks the reported Jacobian plus `D` against the differences of the value at every point, entry by entry within their error bound, which rejects `D` with one entry moved by 1e-6: the residual is at most 2e-12 of the Jacobian's scale on every centroidal robot, so `D` accounts for the full difference; the soft form, which no shipped robot lists, is checked the same way through a soft wrapper of one stance foot's constraint that the test adds to its copy of the problem (`D` contracted with `p'(f)`); it also checks the tilt rows of `M·ω` against the rate of `e` along the flow map, `(∂e/∂x)·f_a`, to round-off (section 4.4). `D` is linear in `ω`, up to about 5 % of the Jacobian's scale per rad/s of the foot on the SA01, G1 and R1 (`K_d` = 1) and 0.1 % on the Atlas (`K_d` = 0.01): 0 at rest, at most 1 % at the points built from the walk (feet turning at 0.05–0.26 rad/s), and at `random_0` 0.18 % on the Atlas (2.3 rad/s), 2 % on the SA01 (0.7 rad/s), 2.8 % on the R1 (0.8 rad/s) and 64 % on the G1, whose draw of the normalized angular momentum (within 0.2 m²/s per axis) spins it at 13.5 rad/s about the vertical, its lightest axis (`I_zz/m` ≈ 0.0135 m² against ≈ 0.1 m² about the horizontal ones) - a stress point for the derivatives, not a stance the MPC visits. At a solution the stance rows satisfy `K_p·e + K_d·M·ω = 0`, so a flat foot (`e = 0`) has `M·ω = 0`: `ω = 0` and `D = 0` under `position_and_orientation` (Atlas), while `position_and_tilt` (SA01, G1, R1) leaves the pivot rate `ω_n` about the foot normal to the other terms, and then `D = −ω_n·A_v,ang·M·∂v_n/∂x` (from `M(x)·v_n(x) = 0`); a tilted foot turns at about `(K_p/K_d)·tilt`. The value is exact, so a converged iterate is feasible; `D` enters only the linearization, and at a fixed point it leaves the exact Lagrangian's state gradient at `Dᵀλ` instead of 0. The whole body's `ZeroAccelerationConstraintCppAd` maps `ω` through the same `M` but tapes the rates themselves, the map included (section 2.8.6): its Jacobian is verified exact at every point. |
 | `FrictionForceConeConstraint` | unchanged residual. Its state Hessian is a regularization, a fixed diagonal shift `−sI` in the ambient state, so its pull-back onto the quaternion block is a quarter of the Euler one (`EᵀE = ¼‖ξ‖²I₃`); the class comment says so. |
 | Normal-velocity, swing-vertical, `ContactMomentXY`, `ForceWeightedSlip`, `ContactComplementarity`, `GroundPenetration`, `FootCollision`, `FootCollisionCbf`, `DcmTerminalCost`, `JointTorqueCostCppAd` | E1 (section 4.4). `DcmTerminalCost` reads its target through the model interpolation. |
 | `InputQuadraticCost`, `ZeroWrench`, `BasisScalingNonNegativity`, `JointLimitsSoftConstraint`, both `JointMimic*` | E0. Indices through `getJointStartindex()` / `getJointVelocitiesStartindex()`. |
@@ -674,7 +674,7 @@ acceleration.
   differences along the robot's motion), `v̇_n = ω × v_n`, `v̈_n = α × v_n + ω × (ω × v_n)`, `a = v_n × n`,
   `c = v_n·n` and `s = √(2(1 + c))` (so `ṡ = ċ/s`): `ė = −ȧ/s + a·ċ/s³` (`= M·ω`, the centroidal map of the twist
   constraint, section 2.8.5) and `ë = −ä/s + (2ȧ·ċ + a·c̈)/s³ − 3a·ċ²/s⁵`. `e` has no component along `n`; that row
-  carries half the rotation rate about the foot normal, `½·v_n·ω`, and its exact derivative `½·v_n·α`
+  contains half the rotation rate about the foot normal, `½·v_n·ω`, and its exact derivative `½·v_n·α`
   (`d/dt (v_n·ω) = (ω × v_n)·ω + v_n·α`), so a stance foot can neither tilt nor pivot. The linear rows are the foot's
   linear velocity and classical acceleration, as before.
 - Guard: for `1 + c < 1e-6` both rates fall back to `ω/2` and `α/2`, the centroidal fallback (both read the guard
@@ -728,7 +728,7 @@ acceleration.
     turning the intermediate knot sideways by up to 0.039 m on G1 at 0.5 m/s.
   - When the stride history (re)starts, the motion before it is the exact base twist of the observation the solve
     starts from, `getTwistBaseRtWorldEwrtWorld(state, jointVelocities)` with the observation's measured joint velocities,
-    which the runners hand over before the solve (`ProceduralMpcMotionManager::observe()`, from
+    which the runners pass in before the solve (`ProceduralMpcMotionManager::observe()`, from
     `MpcServer::Hooks::preSolveObserver` in the MPC node and from `InProcessMpcLink::Config::solverObservationObserver`;
     the `observation_hand_over` IFTTT pair). In operation a history restarts at a full reset, while the robot is held or
     stands. A stall of the solves of up to 1.5 s (`StrideMotionHistory::kMaxBridgedGap`), a network stall among them,
@@ -800,9 +800,9 @@ far from π.
 
 ### 2.10 Euler tuning mapping (exact)
 
-**The schemas name the Euler rows.** The orientation blocks of `cfg/state_weights.proto`, `cfg/acom_weights.proto` and
+**Euler rows in the schemas.** The orientation blocks of `cfg/state_weights.proto`, `cfg/acom_weights.proto` and
 `cfg/state_values.proto` are `{yaw pitch roll}` rows whose comments say what each row means in the quaternion
-formulation (`cfg/yaw_pitch_roll.proto` names the one conversion layer). GUI controls are labeled by field names, and no
+formulation (`cfg/yaw_pitch_roll.proto` documents the conversion layer). GUI controls are labeled by field names, and no
 comment of a file is parsed. The index map from the tuning layout to the state is section 2.3.
 
 | Tuning item (schema field) | Converter | Consumer | Exactness |
@@ -878,9 +878,9 @@ These hold at any attitude with cos θ ≠ 0, not only for small errors. Three m
   through the chart to that order, and the coordinate dependence shrinks by at least 8 when dt is halved (third order or
   faster), where a difference of the flow maps would only halve.
 
-## 3. Runtime: where it lives, the CppAD libraries, the bus, the display, live tuning
+## 3. Runtime: package layout, the CppAD libraries, the bus, the display, live tuning
 
-### 3.1 Where the formulation lives
+### 3.1 Package layout
 
 | Package | What |
 |---|---|
@@ -899,16 +899,16 @@ These hold at any attitude with cos θ ≠ 0, not only for small errors. Three m
 ### 3.2 CppAD libraries
 
 - `kStateLayoutTag = "translation_spherical_quaternion_v1"` (`common/common/StateLayout.h`, Bazel
-  `:state_layout`) names the layout the libraries are taped for: the root `Composite(Translation, Spherical)`, the base
+  `:state_layout`) identifies the layout the libraries are taped for: the root `Composite(Translation, Spherical)`, the base
   orientation stored as a unit quaternion (x, y, z, w), the base angular velocity in the body frame. It changes whenever
   the layout of the state, the input or the Pinocchio configuration a library reads changes.
 - `ModelSettings` builds `modelFolderCppAd = cppad_code_gen/cppad_<mpc><robot>/<kStateLayoutTag>`
   (`ModelSettingsFromConfig.cpp`, the `cppad_model_folder` / `cppad_layout_tag` IFTTT pair); the centroidal MPC's
   contact-input key nests below it (`CentroidalMpcInterface::keyCppAdModelFolder()`: `wrench_inputs` or
-  `basis<n_b>_<hash>`). Libraries of an untagged layout sit one folder up and are never read.
+  `basis<n_b>_<hash>`). Libraries of an untagged layout are in the parent folder and are never read.
 - On load `CppAdInterface` checks the library's `Domain()` against its variables plus parameters and
   its `Range()` against the expected output size (from an earlier `createModels()`, the copied interface, or one
-  off-tape evaluation at the tape point), and throws naming the folder: "It is stale (for example from before a change
+  off-tape evaluation at the tape point), and throws an error reporting the folder: "It is stale (for example from before a change
   of the state layout): delete the folder, or set the task file's model_settings.recompile_libraries_cpp_ad: true, to
   regenerate it." (`test_cppad_library_dimension_check`). The interfaces' set-up converts it to an InvalidArgument
   Status at their one exception boundary (`catchingModelBuilderExceptions()`, `catchingLibraryExceptions()`). A library with
@@ -973,7 +973,7 @@ MPC node's visualization thread, never in the robot process, into preallocated o
 | Series (`rr/` telemetry contract) | Value |
 |---|---|
 | `base_pose/{roll, pitch, yaw}` | the ZYX Euler angles of the quaternion (`eulerZyxFromQuaternion()`, yaw and roll in (−π, π], pitch clamped), measured and reference |
-| `base_pose/{roll_rate, pitch_rate, yaw_rate}` | the Euler rates `T_B(Θ)⁻¹ω_B` (`eulerZyxRatesForDisplay()`), all three NaN, a gap in the plot, where `\|cos(pitch)\| < kDisplayEulerRateMinCosPitch = 1e-6` or the pitch is NaN; the reference's 0 where the target carries no velocity |
+| `base_pose/{roll_rate, pitch_rate, yaw_rate}` | the Euler rates `T_B(Θ)⁻¹ω_B` (`eulerZyxRatesForDisplay()`), all three NaN, a gap in the plot, where `\|cos(pitch)\| < kDisplayEulerRateMinCosPitch = 1e-6` or the pitch is NaN; the reference's 0 where the target has no velocity |
 | `base_pose/angular_velocity_{x, y, z}` | the body angular velocity `ω_B`: measured, the sample's `angvel_base_rt_world_ewrt_base`; reference, `v[3:6]` of the reference state |
 | `base_twist/angular_{x, y, z}` | the world-frame angular velocity `R(ξ)ω_B`, its panels titled "(world)" |
 | `generalized_base/{position_z, pitch, roll}`, `dofs/position/*` | a display buffer `[p, (yaw, pitch, roll), q_j]` (`getBaseDofNames()`) in place of Pinocchio's q |
@@ -996,7 +996,7 @@ difference of the Euler angles of `ξ ⊗ Exp(tω_B)` to 1e-8; `cos(pitch)` from
 The shared parameter updater (`MpcParameterUpdaterModule`, `common/parameter_update/`) runs before every solve on the
 solver thread. Its appliers are listed per formulation as `HotFieldApplierEntry` arrays: `kCentroidalAppliers` (12,
 `cmpc/src/mrt/CentroidalMpcParameterUpdater.cpp`) and `kWholeBodyAppliers` (7,
-`wbmpc/src/parameter_update/WholeBodyHotFieldAppliers.cpp`). The hot fields that carry orientation:
+`wbmpc/src/parameter_update/WholeBodyHotFieldAppliers.cpp`). The hot fields that include orientation:
 
 | Field | Applier | Path |
 |---|---|---|
@@ -1078,10 +1078,10 @@ The conversion points:
 
 On its mathematics, by tests that build everything from the shipped configuration files and read no recorded data of
 another formulation (section 5):
-- Against an independent Euler formulation: the root-joint suite holds the production root's kinematics,
-  centroidal quantities and dynamics to Pinocchio's own `Composite(Translation, SphericalZYX)` root through the chart of
-  section 2.12, and the MPC-level suite holds each shipped MPC's flow maps, shooting intervals, rollouts, orientation
-  costs and real-time SQP iteration to an Euler oracle written from the definitions on that root (section 5(b));
+- Against an independent Euler formulation: the root-joint suite compares the production root's kinematics,
+  centroidal quantities and dynamics against Pinocchio's own `Composite(Translation, SphericalZYX)` root through the chart of
+  section 2.12, and the MPC-level suite compares each shipped MPC's flow maps, shooting intervals, rollouts, orientation
+  costs and real-time SQP iteration against an Euler oracle written from the definitions on that root (section 5(b));
 - Against itself: every term of both MPCs and the flow map against finite differences of their double-precision
   values on the quaternion root (`testQuaternionRootTermDerivatives_<robot>`); every cost's and soft constraint's
   Hessian, pulled back as the solver pulls it back, against the Gauss-Newton or penalty model `J'φ''J` its class
@@ -1091,15 +1091,15 @@ another formulation (section 5):
   the production tapes, live update equal to a fresh start (section 3.5), the manifold policy over the bus (section
   3.3) and the allocation tests of the realtime path.
 
-A closed-loop run or a solve benchmark is held to a baseline label recorded under `val/data/` by the rules of sections
+A closed-loop run or a solve benchmark is compared against a baseline label recorded under `val/data/` by the rules of sections
 4.5 and 4.6.
 
 ### 4.4 Equivalence classes and tolerances
 
 | Class / check | Relation | Tolerance | Reason |
 |---|---|---|---|
-| E0: InputQuadratic, ZeroWrench, BasisScalingNonNegativity, JointLimits, JointMimic | values and Jacobians up to index relabeling | bitwise, or 1e-12 where indices move | no orientation. The Euler terms no longer exist, so these classes are not compared term by term: they are held by the term derivative suite and the root-joint suite (section 5) |
-| E1: every kinematic or dynamic term (sections 2.8.4, 2.8.5), inverse dynamics, forward kinematics | value at `Φ(x_e)`; `J_e = J_t·P_e`; `H_e = P_eᵀH_tP_e` | values 1e-9 relative (floor 1e-10); Jacobians 1e-8 relative (floor 1e-9) | round-off, CppADCG `-ffast-math` reassociation, the conversion. With no Euler terms left these are not compared term by term; the root-joint suite holds the kinematics, the centroidal map and RNEA through the chart, `testMrtTorqueChartEquivalence` the base-held torques, `testQuaternionRootTermDerivatives` every term's first order, and `H_e = P_eᵀH_tP_e` is the Gauss-Newton identity |
+| E0: InputQuadratic, ZeroWrench, BasisScalingNonNegativity, JointLimits, JointMimic | values and Jacobians up to index relabeling | bitwise, or 1e-12 where indices move | no orientation. The Euler terms no longer exist, so these classes are not compared term by term: they are verified by the term derivative suite and the root-joint suite (section 5) |
+| E1: every kinematic or dynamic term (sections 2.8.4, 2.8.5), inverse dynamics, forward kinematics | value at `Φ(x_e)`; `J_e = J_t·P_e`; `H_e = P_eᵀH_tP_e` | values 1e-9 relative (floor 1e-10); Jacobians 1e-8 relative (floor 1e-9) | round-off, CppADCG `-ffast-math` reassociation, the conversion. With no Euler terms left these are not compared term by term; the root-joint suite verifies the kinematics, the centroidal map and RNEA through the chart, `testMrtTorqueChartEquivalence` the base-held torques, `testQuaternionRootTermDerivatives` every term's first order, and `H_e = P_eᵀH_tP_e` is the Gauss-Newton identity |
 | Every term and the flow map on the quaternion root | reported derivatives, pulled back into the tangent, against Richardson-extrapolated central differences along the retraction and the inputs; the input Hessians of a `ConstraintOrder::Quadratic` constraint against differences of its input Jacobian | 1e-6 relative to max(1, the largest entry) | the extrapolation's O(h⁴) truncation and 3ε\|f\|/h round-off at h = 1e-4, and `-ffast-math` |
 | Every cost's and soft constraint's Hessian on the quaternion root | pulled back as the solver pulls it back, against `J̃ᵀφ''J̃ + Σp'H_c` of the term's verified inner Jacobian (`testQuaternionRootTermHessians.cpp`); against the exact Hessian (differences of the verified gradient) minus the dropped curvature `Σφ'_i∇²v_i` | assembly: 1e-12 of the magnitude of the summands; differences: the Richardson estimate \|R(h/2) − R(h)\| plus 6δ/h, δ = 1e-12 of each row's magnitude (floor 1); each comparison rejects one entry moved by 1e-6 | the round-off of two assemblies of the same products; the extrapolation's truncation and round-off |
 | Friction-cone state Hessian | not a Gauss-Newton term: a fixed shift `c·I_a` of the ambient state, `c = −s·Σp'(h) ≥ 0`, whose pull-back `c·EᵀE` is `c` on every tangent row but `c/4` on the rotation's three, and whose chart image `c·dΦᵀdΦ` is `c·I_e` but on the orientation's blocks (the angles' `(c/4)·T_BᵀT_B`; on the whole body also `c·T_BᵀT_B` on the rates and their coupling with the angles) | 1e-12 of the summands' magnitude (`testQuaternionRootTermHessians.cpp`) | a fixed ambient diagonal shift (section 2.8.5); no other term has an exact orientation Hessian |
@@ -1117,7 +1117,7 @@ A closed-loop run or a solve benchmark is held to a baseline label recorded unde
 | E2: heading reads, reset targets, planner heading | twist against ZYX | `\|wrap(ψ_h − ψ)\| = \|o(θ, φ)\|` to 1e-12; the D9 reset target to `\|o\|`; the ACoM planner heading to `\|o\| + c(\|Δθ\|\|tilt\| + \|Δθ\|²)` (`ComAndAcomEulerTolerance.ThePlannerHeadingStaysWithinTheStatedBound`) | D9 |
 | SQP step, tier 1 (S1: the walking reference, a resting warm start whose input exerts no moment on the base, level or tilted) | the quaternion manifold's real-time iteration (dx, du, K0) against the same iteration on the Euler chart (`EulerChartStateManifold`, `d = P_e·dx_e`) | 1e-10 relative (the largest recorded, 3.7e-12 on G1-WB tilted) | without rotation (and, on the whole body, without angular velocity) in the shooting gaps the two QPs are one up to round-off: both integrate the same RK4 flow, and the chart maps gap-free sensitivities by the identity. RK4's O(dt⁵) coordinate dependence separates the chart SQP from a true Euler-RK4 formulation, which the RK4 node map and rollout rows bound; it is not in this comparison |
 | SQP step, tier 2 (S1: an initial state off the warm start by an attitude ε) | `Log(ξ_w⁻¹ξ₀)` against `P_e(x₀,e − x_warm,e)` | ratio between ε and ε/2 in [3, 5], or both within tier 1 | O(ε²) |
-| SQP step with gaps that carry a rotation b or, on the whole body, an angular velocity (S2, S1w) | the two charts' iterations | their difference falls by a factor of at least 1.5 when b (or the angular-velocity kick) halves, and vanishes with it | the gaps' sensitivity, `Jr⁻¹(b)` against `T_B(Θ_next)T_B(Θ_F)⁻¹`, differs at first order; on the whole body the chart's sensitivity has the coupling block `C(Θ, Θ̇_next − Θ̇_F)·T_B⁻¹` |
+| SQP step with gaps that have a rotation b or, on the whole body, an angular velocity (S2, S1w) | the two charts' iterations | their difference falls by a factor of at least 1.5 when b (or the angular-velocity kick) halves, and vanishes with it | the gaps' sensitivity, `Jr⁻¹(b)` against `T_B(Θ_next)T_B(Θ_F)⁻¹`, differs at first order; on the whole body the chart's sensitivity has the coupling block `C(Θ, Θ̇_next − Θ̇_F)·T_B⁻¹` |
 | SQP fixed points (S3) | the two charts' gap linearizations at the resting warm start, at the quaternion SQP's iterate from it, and along that iterate with its gaps scaled to none (the SQP need not converge, and on Atlas and the whole-body G1 it cycles, on Atlas the same cycle in both charts (`MpcSqpConvergence.OnAtlasTheEulerChartCyclesAsTheQuaternionManifoldDoes`): its QP has the costs' Gauss-Newton Hessian without the hard constraints' curvature and its line search accepts any merit decrease while the violation stays below `g_max`; section 6, risk 12) | at most 100 times the largest gap, round-off without gaps | the same discrete problem in two charts of its defects: the same fixed points |
 | Reference knots, node grid | knots written by `setPoseeulerzyxBaseRtWorld()` read back by `getPoseeulerzyxBaseRtWorld()` (yaw mod 2π) | 1e-12 | exact conversion; slerp about z between level knots is linear in yaw, so a subdivided pose command's node grid is the two-knot linear interpolation's (`testPoseCommandSubdivision`) |
 
@@ -1151,7 +1151,7 @@ better by more than the band is reported as an improvement, not a violation), an
 | p99 solve time | at most +10 % |
 | quaternion norm | `max \|‖ξ‖ − 1\|` < 1e-9 |
 
-The state-estimator variant `unitree_g1_kalman` is held to `unitree_g1`'s runs within bands of its own
+The state-estimator variant `unitree_g1_kalman` is compared against `unitree_g1`'s runs within bands of its own
 (`closedLoopMetricBandsFor()`, `val/README.md`): 0.04 rad of tilt and 0.2 m of slip, the rest as above.
 
 ### 4.6 Real-time gate
@@ -1190,7 +1190,7 @@ changes the toolchain, so a later candidate needs a baseline re-recorded on the 
   mixed tilt (section 2.8.1).
 - Atlas's ACoM yaw (weight 2500): the multiplicative composition's yaw row differs from the additive rule's at
   O(|tilt|²).
-- Feedback over the bus on Atlas and SA01: the manifold-linear policy (`mpc/policy` carries
+- Feedback over the bus on Atlas and SA01: the manifold-linear policy (`mpc/policy` publishes
   `CONTROLLER_TYPE_MANIFOLD_LINEAR`; `make ipc-hz TOPIC=mpc/policy`).
 - Gait switching: the Unitree G1 at 0.5 m/s stays in `slow_walk` (section 4.7), and a new gait's first cycle can
   read the sway as a turn of up to 0.12 / 0.14 rad/s (G1 / R1).
@@ -1232,12 +1232,12 @@ changes the toolchain, so a later candidate needs a baseline re-recorded on the 
   ±90° as level dynamics under turned gravity, the Euler root's determinant ratio `−cos(pitch)`, paths through pitch 90°
   and yaw ±π, `−ξ` bit for bit). Margins: 3e-15 relative against 1e-12; `dA_G/dt` 1.4e-10 against 1e-8; removing
   `dT_B/dt` from the chart fails all 7 acceleration-dependent tests on all 5 robots. The two roots share the
-  `Translation` sub-joint, so `testRootJointFreeFlyerEquivalence` also holds the production root to Pinocchio's own
+  `Translation` sub-joint, so `testRootJointFreeFlyerEquivalence` also compares the production root against Pinocchio's own
   `FreeFlyer` through `J_m = blockdiag(Rᵀ, I, I)` (placements, LOCAL and world-aligned twists, classical accelerations,
   RNEA, CRBA, the nonlinear effects with `J̇_m·v`, ABA, the centroidal map) and pins the base block of `A_G` that the
   closed-form inverse assumes, `[[m I, −m[c − p]ₓR], [0, I_G R]]`, on every robot at pitch ±90°, yaw π and `−ξ`; and
-  `testMrtTorqueChartEquivalence` holds the MRTs' feedforward torques (`computeJointTorques`,
-  `computeBaseHeldJointTorques`) to the Euler root's equations of motion: equal for the free base, `τ_e − τ_t =
+  `testMrtTorqueChartEquivalence` compares the MRTs' feedforward torques (`computeJointTorques`,
+  `computeBaseHeldJointTorques`) against the Euler root's equations of motion: equal for the free base, `τ_e − τ_t =
   M_jω·(dT_B/dt)·Θ̇` for the held one.
 - MPC-level suite (`testMpcEquivalence_<robot>`, one exclusive binary per robot): an Euler side built from the MPC's
   own Pinocchio model with the root swapped and the flow maps written from their definitions (`EulerMpcOracle`, O1 to
@@ -1259,9 +1259,9 @@ changes the toolchain, so a later candidate needs a baseline re-recorded on the 
   full step (EngineAI SA01 refuses one full step in the first half, at t = 0.12 s, above `g_max`), leaves a violation
   below `g_max` in most solves and holds the swing
   rows, in their own units (m/s on the centroidal MPCs, m/s² on the whole body); on Atlas and the whole-body G1 the test
-  holds the known cycle of section 6, risk 12, instead, under which Atlas's real-time solves hold the swing rows all
+  checks for the known cycle of section 6, risk 12, instead, under which Atlas's real-time solves satisfy the swing rows all
   the same).
-  `testMpcDynamicsEquivalence` also holds the SQP interval with a gap rotation of up to 1.5 rad to the
+  `testMpcDynamicsEquivalence` also checks the SQP interval with a gap rotation of up to 1.5 rad against the
   derivatives of `difference(x_next, Π(F(x ⊕ d, u + δu)))` on the real dynamics (`Jr⁻¹(b)`).
 - Every term on the quaternion root (`testQuaternionRootTermDerivatives_<robot>`, one exclusive binary per robot):
   every cost, soft constraint and constraint of the MPC, intermediate and final, and its flow map, differentiated by
@@ -1271,11 +1271,11 @@ changes the toolchain, so a later candidate needs a baseline re-recorded on the 
   the walk, and at rest at a level attitude and at pitch ±90°; the input Hessians of every
   `ConstraintOrder::Quadratic` constraint against differences of its input Jacobian. No production library generates a
   second order: every CppAD library of the MPCs is first order. The piecewise polynomial barriers, which those points
-  leave in their zero region, are held at two more points inside their bands (`barrierBandPoints()`): the joint limits
+  leave in their zero region, are tested at two more points inside their bands (`barrierBandPoints()`): the joint limits
   and the basis scalings at the initial point with the joints and the scalings moved into the bands, the foot
   collision at the right foot's mid-swing point with the joint angles moved until the closest collision points of the
   feet or the knees are inside its band. Both tests of the binary fail a term of their collections, the pre-jump ones
-  included, that no point checks (`coverageFindings()`), and a term checked only where what they hold is zero (the
+  included, that no point checks (`coverageFindings()`), and a term checked only where the checked quantity is zero (the
   reported first derivative or the reported Hessian) so that its comparisons were of zeros (`nonZeroFindings()`; a term
   no point can reach is exempted by name with the reason). The first-order test adds
   the soft form of a stance foot's constraint, which no shipped robot lists, to its copy
@@ -1285,13 +1285,13 @@ changes the toolchain, so a later candidate needs a baseline re-recorded on the 
   `testQuaternionRootTermHessians.cpp` enumerates every cost and soft constraint by name, gives each the rule its
   class documents (`L = φ(v(x, u))`: a tracking residual under `½vᵀWv` (the tuning deviation, the input deviation,
   every CppAD cost vector, the DCM error, the CoM and ACoM residual) or a constraint under its penalty; a term of no
-  known class fails by name) and holds, in the tangent: the value to `φ(v)`, the radial gradient `ξᵀ∂L/∂ξ` to zero (so
-  `EᵀHE` needs no retraction curvature), `J` and a penalty's `p'`, `p''` to differences (one-sided across a branch
+  known class fails by name) and checks, in the tangent: the value against `φ(v)`, the radial gradient `ξᵀ∂L/∂ξ` against zero (so
+  `EᵀHE` needs no retraction curvature), `J` and a penalty's `p'`, `p''` against differences (one-sided across a branch
   switch of the rotation-to-quaternion conversion, which flips a quaternion residual's sign and leaves the cost
-  unchanged), the reported Hessian to `J̃ᵀφ''J̃ + Σp'H_c` within the round-off of the two assemblies (symmetric,
-  positive semi-definite), a `ConstraintOrder::Quadratic` constraint's second order to its exact one minus its
+  unchanged), the reported Hessian against `J̃ᵀφ''J̃ + Σp'H_c` within the round-off of the two assemblies (symmetric,
+  positive semi-definite), a `ConstraintOrder::Quadratic` constraint's second order against its exact one minus its
   documented shift (the friction cone's state Hessian exactly `−s·I_a`, so its soft constraint's is `c·I_a`,
-  `c = −sΣp' ≥ 0`, and `c·EᵀE`, a quarter on the rotation rows, in the tangent), and the reported Hessian to the exact
+  `c = −sΣp' ≥ 0`, and `c·EᵀE`, a quarter on the rotation rows, in the tangent), and the reported Hessian against the exact
   Hessian (differences of the verified gradient) minus the dropped curvature `Σφ'_i∇²v_i`: equal to the exact Hessian
   where `φ'(v) = 0` or `v` is linear, different from it by exactly that curvature where neither holds (both sides are
   counted on every robot). Every Hessian comparison rejects one entry moved by 1e-6.
@@ -1305,7 +1305,7 @@ changes the toolchain, so a later candidate needs a baseline re-recorded on the 
 | `//lib/ocs2:test_manifold_linear_controller` | node exactness; between-node blend; pre-event copy; `flatten` / `unFlatten`; resampling off the nodes; `−x` invariance; `keepFirst` |
 | `//lib/ocs2:test_sqp_on_so3` | a rigid-body attitude OCP (ambient 7, tangent 6) tracking a 720° heading: monotone heading, rotation part of `δx₀` < 0.1, the same `u` to 1e-12 under `−ξ_init`; the gain law of section 2.7 ("Which gain at which anchor"): the QP's gain at the post-step anchor, its components unchanged |
 | `//lib/ocs2:test_sqp_flat_parity` | a flat toy problem's recorded solve bit for bit with a null manifold |
-| `//lib/ocs2:test_mrt_state_manifold`, `:test_time_triggered_rollout_manifold`, `:test_cppad_library_dimension_check` | the MRT's slerped plan; the rollout's projection; the stale-library refusal naming the folder |
+| `//lib/ocs2:test_mrt_state_manifold`, `:test_time_triggered_rollout_manifold`, `:test_cppad_library_dimension_check` | the MRT's slerped plan; the rollout's projection; the stale-library refusal reporting the folder |
 | `common:testBaseOrientation`, `:testBaseOrientationCppAd` | `J_HT` against finite differences; level gives `P₃`; tilt at exactly level; pitch 89.9 / 90 / 90.1°; the upside-down clamp; the double cover bit for bit in the clamp band; the two singular sets; a NaN quaternion; the section 2.8.1 identities; the squared-norm guard and the rate matrix on a tape at `x = ones` |
 | `common:testEulerBoundary` | round trips; the `asin` clamp at ±90° (with its round-off cases) and parity with an independent ZYX conversion; `T_B`; `stateFromTuningLayout` sizes and refusals; the placement |
 | `common:testConfigurationTangent` | `pinocchio::integrate` / `difference` equal the manifold's; finite differences of frames and CoM equal Pinocchio's Jacobians; `computeConfigurationDerivative()` |
@@ -1326,10 +1326,10 @@ changes the toolchain, so a later candidate needs a baseline re-recorded on the 
 | `cmpc:testMrtJointControllerActionParity` | the MRT joint controllers' actions against their golden `cmpc/test/golden/mrt_joint_controller_actions.txt`, recorded on the quaternion root ("base held" is `ω̇_B = 0`, section 2.5) |
 | `cmpc:testIntermediateKnotMeasuredRate`, `:testCentroidalMpcResetTarget`, `:testProceduralMpcMotionManagerCreate` | D1b, D9, D2 (section 4.7) |
 | `cmpc_test:test_centroidal_mpc_robot_model`, `:test_pinocchio_frame_conversions`, `:test_dynamics_helper_functions`, `:test_centroidal_conversions`, `:test_centroidal_mpc_mrt_joint_controller_allocations` | the robot model and conversions on the quaternion root; one Pinocchio allocation per centroidal map and per nonlinear-effects pass |
-| `cmpc_test:test_centroidal_mpc_mrt_policy_execution`, `wbmpc:testWBMpcMrtPolicyExecution` | a policy the realtime evaluator refuses (a `LinearController` on the quaternion state, a `ManifoldLinearController` with ambient gains) is held with the hold's action, never handed to `MRT_BASE::evaluatePolicy()`, allocates what the hold does and posts one `kPolicyRefused`; the whole body's action of a manifold-linear policy at pitch ±90° and yaw π is finite and the same under `−ξ` to round-off (1e-12) |
+| `cmpc_test:test_centroidal_mpc_mrt_policy_execution`, `wbmpc:testWBMpcMrtPolicyExecution` | a policy the realtime evaluator refuses (a `LinearController` on the quaternion state, a `ManifoldLinearController` with ambient gains) is held with the hold's action, never passed to `MRT_BASE::evaluatePolicy()`, allocates what the hold does and posts one `kPolicyRefused`; the whole body's action of a manifold-linear policy at pitch ±90° and yaw π is finite and the same under `−ξ` to round-off (1e-12) |
 | `wbmpc:testWBRobotModelBoundary`, `:testWBQuaternionDynamics`, `:testWBQuaternionInvariances`, `:testWBMrtObservationDoubleCover` | as the centroidal ones; RK4 drift 3.9e-9 at the rollout's 0.015 s step and, for one 0.035 s SQP node, a truncation error below 1e-7 that halving the step cuts more than 16-fold (each node is retracted, so it does not add up); 46 term evaluations over 4 points, finite differences to 8.7e-10, all bit for bit under `−ξ` |
 | `wbmpc:testOrientationErrorWrtPlaneRates`, `:testStanceFootOrientationRates`, `:testEndEffectorDynamicsAccelerationsConstraint` | the stance rates of section 2.8.6: their math on the taped functions; the G1 constraint against the PD law assembled from double-precision kinematics, the rescaled gains at a level foot, the linearization along the manifold; the constraint's composition on an affine stand-in |
-| `wbmpc:test_wb_live_tuning`, `:testWBIntermediateKnotMeasuredRate`, `:testWBReferenceManagerCommandedTwist`, `:testWBMpcResetTarget`, `:testTargetTrajectoriesCalculatorSetters`, `:testWBMpcMrtJointControllerAllocations` | section 3.5; D1, D3, D9; the command references turn with the robot across ±π; a base-pose heuristic's tilt keeps the reference's world angular velocity (`shapePoseBaseRtWorld` carries `w_B,r` into the tilted body frame); pose turns of 90°, 270° and −135° through subdivided knots; the realtime path's allocations |
+| `wbmpc:test_wb_live_tuning`, `:testWBIntermediateKnotMeasuredRate`, `:testWBReferenceManagerCommandedTwist`, `:testWBMpcResetTarget`, `:testTargetTrajectoriesCalculatorSetters`, `:testWBMpcMrtJointControllerAllocations` | section 3.5; D1, D3, D9; the command references turn with the robot across ±π; a base-pose heuristic's tilt keeps the reference's world angular velocity (`shapePoseBaseRtWorld` transforms `w_B,r` into the tilted body frame); pose turns of 90°, 270° and −135° through subdivided knots; the realtime path's allocations |
 | `ipc:test_mpc_message_conversions`, `:test_realtime_policy_evaluator`, `:test_remote_mpc_link_parity`, `:test_remote_mpc_link_allocations`, `:test_mpc_message_conversions_allocations` | the manifold policy's round trip from `toPrimalSolution` with an event; refusals; evaluator parity with `MRT_BASE::evaluatePolicy` across an event and under `−x`; remote against in-process; zero allocations |
 | `capp:test_centroidal_mpc_manifold_policy_over_bus`, `wapp:test_wb_mpc_manifold_policy_over_bus`, `capp:test_centroidal_mpc_node`, `wapp:test_wb_mpc_node`, `app/node:test_mpc_node_runtime` | section 3.3 (the manifold policy over the bus on both layouts, the quaternion at ambient offset 9 and 3); the node tests' decoded controller types and the dummy plant's unit quaternion (1e-9) |
 | `app/robot:test_robot_realtime_allocations`, `:test_sim_fall_recovery`, `:test_initial_sim_state` | the robot process allocates nothing; q from the quaternion; the stored quaternion bit for bit |
@@ -1364,7 +1364,7 @@ benchmark's replay states. See `val/README.md`.
 | 9 | Upside-down states (falls) | the residual clamps keep values finite; the dynamics stay regular (`I_G ≻ 0`); `SimFallRecovery` computes the tilt from the quaternion |
 | 10 | The ACoM network's Δθ is not a true rotation vector (a non-integrable connection) | first-order agreement tested; `testAcomAngularVelocityConsistency` against `dataset_generator.py` |
 | 11 | A container rebuild before a later benchmark | the timing baseline must be re-recorded on the new image (section 4.6) |
-| 12 | **The SQP cycles on DRC Atlas and on the whole-body Unitree G1** instead of converging (`testMpcSqpConvergence`, the shipped tuning, from the resting warm start toward the walking reference). Its QP's Hessian is the costs' Gauss-Newton Hessian without the hard constraints' curvature `λᵀ∇²g` (whether the projection removes them or not), its merit is the cost alone (this fork's Lagrangian sums are zero), and `FilterLinesearch::acceptStep()` takes a step between `g_min` and `g_max` for a decrease of the merit or of the violation. So each full step lowers the merit and multiplies the violation of the hard rows (on Atlas a swing row, `foot_r_contact_normalVelocity` at nodes 12 to 14, 0.22 to 0.26 s, just after the right lift-off at 0.2 s, by 2.5 per iteration on average, 2.32 on the whole-body G1) until a full step's violation (1.0e-2 to 1.8e-2 on Atlas) passes `g_max` = 1e-2; the CONSTRAINT rule refuses it, the half step is taken below `g_max`, and the full step after it drops the violation by an order of magnitude while it raises the merit. The cycle repeats every 4 to 5 iterations on Atlas with its shipped `touchdown_pos_foot_rt_surface_ewrt_world_z` 0.04 and the swing apex above the higher end of the swing (every 4 to 5 on the whole-body G1) for as long as it runs (13 resets in iterations 50 to 99 on each), in the Euler chart too (`OnAtlasTheEulerChartCyclesAsTheQuaternionManifoldDoes`: the chart's SQP cycles with at least 3 resets in the second half, 13 of them in iterations 50 to 99, and its merits agree with the quaternion manifold's over the first 15 iterations to second order in the step, within 0.05 `φ₁²` relative, `φ₁` the largest base rotation of the first step: at most 3.1e-4 for `φ₁` = 0.110 rad, 0.026 `φ₁²`, at iteration 1 (from iteration 15 on the cycle amplifies the difference, to 1.4e-3 by iteration 18), the retractions' difference `R Exp(φ)` against `R(Θ + T_B⁻¹φ)`, `½|φ|²` at most, the problem being the same on both; its violations agree only to about 1 %); within a period no iterate is dominated by one before it. On the whole-body G1 the violation that cycles is carried by several curved hard rows: about two thirds by the left mid-swing row `foot_l_contact_normalVelocity` (node 27, at 0.825 s, 0.175 s after the 0.65 s lift-off) and about a third by the stance feet's height (row 2, nodes 33 to 35, after the 1.0 s touchdown) and pivot (row 5, nodes 27 and 28) rows; the tilt rows carry 1 to 2 %. That cycle predates the whole-body stance orientation-rate law of section 2.8.6: under the former law (the raw `ω` and `α`, gains 20 and 1) the iterated SQP gave 11 to 12 resets, a growth of 2.262 per iteration and a period of 5 (measured with the swing apex above the lower end of the swing), and removing any one family of curved hard rows moves the cycle to another. The whole body's swing row is not a velocity: it is `k_v (v_z − ż_ref) + k_a (a_z − z̈_ref) + k_p (z − z_ref)` in m/s² (10, 1 and 100 on the G1, `WBMpcPreComputation::normalAccelerationConstraintConfig()`), where the centroidal row is `v_z − ż_ref + k_p (z − z_ref)` in m/s, so its residuals are not the centroidal ones (`testMpcSqpConvergence` holds it to `k_v` times the centroidal bound). In real time (one iteration and one node per solve without a plant: Atlas's 50 Hz at `dt` 0.02) the warm start is the last plan node for node, but for the newly initialized end of the horizon, whose violation each shift adds (0.004 to 0.13, a median of 0.08, on the converging configurations). That holds since the fix of the SQP's trajectory spreading (`lib/ocs2/README.md`, "What this fork changes"): before it the warm start handed each post-event interval the next node's input and the node after it about the midpoint of the next two states (on the whole-body G1 an input off by `|Δu|` of about 800 to 1000 and a state by `|Δx|` of 5 to 7 there, a dynamics gap of 22 to 27 against 0.3 to 0.6 elsewhere), every full step was judged above `g_max`, where the CONSTRAINT rule accepts any decrease, and the violation climbed 1.6 to 1.8 times per solve to a plateau (a median of 0.12 over the last 20 of 40 solves on Atlas with a swing residual of 0.59 m/s, 2.9 and 8.3 m/s² on the whole-body G1). With the warm start fixed, the converging configurations leave a violation with a median of 3.6e-3 to 3.9e-3 (at most 2.3e-2) and a swing residual with a median of 0.0092 to 0.029 m/s (at most 0.13), every step of the second half full. Atlas now holds its swing rows in real time too (a median of 0.056 m/s, at most 0.27) and leaves a violation below `g_max` in most solves (a median of 8.0e-3, at most 3.8e-2), but the cycle still shows: the violation climbs above `g_max` for runs of solves, and a full step that raises it there is refused and the reduced step lands below `g_max`, a reset (2 in the last 20 solves). The whole-body G1 stays above `g_max` in each of the last 20 solves (baselines of 0.43 to 4.0, a median of 0.55 after the step, at least 0.12), refuses 6 of 20 full steps for raising the violation, and does not hold its swing rows (a median of 2.3 m/s², at most 12.6). Unitree G1, Unitree R1 and EngineAI SA01 converge by the solver's own test in 17, 24 and 40 iterations | open. Remedies, each behind a default-off switch if implemented: an exact (ℓ1) penalty of the hard violation in the merit, or a cap on its growth in the acceptance rule (a step taken for its merit decrease only while the violation does not grow past a bound); a second-order correction of the step (the QP re-solved with the post-step residual of the hard rows before the line search judges it); the curvature of the projected hard rows in the QP's Hessian (`λᵀ∇²g` with the projection's multipliers); `normal_velocity` as a soft constraint on Atlas (the contact-implicit formulation's priced row). A closed-loop run shows the cycle in `sqp_step` (`full_steps_refused_above_g_max`, `longest_violation_growth`, the violation and the swing residual; `val/README.md`) and in the `solve_sqp_step` rows of its time series |
+| 12 | **The SQP cycles on DRC Atlas and on the whole-body Unitree G1** instead of converging (`testMpcSqpConvergence`, the shipped tuning, from the resting warm start toward the walking reference). Its QP's Hessian is the costs' Gauss-Newton Hessian without the hard constraints' curvature `λᵀ∇²g` (whether the projection removes them or not), its merit is the cost alone (this fork's Lagrangian sums are zero), and `FilterLinesearch::acceptStep()` takes a step between `g_min` and `g_max` for a decrease of the merit or of the violation. So each full step lowers the merit and multiplies the violation of the hard rows (on Atlas a swing row, `foot_r_contact_normalVelocity` at nodes 12 to 14, 0.22 to 0.26 s, just after the right lift-off at 0.2 s, by 2.5 per iteration on average, 2.32 on the whole-body G1) until a full step's violation (1.0e-2 to 1.8e-2 on Atlas) passes `g_max` = 1e-2; the CONSTRAINT rule refuses it, the half step is taken below `g_max`, and the full step after it drops the violation by an order of magnitude while it raises the merit. The cycle repeats every 4 to 5 iterations on Atlas with its shipped `touchdown_pos_foot_rt_surface_ewrt_world_z` 0.04 and the swing apex above the higher end of the swing (every 4 to 5 on the whole-body G1) for as long as it runs (13 resets in iterations 50 to 99 on each), in the Euler chart too (`OnAtlasTheEulerChartCyclesAsTheQuaternionManifoldDoes`: the chart's SQP cycles with at least 3 resets in the second half, 13 of them in iterations 50 to 99, and its merits agree with the quaternion manifold's over the first 15 iterations to second order in the step, within 0.05 `φ₁²` relative, `φ₁` the largest base rotation of the first step: at most 3.1e-4 for `φ₁` = 0.110 rad, 0.026 `φ₁²`, at iteration 1 (from iteration 15 on the cycle amplifies the difference, to 1.4e-3 by iteration 18), the retractions' difference `R Exp(φ)` against `R(Θ + T_B⁻¹φ)`, `½|φ|²` at most, the problem being the same on both; its violations agree only to about 1 %); within a period no iterate is dominated by one before it. On the whole-body G1 the violation that cycles comes from several curved hard rows: about two thirds from the left mid-swing row `foot_l_contact_normalVelocity` (node 27, at 0.825 s, 0.175 s after the 0.65 s lift-off) and about a third from the stance feet's height (row 2, nodes 33 to 35, after the 1.0 s touchdown) and pivot (row 5, nodes 27 and 28) rows; the tilt rows account for 1 to 2 %. That cycle predates the whole-body stance orientation-rate law of section 2.8.6: under the former law (the raw `ω` and `α`, gains 20 and 1) the iterated SQP gave 11 to 12 resets, a growth of 2.262 per iteration and a period of 5 (measured with the swing apex above the lower end of the swing), and removing any one family of curved hard rows moves the cycle to another. The whole body's swing row is not a velocity: it is `k_v (v_z − ż_ref) + k_a (a_z − z̈_ref) + k_p (z − z_ref)` in m/s² (10, 1 and 100 on the G1, `WBMpcPreComputation::normalAccelerationConstraintConfig()`), where the centroidal row is `v_z − ż_ref + k_p (z − z_ref)` in m/s, so its residuals are not the centroidal ones (`testMpcSqpConvergence` checks it against `k_v` times the centroidal bound). In real time (one iteration and one node per solve without a plant: Atlas's 50 Hz at `dt` 0.02) the warm start is the last plan node for node, but for the newly initialized end of the horizon, whose violation each shift adds (0.004 to 0.13, a median of 0.08, on the converging configurations). That holds since the fix of the SQP's trajectory spreading (`lib/ocs2/README.md`, "What this fork changes"): before it the warm start assigned each post-event interval the next node's input and the node after it about the midpoint of the next two states (on the whole-body G1 an input off by `|Δu|` of about 800 to 1000 and a state by `|Δx|` of 5 to 7 there, a dynamics gap of 22 to 27 against 0.3 to 0.6 elsewhere), every full step was judged above `g_max`, where the CONSTRAINT rule accepts any decrease, and the violation climbed 1.6 to 1.8 times per solve to a plateau (a median of 0.12 over the last 20 of 40 solves on Atlas with a swing residual of 0.59 m/s, 2.9 and 8.3 m/s² on the whole-body G1). With the warm start fixed, the converging configurations leave a violation with a median of 3.6e-3 to 3.9e-3 (at most 2.3e-2) and a swing residual with a median of 0.0092 to 0.029 m/s (at most 0.13), every step of the second half full. Atlas now satisfies its swing rows in real time too (a median of 0.056 m/s, at most 0.27) and leaves a violation below `g_max` in most solves (a median of 8.0e-3, at most 3.8e-2), but the cycle still shows: the violation climbs above `g_max` for runs of solves, and a full step that raises it there is refused and the reduced step lands below `g_max`, a reset (2 in the last 20 solves). The whole-body G1 stays above `g_max` in each of the last 20 solves (baselines of 0.43 to 4.0, a median of 0.55 after the step, at least 0.12), refuses 6 of 20 full steps for raising the violation, and does not satisfy its swing rows (a median of 2.3 m/s², at most 12.6). Unitree G1, Unitree R1 and EngineAI SA01 converge by the solver's own test in 17, 24 and 40 iterations | open. Remedies, each behind a default-off switch if implemented: an exact (ℓ1) penalty of the hard violation in the merit, or a cap on its growth in the acceptance rule (a step taken for its merit decrease only while the violation does not grow past a bound); a second-order correction of the step (the QP re-solved with the post-step residual of the hard rows before the line search judges it); the curvature of the projected hard rows in the QP's Hessian (`λᵀ∇²g` with the projection's multipliers); `normal_velocity` as a soft constraint on Atlas (the contact-implicit formulation's priced row). A closed-loop run shows the cycle in `sqp_step` (`full_steps_refused_above_g_max`, `longest_violation_growth`, the violation and the swing residual; `val/README.md`) and in the `solve_sqp_step` rows of its time series |
 
 ## Appendix A: IFTTT pairs of the formulation
 
@@ -1389,7 +1389,7 @@ benchmark's replay states. See `val/README.md`.
 
 Registry checks of `tools/hooks/checks.py`, each with its module and `test_<module>.py`, listed in `AGENTS.md`
 (`orientation_rules`) and run by `make lint` (`python3 -m tools.hooks.lint_code --only <check> --paths <dir>` narrows a
-run). A line where a rule is wrong carries `// NOLINT(<check>): <reason>`.
+run). A line where a rule is wrong uses `// NOLINT(<check>): <reason>`.
 
 | Check | Rule | Scope | Escape |
 |---|---|---|---|

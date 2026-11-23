@@ -68,7 +68,7 @@ namespace ocs2::legged {
  * approximation" was made, and it does not survive a foot being in front of the
  * other. In the transition double support of every step the feet are a step
  * apart along the heading, and then the admitted region strictly CONTAINS the
- * hull: it is an OUTER approximation, and the planned ZMP can sit outside the
+ * hull: it is an OUTER approximation, and the planned ZMP can lie outside the
  * true support polygon.
  *
  * Concretely, with p_L = (0.2, 0.1), p_R = (0, -0.1), r_x = 0.08, r_y = 0.04,

@@ -52,14 +52,13 @@ namespace ocs2::legged {
  * The first heuristic the extraction framework produced and the one with the
  * largest effect on what the robot could do: it roughly doubled the usable
  * stance of each step and multiplied the achievable forward speed (section 4.3,
- * figure 4-9). The mechanism is simple enough to state - a foot placed under
- * the hip at lift-off has fallen behind the robot by touch-down, so the forces
- * over the stance that follows are biased into tipping the robot in the
- * direction it is already going - and it is the reason a step is placed AHEAD
+ * figure 4-9). A foot placed under the hip at lift-off has fallen behind the
+ * robot by touch-down, so the forces over the stance that follows tip the robot
+ * in the direction it is already going. For that reason, a step is placed AHEAD
  * of the hip by roughly half of what the robot will travel during the stance.
  *
  * The lateral offset is applied to this foot's own side, so one number in the
- * task file widens the stance rather than shifting the whole robot sideways.
+ * task file widens the stance rather than shifting the robot sideways.
  *
  * Like every LocomotionHeuristic, its const methods are safe to call
  * concurrently; configure() is not, and must not run while they do.

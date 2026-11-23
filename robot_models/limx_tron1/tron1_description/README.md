@@ -16,7 +16,7 @@ centroidal MPC configuration is [`../tron1_centroidal_mpc`](../tron1_centroidal_
 Only `pointfoot/WF_TRON1A` is vendored. The repository is released under the Apache License 2.0; `LICENSE` is its
 `LICENSE` file, copied verbatim. Its `package.xml` says `<license>TODO</license>`; the `LICENSE` file governs.
 Every vendored file is modified from its upstream file (Apache-2.0 section 4(b)): the URDF and the MJCF open with an
-XML comment that says so and names the commit, and the changes are listed below. The meshes are decimated copies of
+XML comment that states this and cites the commit, and the changes are listed below. The meshes are decimated copies of
 the upstream STL files.
 
 ## Changes to the URDF
@@ -25,7 +25,7 @@ the upstream STL files.
   `package://tron1_description/meshes/<name>.stl`, the decimated meshes below.
 - `wheel_L_Joint` and `wheel_R_Joint` are `continuous` instead of `revolute` with limits of -/+1e6 rad: a wheel spins
   freely. Their `<limit>` keeps the effort (40 N m) and velocity (40 rad/s) and drops `lower` and `upper`.
-- A comment at the top says that the file is modified and names the upstream file and commit.
+- A comment at the top notes that the file is modified and cites the upstream file and commit.
 - The trailing whitespace of its lines is removed, and the file ends with a newline.
 
 Nothing else is changed: links, joints, inertials, collisions, the Gazebo tags and the transmissions are as upstream,
@@ -94,7 +94,7 @@ seconds, as an inverted pendulum does.
 
 ## Meshes
 
-The upstream meshes are binary STL files of 401,552 triangles and 20 MB, in meters. `meshes/` holds one binary STL per
+The upstream meshes are binary STL files of 401,552 triangles and 20 MB, in meters. `meshes/` contains one binary STL per
 upstream file, 3.5 MB in all. A one-off script, outside the repository, decimated each mesh by quadric edge collapse
 (fast-simplification 0.2.0, aggressiveness 4, loaded and written with trimesh 5.2.0) to its share of 70,000 triangles:
 

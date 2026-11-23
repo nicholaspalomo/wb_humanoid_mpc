@@ -29,9 +29,9 @@
 
 Every check that reads only part of the tree (the base orientation's checks, `frame-naming`, `config-yaml`,
 `magic-number`'s test-only sources, lint_files.py's generated files) builds its directories and files from these
-constants, so a moved directory is one change here. Directories end in `/`; package names carry no slash.
+constants, so a moved directory is one change here. Directories end in `/`; package names have no slash.
 test_repo_layout.py checks that every path here, every path literal of the other modules of tools/hooks, CI's target
-patterns and the clang-tidy header filter name something that exists.
+patterns and the clang-tidy header filter reference something that exists.
 
 This module imports nothing from tools/hooks, so every check module can import it.
 """

@@ -72,7 +72,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * joint_pd_gains.textproto it watches), never on the realtime thread, and the
  * control cycle takes them into use without a lock, a file, a log line or an
  * allocation of its own. This binary links the allocation counter, which
- * interposes malloc for the whole process; the controller's solver thread is
+ * interposes malloc for the process; the controller's solver thread is
  * never started, so the control thread is the only one allocating.
  */
 
@@ -98,7 +98,7 @@ using ::ocs2::legged::estimation::heapAllocationCount;
 constexpr scalar_t kControlPeriod = 0.01;  // [s]
 
 /**
- * What the MPC node hands the motion manager of `stack` before every solve
+ * What the MPC node passes to the motion manager of `stack` before every solve
  * (MpcNodeRuntime), for a controller's link to call on its solver thread:
  * `stack` must outlive the controller.
  */
@@ -297,7 +297,7 @@ TEST(MrtJointControllerPdGains,
   refused[1].default_gains.kp = std::numeric_limits<double>::quiet_NaN();
   refused[2].joint_gains.push_back(
       refused[2].joint_gains.front());           // the same joint twice
-  refused[3].joint_gains.front().joint.clear();  // an entry that names no joint
+  refused[3].joint_gains.front().joint.clear();  // an entry that specifies no joint
   refused[4].joint_gains.front().joint =
       "left_knee_joint";  // another robot's file (the Unitree R1's knee)
   // refused[5] sets nothing: the controller has no gains of its own to fill it
@@ -408,7 +408,7 @@ TEST(MrtJointControllerPdGains,
 }
 
 // At start-up there are no gains in use to keep: Create() refuses a gains file
-// it cannot use, with a Status naming the file and the field, so the controller
+// it cannot use, with a Status reporting the file and the field, so the controller
 // does not start. It used to leave every joint the file did not reach on the
 // hard-coded 500 N*m torque limit.
 TEST(MrtJointControllerPdGains, CreateReturnsTheRefusalOfAGainsFileAsAStatus) {

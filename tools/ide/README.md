@@ -9,7 +9,7 @@ with. Python navigation comes from a Pyright-based language server, which reads 
 `python3 -m tools.ide.compile_commands` (`compile_commands.py`) writes it in the dev container, where Bazel and its
 output base are. `bazel query` lists the C++ rules of the checkout, manual ones included, and its `proto_library`
 targets, whose `.pb.cc` files the C++ proto aspect compiles; `bazel aquery` lists their CppCompile actions. So the
-database holds the flags, defines and include directories the build really uses, and only C++ targets are analyzed: a
+database contains the flags, defines and include directories the build actually uses, and only C++ targets are analyzed: a
 refresh fetches no repository that only Python targets use, such as the RL wheels of `@rl_deps`. The query and the
 analysis take about a second on a warm Bazel server. The first refresh after the server starts, and the first after a
 command with other configuration flags (`--config=dbg`), analyze every C++ target anew and take as long as the analysis
@@ -26,7 +26,7 @@ It stays current by itself:
 | When | How |
 |---|---|
 | The dev container starts | `docker-compose.yaml`'s command runs `--build_headers --quiet` in the background. It builds the compilation prerequisites of the C++ targets, which are the generated headers and the tools that generate them (protobuf's C++ generator, the nproto generator, MuJoCo's CMake build) but no first-party source, and then queries. On a new container's empty output base that takes a while, and a build started meanwhile waits for it (`tools/bazel`'s machine lock). The log is inside the container: `docker exec devcontainer-app-1 cat /tmp/compile_commands.log`. |
-| A Makefile target builds | Every target that runs `bazel build`, `test` or `run` (the build, test, lint-tidy, validation, RL and launch targets, `deploy-robot`, `robot-images`) runs it through `python3 -m tools.ide.compile_commands --after bazel ...`. The runner refreshes the database after the command, passed or failed, with the command's configuration flags (`--config`, `-c`, `--platforms`, ...), and keeps its exit status; it does not refresh after a command that was interrupted, could not start or had a command line error. It says `compile_commands: refreshing compile_commands.json` before the refresh and how many source files the database holds after it, on standard error, where all its messages go. A refresh that fails or is interrupted (Ctrl-C) only warns, but Ctrl-C during the refresh of a `bazel run` also cancels the program: the runner exits with 130. |
+| A Makefile target builds | Every target that runs `bazel build`, `test` or `run` (the build, test, lint-tidy, validation, RL and launch targets, `deploy-robot`, `robot-images`) runs it through `python3 -m tools.ide.compile_commands --after bazel ...`. The runner refreshes the database after the command, passed or failed, with the command's configuration flags (`--config`, `-c`, `--platforms`, ...), and keeps its exit status; it does not refresh after a command that was interrupted, could not start or had a command line error. It says `compile_commands: refreshing compile_commands.json` before the refresh and how many source files the database contains after it, on standard error, where all its messages go. A refresh that fails or is interrupted (Ctrl-C) only warns, but Ctrl-C during the refresh of a `bazel run` also cancels the program: the runner exits with 130. |
 | A Makefile target runs a program | `bazel run` becomes `bazel run --script_path`, which builds the program and writes its command line, its arguments included, to a script without running it. The database is refreshed, and the script then runs in the runner's place, so the program starts as it would from `bazel run`. Like `bazel run`, this does not wait for `tools/bazel`'s machine lock. |
 | By hand | `make compile-commands`, from the host or the container. |
 
@@ -49,9 +49,9 @@ the host's own Bazel, if the host has one, which is neither the dev container's 
 
 Each entry runs in Bazel's execution root, so `bazel-out/` and the checkout's directories resolve as in the build; its
 `file` is the source's path in the checkout. clangd follows the execution root's links into the checkout, so a
-first-party header is reported at its path in the checkout too. The paths into `external/` point at the output base
+first-party header is reported at its path in the checkout too. The paths into `external/` resolve into the output base
 instead: the execution root links only the external repositories its last build used, so after `make ipc-list` its
-`external/` has no Abseil, while the output base holds every repository Bazel fetched.
+`external/` has no Abseil, while the output base contains every repository Bazel fetched.
 
 `.clangd` removes the few GCC flags clang does not take, and keeps the generated sources under `bazel-out/` (about a
 fifth of the entries) out of the background index: clangd indexes one when it is opened, and the generated headers
@@ -62,8 +62,8 @@ with the first-party sources that include them.
 The database's paths are the container's, so clangd runs in the container. `clangd_in_dev_container.sh` starts it
 there through `docker exec` and maps the checkout's path on the host to its path in the container,
 `/wb_humanoid_mpc_ws/<parent>/<checkout>` (`docker-compose.yaml` mounts the checkout's grandparent at
-`/wb_humanoid_mpc_ws`), or the path `WB_DEV_CONTAINER_REPO` names. Point the editor's clangd extension
-(`llvm-vs-code-extensions.vscode-clangd`) at it in the workspace's `.vscode/settings.json`:
+`/wb_humanoid_mpc_ws`), or the path set in `WB_DEV_CONTAINER_REPO`. Configure the editor's clangd extension
+(`llvm-vs-code-extensions.vscode-clangd`) to use it in the workspace's `.vscode/settings.json`:
 
 ```json
 {
@@ -71,7 +71,7 @@ there through `docker exec` and maps the checkout's path on the host to its path
 }
 ```
 
-`WB_DEV_CONTAINER` names another container than `devcontainer-app-1`. In an editor attached to the container the same
+`WB_DEV_CONTAINER` selects a container other than `devcontainer-app-1`. In an editor attached to the container the same
 script runs clangd directly.
 
 <!-- LINT.IfChange(clangd_version) -->
@@ -92,7 +92,7 @@ can still overcommit the machine together, next to a build: let one index finish
 <!-- LINT.ThenChange(//tools/ide/clangd_in_dev_container.sh:clangd_flags) -->
 
 What a host editor cannot open: a definition in an external library (Abseil, Eigen, Pinocchio, protobuf) or in a
-generated header (the nproto structs) lives in the container's Bazel output base, which the host does not see. Go to
+generated header (the nproto structs) is in the container's Bazel output base, which the host does not see. Go to
 definition into those works from an editor attached to the container.
 
 ## Bazel on the host
@@ -105,7 +105,7 @@ workspace's `.vscode/settings.json`; in an editor attached to the container it r
 
 ## Python
 
-`pyrightconfig.json` names the Bazel import roots, the directories the BUILD files' `imports = [...]` put on the path
+`pyrightconfig.json` lists the Bazel import roots, the directories the BUILD files' `imports = [...]` put on the path
 (`tools.hooks.lint_files.python_import_roots()`, which pylint and mypy use too), so `from remote_control import
 operator_bus` resolves as it does in Bazel. `//tools/ide:test_ide_setup` keeps the two lists equal. Pylance (VS Code)
 reads it; in a VS Code fork without Pylance (Antigravity, VSCodium), install basedpyright

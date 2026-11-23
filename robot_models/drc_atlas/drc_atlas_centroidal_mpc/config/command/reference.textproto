@@ -14,8 +14,8 @@ cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.2
 # Above that the planner under-tracks rather than violating the bound, and nothing feeds the shortfall back to the
 # whole-body MPC, whose CoM reference keeps following the raw command - the body then walks out from over the feet.
 # 0.25 m/s stays inside both. It was set when min_swing_duration was 0.4 s: that 0.8 s stride floor tracked exactly only
-# up to 0.25 m/s and delivered at most 0.30 / 0.8 = 0.375 m/s, and the 0.8 m/s the stick allowed before - more than
-# twice that - is what produced the sideways falls.
+# up to 0.25 m/s and delivered at most 0.30 / 0.8 = 0.375 m/s, and the 0.8 m/s the stick allowed before (more than
+# twice that) is what produced the sideways falls.
 # The forward axis needs no such cap: its budget is 2 * max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x / T_stride, far above the 1.2 stick.
 # LINT.IfChange(lateral_velocity_limit)
 cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.25

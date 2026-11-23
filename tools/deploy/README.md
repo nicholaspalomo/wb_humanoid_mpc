@@ -24,18 +24,18 @@ The deploy names keep the word humanoid after the rename of the packages to `leg
 `wb-humanoid-robot` (and `wb-humanoid-robot-sim`), the unit `wb-humanoid-robot@.service`, `/etc/wb-humanoid-robot`,
 `/var/lib/wb-humanoid-robot` and `/opt/wb-humanoid-robot`. They exist on deployed machines, and renaming them would
 orphan the stored configuration and the enabled unit there. The bundle's paths did change, to `bin/legged_nmpc/...`
-(below). The IPC messages carry their proto full names, which changed with the packages, so a robot deployed before the
+(below). The IPC messages include their proto full names, which changed with the packages, so a robot deployed before the
 rename cannot talk to a laptop built after it: deploy the robot and the laptop together.
 
 ## The bundle
 
 `//tools/deploy:robot_bundle` (`robot_bundle.bzl`, packed by `pack_bundle.py`) is one deterministic tar: the image has
 no Bazel, so the binaries' runfiles are laid out as Bazel lays them out next to a built binary, and the repository's
-files sit at their repository paths, where the launch files name them.
+files are placed at their repository paths, matching the paths in the launch files.
 
 | Path | What |
 |---|---|
-| `bin/legged_nmpc/legged_centroidal_mpc_app/legged_centroidal_mpc_robot` (+ `.runfiles/`) | the centroidal robot binary; its runfiles hold `libmujoco` |
+| `bin/legged_nmpc/legged_centroidal_mpc_app/legged_centroidal_mpc_robot` (+ `.runfiles/`) | the centroidal robot binary; its runfiles contain `libmujoco` |
 | `bin/legged_nmpc/legged_wb_mpc_app/legged_wb_mpc_robot` (+ `.runfiles/`) | the whole-body robot binary |
 | `bin/robot_entrypoint.sh`, `bin/netem.sh`, `bin/collect_runtime_libraries.sh` | the image's entry point, NETEM, the library check |
 | `launch/<robot>.sh` | the robot side of each robot configuration: its `launch/robot.textproto` exported with `//tools/launch:export_script` |
@@ -62,12 +62,12 @@ linked against:
 | `robot-sim` | `robot-runtime` plus Mesa's GL and the X libraries GLFW loads, for the `glfw` viewer, and EGL with Mesa's vendor library (`libegl1`, `libegl-mesa0`), for the `web` viewer. `WB_ROBOT_DEFAULT_VIEWER=` (none of its own: the plot configuration's `mujoco_viewer` chooses, `web` by default) |
 <!-- LINT.ThenChange(//docker/Dockerfile:robot_images) -->
 
-The binaries link GLFW, GLEW and libGL's dispatch library (the viewer is compiled in), so `robot-runtime` carries
+The binaries link GLFW, GLEW and libGL's dispatch library (the viewer is compiled in), so `robot-runtime` includes
 those small client libraries; with no Mesa to create a context, the robot process runs without a viewer
 (`--viewer=none`). The `web` viewer opens `libEGL.so.1` when it starts instead of linking it, so the binaries need no EGL
-in `robot-runtime`, and `--viewer=web` there refuses to start, naming the packages.
+in `robot-runtime`, and `--viewer=web` there refuses to start and lists the missing packages.
 
-`make robot-images` (`deploy_robot.sh image --target robot-sim`) builds both. The image carries the commit it was built
+`make robot-images` (`deploy_robot.sh image --target robot-sim`) builds both. The image records the commit it was built
 from (`org.opencontainers.image.revision`).
 
 ### aarch64
@@ -120,7 +120,7 @@ To build arm64 yourself instead:
 - `cpuset: ${WB_ROBOT_CPUSET}`: the cores the container may use (all by default). Pair it with
   `WB_ROBOT_REALTIME_CORES` and `WB_ROBOT_BACKEND_CORES`; a core outside the cpuset is reported and skipped.
 - `restart: unless-stopped`: a robot process that exits comes back, in ZERO_TORQUE.
-- `init: true`: tini forwards `docker stop`'s SIGTERM to the robot process, which ends cleanly.
+- `init: true`: tini forwards `docker stop`'s SIGTERM to the robot process, which exits normally.
 - The network file is at `/etc/wb-humanoid-robot/network.textproto` in the container (compose `configs`, from
   `WB_ROBOT_NETWORK_SOURCE`). Without swarm, docker compose implements a file config as a read-only bind mount of the
   file on the machine it runs on: the file must stay in the deployment directory, and the robot reads it when it
@@ -149,7 +149,7 @@ To build arm64 yourself instead:
 | `WB_ROBOT_RESTART` | `unless-stopped` | the restart policy |
 | `WB_ROBOT_BACKEND` | `mujoco` | the robot backend, by name |
 | `WB_ROBOT_VIEWER` | `none` in robot-runtime unless `WB_ROBOT_PLOT_CONFIG` is set; otherwise the plot configuration's `mujoco_viewer` (`web` by default) | the MuJoCo viewer by name, or a list tried in order: `glfw` (a window on `DISPLAY`), `web` (a page at `http://localhost:6090`), `none`; `web,none` falls back to none |
-| `WB_ROBOT_PLOT_CONFIG` | the shipped `legged_nmpc/legged_rerun_viewer/config/plot_config.textproto` (simulation: the checkout's `PLOT_CONFIG`, mounted at `/etc/wb-humanoid-robot/plot_config.textproto`) | the plot configuration whose `mujoco_viewer` names the viewer while `WB_ROBOT_VIEWER` is empty; read strictly at start-up, and a bad file or name is refused |
+| `WB_ROBOT_PLOT_CONFIG` | the shipped `legged_nmpc/legged_rerun_viewer/config/plot_config.textproto` (simulation: the checkout's `PLOT_CONFIG`, mounted at `/etc/wb-humanoid-robot/plot_config.textproto`) | the plot configuration whose `mujoco_viewer` selects the viewer while `WB_ROBOT_VIEWER` is empty; read strictly at start-up, and a bad file or name is refused |
 | `WB_ROBOT_WEB_VIEWER_ADDRESS`, `WB_ROBOT_WEB_VIEWER_PORT` | `127.0.0.1`, `6090` | where the `web` viewer listens; `0.0.0.0` serves every interface, without authentication |
 | `WB_ROBOT_WEB_VIEWER_ALLOWED_HOSTS` | none | the host names besides localhost the `web` viewer answers under, a comma list |
 | `WB_ROBOT_VIEWER_CORES` | `default` | cores of the `web` viewer's threads: `default` (`ThreadAffinity.h`'s viewer cores: never the realtime thread's or the MPC's, and the physics' only when no core is left over), `none`, or a list |
@@ -187,9 +187,9 @@ and `docker-compose.robot.netem.yaml` (`NET_ADMIN`, for NETEM only).
    unit (`enable --now` would leave an active oneshot unit, and the container it started, on the old image), and
    otherwise a running container is recreated with `docker compose up --detach` on the new image and `.env`.
 
-One robot per machine: the deployment directory and its compose project hold the robot configuration deployed last.
+One robot per machine: the deployment directory and its compose project store the robot configuration deployed last.
 `SERVICE=enable` disables and stops the unit of any other robot on the host, and an instance of the unit whose robot is
-not the deployed one refuses to start (its `ExecStartPre` names the deployed one) rather than run the container under
+not the deployed one refuses to start (its `ExecStartPre` checks against the deployed one) rather than run the container under
 its own name. `ROBOT=` must be one of the robot configurations (`deploy_robot.sh` refuses a misspelled one before it
 builds anything, instead of installing a unit that restarts a failing container for ever).
 
@@ -220,8 +220,8 @@ for the network, and each says so.
 
 The robot computer needs Docker with the compose plugin (v2) and, for `SERVICE=`, systemd and sudo. Nothing else: no
 checkout, no Bazel, and no DDS installation: Cyclone DDS (`@cyclonedds//:ddsc`) is linked statically into the robot
-binaries, so `collect_runtime_libraries.sh` finds no `libddsc` to copy, and the network file is the bus's whole DDS
-configuration (`robot_ipc/DomainConfig.h`; `CYCLONEDDS_URI` is not read).
+binaries, so `collect_runtime_libraries.sh` finds no `libddsc` to copy, and the bus reads all of its DDS
+configuration from the network file (`robot_ipc/DomainConfig.h`; `CYCLONEDDS_URI` is not read).
 
 The bus is UDP: both machines must accept it on the DDS ports of the network file's domain (domain 0: 7410-7449,
 `config/ipc/two_machine.example.textproto`). A network file that asks for an 8 MiB socket receive buffer (the example's
@@ -229,8 +229,8 @@ The bus is UDP: both machines must accept it on the DDS ports of the network fil
 not namespaced and so is the host's, not the container's. The Makefile raises it: every launch target and
 `deploy-robot` first run `tools/deploy/udp_buffers.sh`, which reads the network file's `socket_receive_buffer_bytes`
 (and `socket_send_buffer_bytes`), raises `net.core.rmem_max` (`wmem_max`) on that machine with `sudo sysctl -w` only
-when it is below the request - on the laptop for `launch-<robot>-sim|dummy-sim|mpc`, on `HOST` over ssh for
-`deploy-robot` and `launch-<robot>-robot` - and keeps it in `/etc/sysctl.d/60-wb-humanoid-<key>.conf`, so sudo asks
+when it is below the request (on the laptop for `launch-<robot>-sim|dummy-sim|mpc`, on `HOST` over ssh for
+`deploy-robot` and `launch-<robot>-robot`), and keeps it in `/etc/sysctl.d/60-wb-humanoid-<key>.conf`, so sudo asks
 once per machine. `make udp-buffers [NETWORK=] [HOST=]` does it on its own. From inside a container it cannot (the
 limit is the host's) and says what to run on the host. It never fails a target: Cyclone DDS takes a smaller buffer
 when the kernel caps it, and the bus works, with more retransmissions of large policies.
@@ -259,7 +259,7 @@ skew"), so a GUI built from another commit tunes nothing: the robot runs its fil
 
 The tuning GUI's **Save** writes two copies: the laptop's file, which the MPC node reads, and the robot's, which it sends
 over the bus (`operator/config_save`) to the robot process, which checks it as it would check the file at start-up and
-stores it (legged_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). The robot's copies live in its
+stores it (legged_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). The robot's copies are stored in its
 store, `/var/lib/wb-humanoid-robot/config/<ROBOT>/` in the container, the host's `~/wb-humanoid-robot/robot_config/<ROBOT>/`
 by default, and outlive the container, a restart and a redeploy:
 
@@ -274,7 +274,7 @@ by default, and outlive the container, a restart and a redeploy:
 | `.booting` | a start that is not confirmed yet (below); one left there makes the next start fall back to the bundle, unless the machine booted in between |
 <!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout, //legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/StoredConfigFileKinds.h:stored_config_backup_suffix) -->
 
-The image's bundle - built from the checkout the deploy ran in - is the seed. At every start the robot process copies a
+The image's bundle (built from the checkout the deploy ran in) is the seed. At every start the robot process copies a
 missing file from it and applies the seed policy (`CONFIG_SEED=`, `WB_ROBOT_CONFIG_SEED`):
 
 <!-- LINT.IfChange(config_seed_policies) -->
@@ -285,7 +285,7 @@ missing file from it and applies the seed policy (`CONFIG_SEED=`, `WB_ROBOT_CONF
 | `never` | never once there: only a save changes it |
 <!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/RobotConfigDirectory.h:config_seed_policies) -->
 
-The files are compared with their `# proto-message:` headers naming the current package: a header that still gives the
+The files are compared with their `# proto-message:` headers using the current package: a header that still gives the
 name from before the `humanoid_*` to `legged_*` rename (`humanoid_mpc_config.TaskFile`) is no change
 (`nproto::CanonicalHeaderText()`, tools/nproto/README.md, "Renamed packages"). The first deploy after that rename
 therefore keeps the robot's saves under `when_bundle_changes`, and the `.seed` markers get the new bytes.
@@ -316,7 +316,7 @@ A start is confirmed once its realtime loop has run 10 s.
 `docker-compose.robot.netem.yaml` (`NET_ADMIN`) and makes the entry point run `netem.sh apply <NETEM_INTERFACE>` before
 the robot process and `netem.sh clear` after it. `netem.sh` replaces the interface's root qdisc with a prio qdisc whose
 fourth band is netem and filters only UDP packets (IPv4 and IPv6, matched on the IP protocol and the ports) from or to
-the bus's DDS ports (7168-7679, holding 7410-7449 of domain 0 and the ports of domain 1) into it, discovery and data
+the bus's DDS ports (7168-7679, covering 7410-7449 of domain 0 and the ports of domain 1) into it, discovery and data
 alike; everything else is untouched. A lost packet costs one DDS fragment: `reliable_latest` and `reliable_events`
 topics send it again, `latest` topics wait for their next sample. With host networking the interface is the host's: on
 `lo` (the default, for simulation) every bus packet on the machine is shaped in both directions; on a network interface
@@ -348,8 +348,8 @@ realtime settings and the shipped localhost network, follows its log as `[robot]
 The compose project is this checkout's own, `wb-humanoid-robot-sim-<checkout directory>-<checksum of its path>`
 (`session.sh project` prints it): apart from a deployment on this machine (`wb-humanoid-robot`) and from the simulation
 of another checkout, so that `make kill-sims` stops only what this checkout started. The bus's ports are the host's, so
-a session refuses to start while another robot side holds them - a robot deployed on this machine, another checkout's
-simulation - and says how to stop it; `make launch-<robot>-dummy-sim` checks the same.
+a session refuses to start while another robot side is using them (a robot deployed on this machine or another checkout's
+simulation) and says how to stop it; `make launch-<robot>-dummy-sim` checks the same.
 <!-- LINT.ThenChange(//tools/deploy/session.sh:sim_project) -->
 
 The simulated robot is seeded from the checkout: its `robot_models` is mounted read-only over the image's copy, and its
@@ -363,7 +363,7 @@ watcher, and the simulated robot at its next start or at once with `push_robot_c
 runs the robot's own policy. The MuJoCo viewer is chosen by name: the `mujoco_viewer` of the plot configuration
 (`PLOT_CONFIG=`, `session.sh --plot_config`; a file of the checkout, by default the shipped
 `legged_nmpc/legged_rerun_viewer/config/plot_config.textproto`, mounted read-only at
-`/etc/wb-humanoid-robot/plot_config.textproto`), unless `VIEWER=` (`session.sh --viewer`, `WB_ROBOT_VIEWER`) names one.
+`/etc/wb-humanoid-robot/plot_config.textproto`), unless `VIEWER=` (`session.sh --viewer`, `WB_ROBOT_VIEWER`) specifies one.
 The laptop side's Rerun bridge reads the same file, by its path relative to the checkout (an absolute path inside the
 checkout is made relative for both sides, since the dev container mounts the checkout elsewhere). Without `VIEWER=` the
 session refuses a file that does not declare `# proto-message: legged_rerun_viewer_proto.PlotConfig` in its leading
@@ -378,16 +378,16 @@ port is mapped; the session prints the address, and another machine reaches it t
 desktop's `:99` (`-vnc`), or the host's display (`xhost +SI:localuser:root` lets the container's root draw there).
 `none` runs without a viewer, and `web,none` falls back to none when the web viewer cannot start. At the launch files' realtime priority the process
 locks its memory (`mlockall`), the web viewer's threads and Mesa's included: measured in robot-sim on the DRC Atlas (priority 80) with
-one client pulling frames, the robot process holds 915 MB resident and 28 threads (315 MB and 7 threads with `none`),
+one client pulling frames, the robot process uses 915 MB resident and 28 threads (315 MB and 7 threads with `none`),
 well inside the 4 GB cap. When the laptop side ends, the robot container stops;
 `make kill-sims` (`session.sh stop`) ends what a session left.
 
-`VIEWS=` (`session.sh --views`) names where the windows go, for `sim` and `laptop` sessions alike
+`VIEWS=` (`session.sh --views`) selects where the windows go, for `sim` and `laptop` sessions alike
 (`.devcontainer/README.md`, "Views"): `browser` (the default) and `vnc` start the VNC desktop in the dev container
 (`.devcontainer/start_vnc.sh`) and put `DISPLAY` on its `:99`, where the operator GUI shows through noVNC; `display`
 checks, before anything is built, that an X server answers on `DISPLAY` where the GUI runs (`xset q` in the dev
-container) and stops with a hint otherwise. The Makefile turns the view into the MuJoCo viewer (`--viewer`, when
-`VIEWS=` is named) and the Rerun sink (`--set rerun_sink=`). Right before the laptop side starts, the session prints one
+container) and stops with a hint otherwise. The Makefile maps the view to the MuJoCo viewer (`--viewer`, when
+`VIEWS=` is set) and the Rerun sink (`--set rerun_sink=`). Right before the laptop side starts, the session prints one
 banner with the URL of every view. A `session.sh` run without `--views` keeps `DISPLAY` as it is, unchecked.
 
 The robot side needs the host's Docker: run the target on the host (Linux, host networking), or in a dev container
@@ -417,11 +417,11 @@ that can reach Docker (`session.sh` then mounts the checkout by its host path, f
   malformed manifests.
 - `:test_robot_bundle`: the bundle's layout and entries, no GUI side files, every library of the robot binaries found
   from inside it (`libmujoco` from its own runfiles), every robot's script starting its binary with files of the bundle
-  and without a store (the plot configuration included, with no viewer named), and the environment choosing the network
+  and without a store (the plot configuration included, with no viewer specified), and the environment choosing the network
   file, the viewer, the priority and the store, and the entry point the image's viewer or the plot configuration's.
 - `:test_deploy_files`: `netem.sh` and the entry point against a recording `tc` (only the bus's ports, cleared after the
   run, SIGTERM forwarded, the exit status kept, unknown robots refused, the image's viewer default unless the
-  environment names a viewer or a plot configuration); the compose files
+  environment specifies a viewer or a plot configuration); the compose files
   (realtime settings, no privileged mode, memory cap without swap, the environment equal to the launch files'
   variables, the stored configuration's host directory and the simulation's volume at the same target with its
   `every_start` seed, the simulation's plot configuration mounted read-only, NET_ADMIN only with NETEM); the unit; the Dockerfile's robot stages (nothing to build with in the runtime

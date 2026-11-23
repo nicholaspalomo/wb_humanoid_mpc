@@ -97,7 +97,7 @@ struct ContactCandidate {
 class ContactSet {
  public:
   /**
-   * Validates `config`. InvalidArgument names the candidate and what is wrong:
+   * Validates `config`. InvalidArgument identifies the candidate and what is wrong:
    * no candidate or more than kMaxContactCandidates, an empty or duplicate
    * name, no kind, no parent joint, a vector of the wrong size, a pad normal
    * that is not unit (within 1e-3, then normalized), a pad x axis that is not
@@ -122,7 +122,7 @@ class ContactSet {
     return candidates_[index];
   }
 
-  /** The index of the candidate `name`; NotFound names the set. */
+  /** The index of the candidate `name`; NotFound includes the set. */
   absl::StatusOr<int> indexOf(absl::string_view name) const;
 
   /** The mask of the named candidates; NotFound for an unknown name. A name

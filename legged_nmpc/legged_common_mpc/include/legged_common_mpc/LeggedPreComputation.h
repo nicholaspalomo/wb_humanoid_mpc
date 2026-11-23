@@ -97,7 +97,7 @@ class LeggedPreComputation : public PreComputation {
    * and under the contact-implicit formulation it is the only one that reaches
    * the term at all, `zero_velocity` not being built.
    *
-   * It lives here rather than being read from ModelSettings on every request
+   * It is stored here rather than read from ModelSettings on every request
    * because ModelSettings is shared by every worker thread's copy of the
    * problem, whereas each thread owns its own PreComputation. Writing it here
    * is how the parameter updater retunes the gain without a data race, and

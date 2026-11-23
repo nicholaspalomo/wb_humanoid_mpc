@@ -121,12 +121,12 @@ class CentroidalMpcInterface final : public RobotInterface {
    * configuration `config` and the URDF at `urdfFile`, which the interface
    * keeps (config()).
    *
-   * @return NotFound naming the path when one of the files does not exist,
+   * @return NotFound reporting the path when one of the files does not exist,
    * checked before anything reads them; loadCentroidalMpcConfig()'s errors (a
    * file that does not parse strictly, such as one in YAML); and
-   * InvalidArgument for a configuration the MPC cannot be built from, naming
-   * the field (`contacts.basis_generator_set`, ...), or with what OCS2's model
-   * builders threw. Nothing is thrown.
+   * InvalidArgument for a configuration the MPC cannot be built from,
+   * identifying the field (`contacts.basis_generator_set`, ...), or with what
+   * OCS2's model builders threw. Nothing is thrown.
    */
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> Create(
       absl::string_view taskFile,
@@ -402,8 +402,9 @@ class CentroidalMpcInterface final : public RobotInterface {
    * centroidal model info (centroidal_model and the reference file's
    * default_joint_state), the wrench-space MPC robot models, the initial state
    * (initial_state) and the nominal pendulum length. A model that does not
-   * match its settings is an InvalidArgument naming the first joint that
-   * differs, a field that does not convert one naming the field.
+   * match its settings returns InvalidArgument identifying the first joint that
+   * differs, and a field that does not convert returns InvalidArgument
+   * identifying the field.
    */
   absl::Status setupModels();
 
@@ -415,7 +416,7 @@ class CentroidalMpcInterface final : public RobotInterface {
    * regularization of the input cost (contacts.basis_regularization,
    * contacts.basis_scaling_regularization). Keys the CppAD model folder by the
    * centroidal model, the parameterization and the basis. Every configuration
-   * error is an InvalidArgument naming the field to change.
+   * error is an InvalidArgument identifying the field to change.
    */
   absl::Status setupContactInputParameterization();
 
@@ -537,7 +538,7 @@ class CentroidalMpcInterface final : public RobotInterface {
       size_t contactPointIndex);
 
   /** The task_space_costs of the task file, one cost per entry; InvalidArgument
-   * naming the entry that does not convert. */
+   * identifying the entry that does not convert. */
   absl::Status addTaskSpaceKinematicsCosts(
       const PinocchioStateInputMapping<ad_scalar_t>& pinocchioMappingCppAd,
       const PinocchioEndEffectorKinematicsCppAd::

@@ -31,8 +31,8 @@
     row = parameter_rows.make_row(frame, spec, label, value, on_change)  # None for a parameter the GUI does not show
 
 A number or an integer is a slider (slider_row.SliderRow, logarithmic where the schema says so), a bool a checkbox, a
-choice (an enum, or a string naming a registry entry) a drop-down - typed into where the registry's names are not
-known - and a name list (a term list) its names, read-only. Every row has the interface the tuning tabs drive:
+choice (an enum, or a string naming a registry entry) a drop-down (typed into where the registry's names are not
+known) and a name list (a term list) its names, read-only. Every row has the interface the tuning tabs drive:
 `name` (its label), `default_value`, `current_value`, get_value(), set_value() (which reports the change), set_default(),
 reset_to_default(), mark_saved() and set_state('normal' or 'disabled'). Nothing here names a parameter.
 
@@ -58,7 +58,7 @@ _PLAIN_COLOR = "#ffffff"
 
 
 class _ValueRow(ttk.Frame):
-    """A label, a value widget and a reset button; the subclasses hold the value, None while the row has none."""
+    """A label, a value widget and a reset button; the subclasses store the value, None while the row has none."""
 
     def __init__(
         self,

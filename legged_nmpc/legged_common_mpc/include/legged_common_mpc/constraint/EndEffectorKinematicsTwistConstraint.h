@@ -77,8 +77,8 @@ inline constexpr int kTwistConstraintOrientationRowsStartIndex = kPositionDim;
  * The tilt relative to a surface only measures the tilt of the end-effector
  * normal, so it has two degrees of freedom and its rate alone
  * leaves the rotation about the contact normal unconstrained. The mapping
- * therefore also carries the rotation rate about the end-effector normal in the
- * plane-normal direction, which for a stance foot is what stops it from
+ * therefore also includes the rotation rate about the end-effector normal in
+ * the plane-normal direction, which for a stance foot is what stops it from
  * pivoting on the spot. See getTiltRateMap().
  *
  * Not thread-safe: its end-effector kinematics evaluate on the Pinocchio data
@@ -170,7 +170,7 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
    * the orientation error and its rate are rotated into the patch frame before
    * the gains apply, and the orientation error is taken with respect to the
    * patch's plane, whose normal (the last row of p_R_w) replaces the ground
-   * plane normal. b then holds the patch-frame references, so b_z is minus the
+   * plane normal. b then stores the patch-frame references, so b_z is minus the
    * z gain times the patch's normal offset. The rotation is a parameter, set
    * between evaluations: it is never recorded on the kinematics' tape.
    */
@@ -206,8 +206,8 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
       const PreComputation& preComp) const override;
 
   /**
-   * The 3x3 matrix M that maps the end-effector angular velocity omega - world
-   * frame, the angular part of getTwistEesRtWorldEwrtWorld() - to the rate
+   * The 3x3 matrix M that maps the end-effector angular velocity omega (world
+   * frame, the angular part of getTwistEesRtWorldEwrtWorld()) to the rate
    * of the orientation constraint residual at `state`.
    *
    * With v the end-effector normal (R * e_z) and n the plane normal, the
@@ -229,7 +229,7 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
    * so the state Jacobian it reports lacks Av_ang (dM/dx) omega, which vanishes
    * where the foot does not turn; its input Jacobian is exact. Public for
    * testQuaternionRootTermDerivatives, which differences M to check that this
-   * term is the whole difference from the derivative, and that the tilt rows of
+   * term is the full difference from the derivative, and that the tilt rows of
    * M omega are the rate of the residual along the flow map.
    */
   matrix3_t getTiltRateMap(const vector_t& state) const;

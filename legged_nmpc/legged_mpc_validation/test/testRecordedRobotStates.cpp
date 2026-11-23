@@ -211,7 +211,7 @@ TEST(RecordedRobotStates, ARecordingRefusesAnotherRobot) {
             absl::StatusCode::kInvalidArgument);
 }
 
-// A recording holds the flags of the contact set it was recorded with, of any
+// A recording stores the flags of the contact set it was recorded with, of any
 // size, and is replayed on a robot of that set only.
 TEST(RecordedRobotStates, ARecordingKeepsItsContactSetAndRefusesAnother) {
   absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus =

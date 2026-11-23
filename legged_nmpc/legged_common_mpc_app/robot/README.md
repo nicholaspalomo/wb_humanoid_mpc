@@ -56,8 +56,8 @@ A setting the process may not take (`SCHED_FIFO` without `CAP_SYS_NICE` or an rt
 regardless. `default` cores are taken from the CPUs the process may use (`sched_getaffinity`), so that a container's
 cpuset (`deploy_robot.sh --cpuset`) gets cores inside it.
 
-**The MuJoCo viewer** is chosen by name, never by a boolean: `--viewer` when it is given (the Makefile's `VIEWER=`,
-`WB_ROBOT_VIEWER`), else the `mujoco_viewer` of the plot configuration `--plot_config` names, else `web`
+**The MuJoCo viewer** is selected by name rather than a boolean: `--viewer` when given (the Makefile's `VIEWER=`,
+`WB_ROBOT_VIEWER`), else the `mujoco_viewer` field in `--plot_config`, else `web`
 (`viewerNamesFromFlags()`, which logs where the choice came from). So `make launch-<robot>-sim` opens the web viewer at
 `http://localhost:6090` from the shipped plot configuration alone, and the robot-runtime image, whose entry point passes
 `--viewer=none`, never reads the file's choice unless `WB_ROBOT_PLOT_CONFIG` asks for it. `--viewer=web` renders
@@ -68,7 +68,7 @@ sends reaches the physics, the controller, the gantry and its weld, or the bus, 
 loopback by default; another machine reaches it through `ssh -L 6090:127.0.0.1:6090 <host>` (or VS Code's port
 forwarding), and an `--web_viewer_address` other than loopback is an explicit opt-in that the viewer warns about, with
 its `Host` checks still on (`robot_runtime/mujoco_sim_interface/README.md`, "Viewers", has the trust model). Without
-EGL (`robot-runtime`), or when its port is taken, `--viewer=web` refuses to start, naming the fix; `--viewer=web,none`
+EGL (`robot-runtime`), or when its port is taken, `--viewer=web` refuses to start and prints the fix; `--viewer=web,none`
 runs without a viewer instead. `MUJOCO_EGL_DEVICE_ID` picks the EGL device (a GPU) to render on, read once at start-up.
 
 **No optimal control problem on the robot.** The binary builds only what the controller needs:
@@ -103,7 +103,7 @@ of 6-DoF contacts, reads zero.
 ### The supervisors
 
 The FSM bridge (`FsmBridge`: the operator's FSM commands, the JOINT_PD posture, the FSM state) and the fall recovery
-(`FallRecovery`: what a fall or a jump of the plant does) are interfaces; the backend names the pair that drives it,
+(`FallRecovery`: what a fall or a jump of the plant does) are interfaces; the backend selects the pair that drives it,
 and `RobotSupervisorRegistry` builds it:
 
 <!-- LINT.IfChange(supervisor_names) -->
@@ -113,11 +113,11 @@ and `RobotSupervisorRegistry` builds it:
 | `hardware` | `HardwareFsmBridge`: the backend's `enableTorques()` / `enterSafeState()`; the gantry commands are reported and ignored, the FSM state says the gantry is unlocked | `HardwareFallRecovery`: past `sim_max_tiltangle_base_rt_world` under torque, the safe state and ZERO_TORQUE, once; no discontinuity, no relocated base | a robot's own; `test/FakeRobotBackend.h` in the tests |
 <!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/RobotSupervisorRegistry.h:supervisor_names) -->
 
-The `sim` supervisor of a backend that is no simulator is refused at `RobotProcess::Create()`, naming `hardware`.
+The `sim` supervisor of a backend that is no simulator is refused at `RobotProcess::Create()`, reporting `hardware` as the valid supervisor.
 
 ### A hardware backend
 
-No robot's backend ships yet; one plugs in like this, and `:test_hardware_supervisor` runs the whole process on the
+No robot's backend ships yet; one plugs in like this, and `:test_hardware_supervisor` runs the full process on the
 test-only `FakeRobotBackend`, which does exactly it with a thread in place of the drives:
 
 1. A `robot::model::RobotHWInterfaceBase` subclass whose driver thread (the robot's EtherCAT or vendor SDK loop) calls
@@ -183,11 +183,11 @@ its rate without computing too long shows on the topic and in the Rerun bridge's
 The cycle (`RobotProcess::cycle()`):
 
 1. read the robot state from the backend, through the task file's state estimator (`state_estimator`): `ground_truth`
-   hands it on as it is, `kalman` replaces the base position and linear velocity with its estimate
+   passes it through unchanged, `kalman` replaces the base position and linear velocity with its estimate
    (`legged_state_estimation`), with each contact's surface height looked up where the previous estimate put the
    contact and its planned switch times from the policy in use; what every later step reads;
 2. take the operator's joint targets into the JOINT_PD posture;
-3. hand the controller the mode and the posture (the centroidal controller the mode first, the whole-body controller
+3. pass the controller the mode and the posture (the centroidal controller the mode first, the whole-body controller
    the posture first: `CycleInputOrder`) and run `computeJointControlAction()`, which writes the observation into the
    MPC link;
 4. tell the viewer the contact state the policy in use plans for now (the contact timeline);
@@ -202,8 +202,8 @@ The cycle (`RobotProcess::cycle()`):
 
 The action (9) goes to the backend after the FSM command and the fall recovery (7, 8). Sent before them, a cycle that
 switched the torques back on would leave the backend the action latched when they went off - in WB_MPC, high gains and
-the inverse dynamics' feedforward - for a whole control period, against a robot that had slumped since. That cycle
-hands it the action it computed, ZERO_TORQUE's (no gain, no torque), and the next cycle the new mode's; and the
+the inverse dynamics' feedforward - for one control period, against a robot that had slumped since. That cycle
+sends it the action it computed, ZERO_TORQUE's (no gain, no torque), and the next cycle the new mode's; and the
 simulator executes no action applied before its torques came back on (`RobotHWInterfaceBase::discardAppliedJointAction()`).
 
 A cycle that throws (a contact estimator that reports the wrong number of flags, Pinocchio) ends the loop on the
@@ -221,7 +221,7 @@ restart policy brings the robot back in ZERO_TORQUE.
 | IO | realtime | the MPC's health | `MpcResetSupervisor` atomics | loads |
 | realtime | IO | reset requests | `MpcResetSupervisor` counters (carried by the observations) | two atomic increments, no lock (a solver waiting out a back-off polls them) |
 | IO | realtime | FSM commands | `robot::realtime::SpscQueue<FsmCommandEvent>`, parsed to an enum on the IO thread | `tryPop` of plain data |
-| IO | realtime | joint targets | `robot::TripleBuffer<std::vector<double>>` of the whole posture, merged on the IO thread | copy into the preallocated posture |
+| IO | realtime | joint targets | `robot::TripleBuffer<std::vector<double>>` of the full posture, merged on the IO thread | copy into the preallocated posture |
 | IO | realtime | dodgeball throws | `SpscQueue<DodgeballThrow>`, converted with `dodgeballThrowFromMessage()` on the IO thread | `tryPop` of plain data, then the simulator's `throwDodgeball()` (a `robot::TripleBuffer` the physics thread takes it from) |
 | realtime | backend | the joint action | `RobotHWInterfaceBase`: a `robot::TripleBuffer` of the action, with the generation of the last torque switch-on | a copy into a preallocated slot |
 | backend | realtime | the robot state, the measured foot forces | `RobotHWInterfaceBase` and `MujocoSimInterface`: `robot::TripleBuffer`s the physics thread publishes after every step | a copy out of the newest slot; no mjData read |
@@ -239,14 +239,14 @@ The realtime thread calls no bus, protobuf, configuration or file function, take
 log line: the controllers report through their `ControllerEventSink`, which `RobotProcess::Create()` sets to the
 process's `RealtimeEventLog` (a diverged policy, a clock rewind, SAFETY, a new contact estimator or gate, a policy buffer
 whose try-lock keeps failing). Their per-cycle diagnostics of the ramp into WB_MPC and of JOINT_PD are gone; the
-telemetry (`robot/state`: targets, gains, feedforward and measured state of every joint) carries what they printed.
+telemetry (`robot/state`: targets, gains, feedforward and measured state of every joint) records what they printed.
 OCS2's `MRT_BASE::updatePolicy()` does not log either: it never waits for the policy buffer, and a failed try-lock is
 counted (`getConsecutiveFailedPolicyUpdateLocks()`, an atomic), which the controllers post once per run longer than
 `MRT_BASE::kPolicyUpdateLockContentionThreshold` as `kPolicyUpdateLockContended`; the solver side destroys the policies
 a reset or a discard drops after it has released the buffer's lock, so freeing them never holds that try-lock off
 (`//lib/ocs2:test_mrt_policy_buffer`). The robot process adds no allocation, nor does the backend hand-over, nor the
 contacts' surface heights, nor the `kalman` state estimator with its leg kinematics (`:test_robot_realtime_allocations`, which counts the realtime thread's
-allocations over hundreds of whole cycles of the process on the fake backend), and neither controller allocates: the
+allocations over hundreds of cycles of the process on the fake backend), and neither controller allocates: the
 observation, the passive modes, the hold of WB_MPC, a contact estimator swap (whose name is a view of a literal,
 `ContactEstimator::getName()`), the weight compensation of WB_MPC before its first policy and the execution of a policy
 in WB_MPC (`test_centroidal_mpc_mrt_joint_controller_allocations` on the wrench inputs of the G1 and the basis-vector
@@ -262,8 +262,8 @@ over the MPC models' composite base joint, `Composite(Translation, Spherical)` (
 heap temporary of the joint's dynamic-size motion subspace in every call (`crba()`, `rnea()`, `nonLinearEffects()`,
 `computeJointJacobians()`, `computeCentroidalMap()`); `RealtimeRigidBodyDynamics` runs them on a twin of the model whose
 root is a FreeFlyer, with the same q and the base velocity `[R' dp_W, w_B]` in place of `[dp_W, w_B]`, whose subspace
-is the fixed-size identity, and takes and returns the MPC model's coordinates (`testRealtimeRigidBodyDynamics` holds
-it to the MPC model's own passes and to RNEA, and its functions to zero allocations, against the composite root's
+is the fixed-size identity, and takes and returns the MPC model's coordinates (`testRealtimeRigidBodyDynamics` checks
+it against the MPC model's own passes and RNEA, and verifies zero allocations, against the composite root's
 positive count). A policy the evaluator refuses (a controller type it does not take on the state, or a policy of other
 dimensions) is never left to `MRT_BASE::evaluatePolicy()`, which allocates and aborts on a malformed policy: the robot
 is held with the JOINT_PD action and `kPolicyRefused` is posted once, until a policy the evaluator takes is in use.
@@ -335,7 +335,7 @@ writes over the bus (legged_nmpc/docs/distributed_runtime/README.md, "Saving the
 | `<file>.bak` | the copy a save or a reseeding replaced |
 | `<file>.rejected` | a copy the robot did not start with where the bundle's started, replaced by the bundle's |
 | `mpc/contact_planning.textproto` | the bundle's contact planner's file, mirrored at every start (removed when the bundle has none); the MPC's file, which no save writes |
-| `.booting` | written at every start, removed once the start is confirmed (below) or the process stopped cleanly |
+| `.booting` | written at every start, removed once the start is confirmed (below) or the process exited normally |
 <!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout, //legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/StoredConfigFileKinds.h:stored_config_backup_suffix) -->
 
 A missing copy is seeded at every start; `--config_seed` decides when a stored copy is replaced (the previous one kept
@@ -349,7 +349,7 @@ as `.bak`):
 | `never` | never: only a save changes it |
 <!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/RobotConfigDirectory.h:config_seed_policies) -->
 
-A copy, its `.seed` and the bundled file are compared with their `# proto-message:` headers naming the current
+A copy, its `.seed` and the bundled file are compared with their `# proto-message:` headers specifying the current
 package (`nproto::CanonicalHeaderText()`), so a file that differs only in a header from before the `humanoid_*` to
 `legged_*` rename (`humanoid_mpc_config.TaskFile`) is unchanged: that deploy keeps the robot's saves.
 
@@ -360,7 +360,7 @@ files in place, touching no stored file: when the bundle starts, the stored copi
 robot starts on the bundle's files; when it fails too (a bus port in use, a backend that does not come up), the
 failure is not the stored copies', which are kept, the boot marker is withdrawn and the process ends with the error. A
 `.booting` left by a start that died before it was confirmed makes the next start reject the stored copies the same
-way, unless the machine booted in between: a power cut or a reboot ended that start, not its files. `.rejected` holds
+way, unless the machine booted in between: a power cut or a reboot ended that start, not its files. `.rejected` keeps
 one generation. Reset the store by removing its directory (tools/deploy/README.md, "The stored configuration").
 
 <!-- LINT.IfChange(boot_confirmation_time) -->
@@ -375,11 +375,11 @@ realtime thread, then parses the text strictly and runs `checkRobotConfiguration
 task file's `robot_name`, the robot process's settings, the formulation's controller models, the PD gains on the
 controller's joints, the contact estimator against the backend's registry and its probe, the telemetry sinks and the
 backend's options (`RobotBackendRegistry::checkOptions()`) - on the stored files with the saved one in place. It answers
-`UNCHANGED` when the copy holds the text already, and otherwise keeps the copy as `.bak` and writes the text atomically
+`UNCHANGED` when the copy already matches the text, and otherwise keeps the copy as `.bak` and writes the text atomically
 (`AtomicFileWrite.h`: a temporary of the process's pid, fsync, rename, directory fsync), answering `SAVED` - saying so when the file
 was replaced but its directory could not be synced, so that a power loss may undo it - or `FAILED` with the copy
 untouched. The watchers then apply a saved task file's controller-side fields and PD gains as they apply
-an edit. Without `--config_store_dir` every save is answered `NOT_STORED`, naming the bundled file the robot reads in
+an edit. Without `--config_store_dir` every save is answered `NOT_STORED`, reporting the bundled file the robot reads in
 place: the laptop's file itself for a robot process of the same checkout (`bazel run` in the dev container), which the
 GUI then reports in sync; a file the save did not change otherwise, which it reports as a problem.
 
@@ -444,27 +444,27 @@ field.
 | Target | What |
 |---|---|
 | `:test_realtime_loop_runner` | pacing on absolute deadlines (no drift with half the period computing), overruns counted, a snapshot per window, a clean stop, a set-up step the process may not take reported and skipped, a cycle that throws ending the loop and running the fault function once |
-| `:test_robot_realtime_allocations` | the realtime side of the mailboxes, the event log, the FSM state, the telemetry sampler (a full ring included) and the loop runner allocate nothing; the realtime side does not wait while the IO thread holds the mailbox's lock; the whole cycle of the process on the fake backend with the `kalman` state estimator, its contact-trust ramp on and a multi-contact plan's surface heights, FSM commands included, allocates nothing |
+| `:test_robot_realtime_allocations` | the realtime side of the mailboxes, the event log, the FSM state, the telemetry sampler (a full ring included) and the loop runner allocate nothing; the realtime side does not wait while the IO thread holds the mailbox's lock; the full cycle of the process on the fake backend with the `kalman` state estimator, its contact-trust ramp on and a multi-contact plan's surface heights, FSM commands included, allocates nothing |
 | `:test_state_estimator_contacts` | the `kalman` estimator's contact points: the G1 standing on its soles at its true base height keeps that height (the contact points were once the ankle origins, which put the base low by the ankle's height), the soles on the ankle links at the task file's offset, the Atlas seat pad on the URDF's root link at its pad offset with no velocity relative to the base, a surface contact without a parent joint and an unknown parent joint refused |
 | `:test_contact_surface_height_source` | the contacts' surface heights: the flat ground sets every contact; a multi-contact plan's patches give a contact on a seat its height and one on a ramp the ramp's plane at its x and y, and none on a wall, a steep ramp, far from every patch or without an estimated position; a pad pose that is not a center and a unit normal refused; the task file's contact schedule source selects the source, and a multi-contact task file without its plan is refused; `fill()` allocates nothing |
 | `:test_planned_switch_times_source` | the controller's planned switch times written into the estimator's inputs, none without a policy or past the controller's contacts, `fill()` allocating nothing |
-| `:test_hardware_supervisor` | the `hardware` supervisor: the FSM commands switch the backend's torques, the gantry commands are ignored, a tilt past the limit under torque switches them off once; the `sim` supervisor refused for a backend that is no simulator; the whole process running its cycles over the bus on the fake backend with either state estimator |
-| `:test_operator_command_mailbox` | FSM commands in order and once, aliases, unknown names; joint targets merged, the newest wins; dodgeballs; the gantry clamp; controller settings resolved, estimators kept alive, unknown names, a whole task file without a gate being the instantaneous gate; PD gains to the controller; the handlers, typed tuning payloads included, on a loopback bus |
+| `:test_hardware_supervisor` | the `hardware` supervisor: the FSM commands switch the backend's torques, the gantry commands are ignored, a tilt past the limit under torque switches them off once; the `sim` supervisor refused for a backend that is no simulator; the full process running its cycles over the bus on the fake backend with either state estimator |
+| `:test_operator_command_mailbox` | FSM commands in order and once, aliases, unknown names; joint targets merged, the newest wins; dodgeballs; the gantry clamp; controller settings resolved, estimators kept alive, unknown names, a full task file without a gate being the instantaneous gate; PD gains to the controller; the handlers, typed tuning payloads included, on a loopback bus |
 | `:test_sim_fsm_bridge` | the FSM against the headless simulator: torques, gantry, one command per cycle, the slider, controller resets and health in the state, joint targets, the dodgeball |
 | `:test_sim_fall_recovery`, `:test_base_tilt_angle` | the fall recovery against MuJoCo (ported), and its reports |
 | `:test_initial_sim_state` | the simulator's initial state from the MPC's in every formulation: the base orientation through the robot model's `getQuatBaseRtWorldXyzw()` (the stored unit quaternion bit for bit, the rotation of the Euler angles it was set from to round-off, an unwrapped yaw included), the MPC joints by name, every other joint zero |
 | `:config_robot_test` | the typed task file's robot settings and the GUI's typed `DodgeballThrow` (`test/data/dodgeball_throw.textproto`, shared with remote_control's test) converted, every refusal |
 | `:test_telemetry_sampler` | decimation, the sample round-tripped through `robot/state`'s message, the joint names, drops |
 | `:test_robot_backend_registry` | `mujoco` by name (Atlas, `--viewer=none`), an unknown name listing the available ones, the configuration from the options, the viewer settings copied and checked (an unknown viewer, `glfw,none`, a web option out of range refused) |
-| `:test_robot_process_settings` | the task file read strictly, errors naming the file; the defaults, every field, wrong types and refused values, the retired booleans; every shipped task file; a YAML task file refused naming the file |
+| `:test_robot_process_settings` | the task file read strictly, errors reporting the file; the defaults, every field, wrong types and refused values, the retired booleans; every shipped task file; a YAML task file refused with the file path |
 | `:test_task_file_watcher` | a write reported once, an unchanged or vanished file never |
-| `:test_config_file_store` | a save written atomically on the writer thread with the replaced copy kept; unchanged; every refusal (malformed, an unknown field, another robot, configuration or fingerprint, oversize, a contact estimator, telemetry sink or simulator option the robot refuses) with the stored copy and its time untouched; a store that cannot be written; no store; a full queue; a repeated save answered again and not rewritten; `stop()`; `NOT_STORED` naming the file read in place |
-| `:test_robot_configuration_check` | each check of `checkRobotConfiguration()` refusing on its own, naming the field; a saved file checked in place of its stored copy |
+| `:test_config_file_store` | a save written atomically on the writer thread with the replaced copy kept; unchanged; every refusal (malformed, an unknown field, another robot, configuration or fingerprint, oversize, a contact estimator, telemetry sink or simulator option the robot refuses) with the stored copy and its time untouched; a store that cannot be written; no store; a full queue; a repeated save answered again and not rewritten; `stop()`; `NOT_STORED` reporting the file read in place |
+| `:test_robot_configuration_check` | each check of `checkRobotConfiguration()` refusing on its own, reporting the field; a saved file checked in place of its stored copy |
 | `:test_robot_config_directory` | an empty store seeded, a restart keeping a save, the seed policies, the contact planner's mirror, a store that cannot be written, the boot marker's fallback (not after the machine booted) and `rejectStoredCopies()`; `bringUpRobot()` rejecting the stored copies only when the bundle starts where they did not, and keeping them, with the marker withdrawn, for a failure the bundle shares |
 | `:test_atomic_file_write` | a write replacing the file and leaving no temporary; a write that fails before the rename leaving the file as it was, which is no DataLoss |
-| `:test_robot_app_options` | the core lists, the viewer by name (`web,none` parsed, `vnc` refused listing `glfw, web, none`, nothing after `glfw` or `none`), its precedence (`--viewer`, else the `mujoco_viewer` of `--plot_config`, else `web`; the file not read with `--viewer`), a bad plot configuration refused (an unknown name, a list the registry refuses, a misspelled field at its line and column, another message's file, a missing file), the shipped plot configurations' `web`, the web viewer's port, address and allowed hosts, `--viewer_cores=default` as the allocation's viewer cores, `MUJOCO_EGL_DEVICE_ID`, `LP_NUM_THREADS` for the web viewer's cores and its log line, the `MpcLink` over the remote link handed to the controller once |
+| `:test_robot_app_options` | the core lists, the viewer by name (`web,none` parsed, `vnc` refused listing `glfw, web, none`, nothing after `glfw` or `none`), its precedence (`--viewer`, else the `mujoco_viewer` of `--plot_config`, else `web`; the file not read with `--viewer`), a bad plot configuration refused (an unknown name, a list the registry refuses, a misspelled field at its line and column, another message's file, a missing file), the shipped plot configurations' `web`, the web viewer's port, address and allowed hosts, `--viewer_cores=default` as the allocation's viewer cores, `MUJOCO_EGL_DEVICE_ID`, `LP_NUM_THREADS` for the web viewer's cores and its log line, the `MpcLink` over the remote link passed to the controller once |
 | `:test_realtime_event_log` | the reports' order, wording and drops, the controller's reports through it |
-| `:test_robot_process` | the process without an MPC: a scripted controller, the headless simulator, a loopback bus and an operator - modes, `robot/state`, `robot/fsm_state`, `robot/loop_timing` (skipped periods and lateness included), the period, settings from the GUI and the task file, PD gains, the gantry's resets, health, `stop()`; the cycle that switches the torques on handing the backend its own action; a cycle that throws stopping the loop with the backend in its safe state; a save on the bus stored and applied by the task file's watcher; an MPC parameter update of another configuration installing nothing; the boot report of `runUntilShutdown()` |
+| `:test_robot_process` | the process without an MPC: a scripted controller, the headless simulator, a loopback bus and an operator - modes, `robot/state`, `robot/fsm_state`, `robot/loop_timing` (skipped periods and lateness included), the period, settings from the GUI and the task file, PD gains, the gantry's resets, health, `stop()`; the cycle that switches the torques on sending the backend its own action; a cycle that throws stopping the loop with the backend in its safe state; a save on the bus stored and applied by the task file's watcher; an MPC parameter update of another configuration installing nothing; the boot report of `runUntilShutdown()` |
 | `//legged_nmpc/legged_centroidal_mpc_app:test_config_save_end_to_end` | the robot binary as a process with a store: saves of the task file and the PD gains stored, refusals, a restart on the saved task file (its telemetry rate), and stored files the robot refuses (or a start that did not confirm its boot) falling back to the bundle, leaving `.rejected` |
 | `//legged_nmpc/remote_control:test_two_copy_save_end_to_end` | the GUI's tuning tabs against the robot binary with a store: each Save leaves the laptop's bytes in the store, refusals leave it untouched, a restart runs the saved files |
 | `//legged_nmpc/legged_centroidal_mpc_app:test_centroidal_mpc_robot_end_to_end` | the robot binary as a process against an `MpcServer` and an operator: WB_MPC, a policy applied, the period held, the JOINT_PD hold on link loss, SIGTERM |

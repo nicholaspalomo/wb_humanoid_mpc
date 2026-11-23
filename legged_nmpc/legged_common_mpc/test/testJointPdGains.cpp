@@ -84,8 +84,8 @@ absl::StatusOr<std::optional<JointPdGains>> load(absl::string_view file) {
   return loadJointPdGains(file, *kMpcJoints, *kOtherJoints);
 }
 
-/** The PD gains file `content`, below the header that names its schema, written
- * to `name` in the test's temporary directory; its path. */
+/** The PD gains file `content`, below the header that specifies its schema,
+ * written to `name` in the test's temporary directory; its path. */
 std::string writeTemporaryFile(absl::string_view name,
                                absl::string_view content) {
   const std::string file = absl::StrCat(::testing::TempDir(), "/", name);
@@ -182,7 +182,7 @@ TEST(JointPdGains, AGainsFileIsATextprotoReadStrictly) {
   EXPECT_EQ((*gains)->gravityCompDampingFraction, 0.4);
 
   // An unknown field is refused where it is written, a gain
-  // jointPdGainsFromConfig() refuses by its field; both name the file.
+  // jointPdGainsFromConfig() refuses by its field; both report the file.
   const std::string unknown =
       writeTemporaryFile("unknown_joint_pd_gains.textproto",
                          "default_gains { kp: 1.0 kd: 1.0 max_joint_torque: "

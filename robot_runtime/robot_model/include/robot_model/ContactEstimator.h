@@ -43,7 +43,7 @@ namespace robot::model {
  * A controller asks its estimator once per control cycle, from the control
  * thread and after the robot state has been updated, which of its contact
  * points are touching the environment. The answer is the controller's measured
- * contact state: the observation mode handed to the MPC and the criterion for
+ * contact state: the observation mode passed to the MPC and the criterion for
  * which planned contact wrenches the inverse dynamics may project into joint
  * torques (a foot in the air cannot transmit a wrench, whatever the plan says).
  *

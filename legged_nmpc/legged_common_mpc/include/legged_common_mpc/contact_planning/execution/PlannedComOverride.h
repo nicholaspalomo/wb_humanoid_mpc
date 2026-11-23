@@ -67,8 +67,8 @@ namespace ocs2::legged {
  *
  * The rule writes the plan into the reference the same way the planner produced
  * it: the reference horizontal center of mass becomes the planned one, and the
- * reference linear momentum - which in the centroidal state *is* the center of
- * mass velocity - becomes the planned center of mass velocity. The reference is
+ * reference linear momentum (which in the centroidal state *is* the center of
+ * mass velocity) becomes the planned center of mass velocity. The reference is
  * expressed through the base pose, so the planned position is written as the
  * base position that puts the reference center of mass where the plan wants it,
  * using the measured offset between the two at this cycle turned by the knot's

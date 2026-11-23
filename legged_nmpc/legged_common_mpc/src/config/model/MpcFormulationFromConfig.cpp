@@ -59,7 +59,7 @@ constexpr absl::string_view kCheckPrefix = "[checkMpcFormulationTasks] ";
 
 /**
  * Resolves every name of the list `field` with `fromName` and inserts the terms
- * into `terms`; an unknown name is InvalidArgument naming its entry,
+ * into `terms`; an unknown name is InvalidArgument reporting its entry,
  * `costs[2]`, with the registry's own message.
  */
 template <typename Type, typename Set>
@@ -101,7 +101,7 @@ constexpr ContactImplicitTerm kContactImplicitTerms[] = {
 };
 
 /** Refuses a term set that lists some, but not all, of the three
- * contact-implicit terms, naming each missing one. */
+ * contact-implicit terms, listing each missing one. */
 absl::Status checkContactImplicitTermsListedTogether(
     const MpcFormulationTasks& tasks) {
   std::vector<std::string> listed;
@@ -167,11 +167,11 @@ bool isOneOf(absl::Span<const std::string> names, absl::string_view name) {
 
 absl::Status checkMpcFormulationTasks(const MpcFormulationTasks& tasks) {
   // The two terminal costs are alternative ends of the horizon, not a pair: the
-  // quadratic final_state_weights cost regulates the whole state towards its
+  // quadratic final_state_weights cost regulates the full state towards its
   // reference, the DCM cost keeps the capture point over the support. When
-  // `useDcmTerminalCost` was a boolean, a list naming `terminal_cost` beside it
+  // `useDcmTerminalCost` was a boolean, a list with `terminal_cost` beside it
   // had the entry silently ignored; now that the list is the switch, a list
-  // naming both is ambiguous, and it is refused rather than resolved by a
+  // including both is ambiguous, and it is refused rather than resolved by a
   // precedence nobody wrote down.
   if (tasks.hasCost(MpcCostType::kTerminalCost) &&
       tasks.hasCost(MpcCostType::kDcmTerminalCost)) {
@@ -242,9 +242,9 @@ absl::Status checkMpcFormulationTasks(const MpcFormulationTasks& tasks) {
   // f_n, including a negative one, so nothing in the formulation objects to
   // adhesion on a foot that is on the floor.
   //
-  // Either cone will do here. `contact_wrench_cone` carries the friction,
+  // Either cone will do here. `contact_wrench_cone` includes the friction,
   // center-of-pressure and torsional rows together; `friction_force_cone`
-  // un-gated carries Fz >= 0 and |F_xy| <= mu*Fz as two rows, the first of
+  // un-gated enforces Fz >= 0 and |F_xy| <= mu*Fz as two rows, the first of
   // which is exactly the missing condition. Under the basis-vector
   // parameterization neither list entry is what bounds the individual scalings:
   // CentroidalMpcInterface builds the lambda >= 0 barrier for every contact
@@ -279,7 +279,7 @@ absl::Status checkMpcFormulationTasks(const MpcFormulationTasks& tasks) {
   }
   // The hard normal-velocity constraint is the last place the schedule still
   // decides contact. It pins the contact frame's vertical velocity to the swing
-  // trajectory's reference over the whole scheduled swing, and since the foot's
+  // trajectory's reference over the scheduled swing, and since the foot's
   // height at the start of that swing is given, a hard equality on the vertical
   // velocity fixes the height profile. The solver can then neither land early,
   // nor land late, nor keep a foot down - the three freedoms the

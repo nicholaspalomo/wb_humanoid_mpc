@@ -219,7 +219,7 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
   }
 
   /** The whole-body MPC state [q, v] and input [W_left, W_right, qdd_j] that
-   * carry the given pieces. */
+   * contain the given pieces. */
   std::pair<vector_t, vector_t> stateAndInput(
       const vector_t& q,
       const vector_t& v,

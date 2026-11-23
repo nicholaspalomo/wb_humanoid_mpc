@@ -128,7 +128,7 @@ struct RegisteredAcomNetwork {
   /// The --robot key of legged_learning/acom/train_main.py that trains it.
   // NOLINTNEXTLINE(totw-view-member): a string literal of the constexpr registry below.
   absl::string_view trainMainRobot;
-  /// The generated header the weights live in.
+  /// The generated header where the weights are defined.
   // NOLINTNEXTLINE(totw-view-member): a string literal of the constexpr registry below.
   absl::string_view headerName;
   AcomFactory create;

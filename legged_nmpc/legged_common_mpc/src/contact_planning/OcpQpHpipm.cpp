@@ -108,7 +108,7 @@ absl::Status stageError(int k, absl::string_view what) {
       absl::StrCat("[OcpQpHpipmSolver] stage ", k, ": ", what));
 }
 
-/** Checks the sizes and indices of one stage; the InvalidArgument names the
+/** Checks the sizes and indices of one stage; the InvalidArgument reports the
  * stage and what is inconsistent. */
 absl::Status checkStage(const OcpQpStage& stage, int k, int N) {
   const int nx = stage.numStates();
@@ -405,7 +405,7 @@ class OcpQpHpipmSolver::Impl {
   }
 
  private:
-  /** Hands the data of `problem`, of dimensions `dims`, to HPIPM's QP, with x0
+  /** Passes the data of `problem`, of dimensions `dims`, to HPIPM's QP, with x0
    * as an equality box on the stage-0 state. */
   void setProblemData(const OcpQpProblem& problem, const Dimensions& dims) {
     const int N = problem.numStages();
@@ -524,18 +524,18 @@ class OcpQpHpipmSolver::Impl {
     // d_ocp_qp_set_all left behind.
     //
     // HPIPM keeps the mapping in qp_.idxs_rev: one entry per constrained row of
-    // the stage, in the order (input box, state box, general rows), holding the
+    // the stage, in the order (input box, state box, general rows), storing the
     // index of the slack pair that relaxes that row, or -1 when the row is
     // hard. That buffer is filled with -1 exactly once, inside d_ocp_qp_create,
     // and d_ocp_qp_set_all then only touches the rows that happen to be soft in
-    // the problem it is handed (it executes `idxs_rev[k][idxs[k][j]] = j` for
-    // the ns[k] soft rows and clears nothing). Every other buffer of the QP -
-    // the dynamics, the Hessian, the constraint matrix, the bounds, the slack
-    // weights - is rewritten in its entirety by that same call, which is what
+    // the problem it is given (it executes `idxs_rev[k][idxs[k][j]] = j` for
+    // the ns[k] soft rows and clears nothing). Every other buffer of the QP
+    // (the dynamics, the Hessian, the constraint matrix, the bounds, the slack
+    // weights) is rewritten in its entirety by that same call, which is what
     // makes the allocation-free reuse in allocate() safe; idxs_rev is the
     // single exception.
     //
-    // This mattered because allocate() keeps the previously created qp_
+    // This caused bugs because allocate() keeps the previously created qp_
     // whenever the Dimensions compare equal, and Dimensions records only the
     // counts (N, nx, nu, nbx, nbu, ng, nsbx, nsbu, nsg), never which general
     // rows the caller declared soft. Previously, a second solve on the same
@@ -544,10 +544,10 @@ class OcpQpHpipmSolver::Impl {
     // declared hard stayed mapped onto a slack pair, and shared that slack pair
     // with the row that had just become soft. HPIPM then relaxed a constraint
     // the caller expected to be enforced, so the wrapper returned either a
-    // point violating a hard row - which evaluateOcpQpMaxHardViolation,
+    // point violating a hard row (which evaluateOcpQpMaxHardViolation,
     // skipping exactly the rows listed in softGeneralIndices, reports as a
-    // violation - or a spurious non-SUCCESS status on data that is perfectly
-    // feasible. Inside MixedIntegerOcpQp, which holds one OcpQpHpipmSolver
+    // violation) or a spurious non-SUCCESS status on data that is perfectly
+    // feasible. Inside MixedIntegerOcpQp, which reuses one OcpQpHpipmSolver
     // across hundreds of same-dimension relaxations, such a spurious failure
     // silently prunes a branch-and-bound node and the planner loses the
     // solution without any diagnostic. Nothing in the documented contract of
@@ -581,7 +581,7 @@ class OcpQpHpipmSolver::Impl {
   void maskInfiniteBounds(const OcpQpProblem& problem) {
     const int N = problem.numStages();
     // One-sided general constraints are declared with +-kOcpQpInfiniteBound;
-    // mask those bounds out so that HPIPM does not carry a slack and a
+    // mask those bounds out so that HPIPM does not keep a slack and a
     // multiplier for a bound that can never become active.
     for (int k = 0; k <= N; ++k) {
       const OcpQpStage& s = problem.stages[k];

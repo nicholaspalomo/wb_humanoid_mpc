@@ -29,7 +29,7 @@ start-up print), `requiredBlocks()` (the model blocks it needs), `bind()` (its v
 `ContactPlanningTermFactory::buildProblemStatus()` fills the collections from the term lists. `finalize()` composes
 the variable layout from the model blocks in their order, which must start with `lip_com` and `foothold_integrator`
 (so that `LipIndices` and the binaries keep their places), checks that every term finds the blocks it needs, and binds
-and configures every term; a model or a term that fails is an InvalidArgument naming it. `assemble()` then writes the
+and configures every term; a failing model or term returns `InvalidArgument` with its name. `assemble()` then writes the
 OCP-QP of one plan node by node and term by term in collection order: the costs in their listed order, which is the
 floating-point accumulation order of the stage matrices, and the general rows grouped by term, the hard constraints
 before the soft ones. Assembly is index arithmetic over cached integers, a few microseconds per node, so the term lists
@@ -86,7 +86,7 @@ legged_common_mpc/include/legged_common_mpc/contact_planning/
   ContactPlanningReferenceManager.h  MixedIntegerOcpQp.h  OcpQpHpipm.h  ...
 ```
 
-The Bazel target `//legged_nmpc/legged_common_mpc:contact_planning_core` holds the problem, the terms, the search
+The Bazel target `//legged_nmpc/legged_common_mpc:contact_planning_core` contains the problem, the terms, the search
 stages, the execution rules and the solver that need no robot model, so that the planner's tests build without the
 rest of the library. `ContactPlannerModule`, the reference manager and the two override rules (`planned_com_override`,
 `planned_heading_override`), which need the robot model, are in `//legged_nmpc/legged_common_mpc`.

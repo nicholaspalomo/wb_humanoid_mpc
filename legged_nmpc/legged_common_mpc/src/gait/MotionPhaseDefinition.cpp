@@ -61,7 +61,7 @@ bool isModeOf(size_t modeNumber, const GaitModeLayout& layout) {
 }
 
 /** Returns the contacts of `layout` with their mode bits, none when the layout
- * names no contacts or a number of them other than its contact count. */
+ * lists no contacts or a number of them other than its contact count. */
 std::vector<GaitModeLayout::LegModeBits> contactModeBits(
     const GaitModeLayout& layout) {
   std::vector<GaitModeLayout::LegModeBits> contacts;
@@ -91,8 +91,8 @@ std::string joinedNames(absl::Span<const GaitModeLayout::LegModeBits> named) {
 /**
  * Returns the union of the modes of the names `modeString` lists, separated by
  * `separator`, when every part is a name of `named`; nullopt when one is not,
- * and InvalidArgument naming the `kind` ("leg", "contact") when one is listed
- * twice.
+ * and InvalidArgument identifying the `kind` ("leg", "contact") when one is
+ * listed twice.
  */
 absl::StatusOr<std::optional<size_t>> unionOfNames(
     absl::string_view modeString,

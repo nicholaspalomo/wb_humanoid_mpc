@@ -20,9 +20,9 @@ applies to the next command; a file that no longer reads keeps the previous limi
 a number sends nothing.
 
 The latest command is republished at the topic's 25 Hz (`VelocityCommandRepeater`), so that an MPC node that connects
-later still gets it; nothing is published before the first line. The repeater holds the command in m/s, not as the
-normalized message: the MPC reloads its copy of the limits when the reference file changes, so the repeater looks at the
-file about once a second too and renormalizes the held command by the new limits. The robot keeps walking at the speed
+later still gets it; nothing is published before the first line. The repeater stores the command in m/s rather than in
+normalized form: the MPC reloads its copy of the limits when the reference file changes, so the repeater looks at the
+file about once a second too and renormalizes the stored command by the new limits. The robot keeps walking at the speed
 the terminal showed (clamped to a lowered limit) instead of a speed nobody typed.
 
 Do not run it next to the velocity controls of the GUI or the Xbox publisher: they publish the same topic (start the

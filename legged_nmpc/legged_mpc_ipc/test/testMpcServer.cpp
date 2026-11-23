@@ -455,7 +455,7 @@ TEST_F(MpcServerTest, TheHooksSeeEveryPolicyAndAHookThatFailsStopsNothing) {
 }
 
 TEST_F(MpcServerTest, ThePreSolveObserverSeesTheObservationOfEverySolve) {
-  // The observation the solve starts from, handed over before it, bit for bit:
+  // The observation the solve starts from, passed before it, bit for bit:
   // ProceduralMpcMotionManager::observe() reads the joint velocities of its
   // input, which the solve itself does not take. Every entry differs, so a
   // mix-up of fields or entries, or an input dropped on the way, shows.

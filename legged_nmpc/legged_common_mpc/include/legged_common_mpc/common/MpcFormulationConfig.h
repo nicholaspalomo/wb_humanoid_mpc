@@ -88,7 +88,7 @@ enum class MpcSoftConstraintType {
   kContactWrenchCone,
   kZeroVelocity,
   // The swing-foot vertical servo of the hard `normal_velocity` constraint,
-  // priced instead of imposed. The hard form fixes the whole height profile of
+  // priced instead of imposed. The hard form fixes the full height profile of
   // a scheduled swing, so the solver can neither land early nor late - fatal
   // under the contact-implicit formulation, which exists to give it exactly
   // that freedom. As a cost it shapes the swing and is overruled whenever
@@ -153,9 +153,9 @@ struct MpcFormulationTasks {
  * off while the schedule calls a foot a swing foot. That was only ever sound
  * because the hard `zero_wrench` constraint pinned the swinging foot's wrench
  * to zero, so there was nothing left for a cone to bound. The contact-implicit
- * formulation removes `zero_wrench` - checkMpcFormulationTasks() insists on it
- * - and with it the reason those terms could be switched off. Left gated, a
- * foot the schedule calls a swing foot would carry an unbounded wrench:
+ * formulation removes `zero_wrench` (checkMpcFormulationTasks() insists on it)
+ * and with it the reason those terms could be switched off. Left gated, a
+ * foot the schedule calls a swing foot would have an unbounded wrench:
  * adhesion, unlimited friction, a center of pressure anywhere.
  *
  * So the gate follows `zero_wrench` rather than the contact-implicit terms
@@ -204,7 +204,7 @@ bool usesContactImplicitFormulation(
  *
  * @return OkStatus when every weight is finite and non-negative and every
  * reference and the smoothing length are finite and positive; otherwise
- * InvalidArgument naming the offending `contact_implicit.<field>`.
+ * InvalidArgument identifying the offending `contact_implicit.<field>`.
  */
 absl::Status validateContactImplicitConfig(
     const ModelSettings::ContactImplicitConfig& config);
@@ -268,7 +268,7 @@ enum class ContactScheduleSource {
 };
 
 // LINT.IfChange(contact_schedule_source_names)
-/** The top-level task-file field that names the contact schedule source. */
+/** The top-level task-file field that specifies the contact schedule source. */
 inline constexpr absl::string_view kContactScheduleSourceKey =
     "contact_schedule_source";
 inline constexpr absl::string_view kGaitScheduleContactScheduleSource =

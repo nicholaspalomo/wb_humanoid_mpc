@@ -118,7 +118,7 @@ TEST(SwingPitchReference, zeroInStance) {
   EXPECT_NEAR(
       planner.getSwingRefTiltangleFootRtSurface(/*leg=*/0, kTouchDown + 0.1),
       0.0, kTol);
-  // The other foot stands through the whole schedule.
+  // The other foot stands through the full schedule.
   for (scalar_t tau = 0.0; tau <= 1.0; tau += 0.1) {
     EXPECT_NEAR(planner.getSwingRefTiltangleFootRtSurface(
                     /*leg=*/1, kLiftOff + tau * (kTouchDown - kLiftOff)),

@@ -71,7 +71,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * What the centroidal MRT joint controller does in WB_MPC with a policy its
  * realtime evaluator refuses, on the quaternion layout: a LinearController
  * (whose gains would act on the stored quaternion rather than on its tangent)
- * or a ManifoldLinearController with ambient gains is never handed to
+ * or a ManifoldLinearController with ambient gains is never passed to
  * MRT_BASE::evaluatePolicy(), which allocates on this thread, logs, and aborts
  * on the malformed one. The robot is held with the entry's hold, the cycle
  * allocates exactly what the hold's does, one kPolicyRefused event says why,

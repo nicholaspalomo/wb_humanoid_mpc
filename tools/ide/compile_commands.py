@@ -36,15 +36,15 @@ and leaves the database alone: in CI, which sets CI, and wherever the checkout i
 to refresh wins; WB_COMPILE_COMMANDS=off in a container's environment leaves the database to the others.
 
 `bazel query` lists the checkout's C++ rules, manual ones included, and its proto_library targets, and `bazel aquery`
-lists their CppCompile actions with the command lines Bazel runs, so the database holds the build's real flags, defines
+lists their CppCompile actions with the command lines Bazel runs, so the database contains the build's real flags, defines
 and include directories rather than a reconstruction. Only those targets are analyzed, so a refresh fetches no
 repository that only Python targets use (the RL wheels). One entry per source file:
 
 - `directory` is the execution root, where Bazel runs the compiler, so `bazel-out/` and the checkout's directories
   resolve as in the build;
-- a path into `external/` points at the repository in the output base instead. The execution root links only the
+- a path into `external/` references the repository in the output base instead. The execution root links only the
   external repositories its last build used, so after a build of a few targets its `external/` misses most of them;
-  the output base holds every fetched repository;
+  the output base contains every fetched repository;
 - `file` is the source's path in the checkout, the path the editor opens. The include directories stay relative to
   the execution root, whose top-level directories link into the checkout; clangd resolves the links, so a first-party
   header is reported at its path in the checkout too;
@@ -272,7 +272,7 @@ def with_external_repositories(
 
     Args:
       arguments: A compile command line, its paths relative to the execution root.
-      output_base: The output base's absolute path, whose `external/` holds every fetched repository.
+      output_base: The output base's absolute path, whose `external/` contains every fetched repository.
 
     Returns:
       The command line with `external/x` and `-Iexternal/x` (and the other include flags) rewritten; the generated
@@ -713,7 +713,7 @@ def refresh(
       output: The database to write; the checkout's compile_commands.json when None.
 
     Returns:
-      The exit status: 0 when the database holds the query's entries, written or already there.
+      The exit status: 0 when the database contains the query's entries, written or already there.
     """
     workspace = _repository_root()
     quiet_flags = (

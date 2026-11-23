@@ -161,8 +161,8 @@ absl::StatusOr<matrix_t> buildConservativeInnerApproximation(
         "is outside the wrench cone");
   }
   if (torsionLimits->upper - torsionLimits->lower <= kPatchInsideTolerance) {
-    // On a corner the whole load sits on one corner force, whose friction has
-    // no lever arm: the torsion rays would carry no torsion and the set would
+    // On a corner all of the load is on one corner force, whose friction has
+    // no lever arm: the torsion rays would produce no torsion and the set would
     // not span the yaw moment at all.
     return absl::InvalidArgumentError(absl::StrCat(
         "[ContactWrenchConeBasisMatrix] the patch point (",
@@ -243,8 +243,9 @@ constexpr std::array<GeneratorSetEntry, 2> kGeneratorSetRegistry = {{
 // LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/contact/ContactWrenchConeBasisMatrix.h:basis_generator_set_names)
 
 /**
- * The configuration checks every generator set shares, with messages naming the
- * key to change: the cone's own (ContactWrenchConeConstraint::validateConfig,
+ * The configuration checks every generator set shares, with messages
+ * identifying the key to change: the cone's own
+ * (ContactWrenchConeConstraint::validateConfig,
  * the one definition of its ranges) and the footprint's
  * (ContactWrenchConeConstraint::validateFootprint: finite, positive length and
  * width).
@@ -343,7 +344,7 @@ ContactWrenchConeBasisMatrix::Create(
     return basis.status();
   }
 
-  // Guard the invariant the whole formulation rests on: a non-negative
+  // Guard the invariant the formulation depends on: a non-negative
   // combination of the generators is inside the cone if and only if every
   // generator is. A violation here would silently remove the friction or
   // torsion limit from the MPC, because the explicit cone constraint is dropped

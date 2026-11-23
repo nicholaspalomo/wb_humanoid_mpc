@@ -245,7 +245,7 @@ Eigen::Matrix<Scalar, 4, 3> quaternionRateMatrix(const VECTOR4_T<Scalar>& xi) {
   return rateMatrix;
 }
 
-/** Where the comparison against epsilon sits in the safe normalization. */
+/** Where the comparison against epsilon occurs in the safe normalization. */
 enum class NormGuard {
   // Design section 2.6 as written: n = sqrt(xi^T xi), n_safe = CondExpGt(n,
   // epsilon, n, 1).
@@ -435,7 +435,7 @@ VECTOR_T<Scalar> computeFrameMotions(
 struct PinocchioFunction {
   std::string name;
   Eigen::Index variableDim = 0;
-  // Where the quaternion sits in x, for the tests that scale it.
+  // Where the quaternion starts in x, for the tests that scale it.
   Eigen::Index quaternionStart = 0;
   CppAdInterface::ad_function_t taped;
   ReferenceFunction reference;
@@ -725,7 +725,7 @@ class G1Models {
   scalar_t mass_ = 0.0;
 };
 
-/** The models, built once for the whole test program (never destroyed, as a
+/** The models, built once for the test process (never destroyed, as a
  * function-local static). */
 const G1Models& g1() {
   static const G1Models* absl_nonnull const kModels = new G1Models();
@@ -947,7 +947,7 @@ void expectGeneratedMatchesPinocchio(const PinocchioFunction& function,
 
 /**
  * The momentum path of design section 2.5, generated with its Jacobian, once
- * per guard for the whole test program (never destroyed, as a function-local
+ * per guard for the test process (never destroyed, as a function-local
  * static). The Jacobian is generated in reverse mode (10 outputs of 59 inputs).
  */
 const CppAdInterface& momentumInversePathModel(NormGuard guard) {

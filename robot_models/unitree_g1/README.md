@@ -3,7 +3,7 @@
 The 29-DoF Unitree G1 humanoid: six-joint legs, a three-joint waist and seven-joint arms. The MPC holds the six wrist
 joints fixed (`model_settings.fixed_joint_names` in `task.textproto`), so it optimizes over the remaining 23.
 
-This directory holds three Bazel packages:
+This directory contains three Bazel packages:
 
 | Package | Contents |
 | --- | --- |

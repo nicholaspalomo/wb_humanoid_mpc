@@ -22,10 +22,10 @@ libraries. The tool runs in the checkout (`$BUILD_WORKSPACE_DIRECTORY`), so it r
 
 ## What is dumped
 
-The stack is built through the entry points that take the files by path - the MPC interfaces' `Create`, the target
+The stack is built through the entry points that take the files by path (the MPC interfaces' `Create`, the target
 trajectories calculators' `Create`, `ProceduralMpcMotionManager::Create`, the MRT joint controllers' `Create`,
-`loadRobotProcessSettings`, `loadVisualizationConfig` and `loadKeyboardCommandLimits` - the calls the binaries make at
-start-up. In order:
+`loadRobotProcessSettings`, `loadVisualizationConfig` and `loadKeyboardCommandLimits`), which are the same calls the
+binaries make at start-up. In order:
 
 | Section | From |
 |---|---|
@@ -36,7 +36,7 @@ start-up. In order:
 | `[motion_manager]` | the gaits, the acceleration ramps and the command filter |
 | `[pd_gains]` | the MRT joint controller's PD gains, resolved over its defaults |
 | `[robot_process]`, `[visualization]`, `[keyboard_teleop]` | the robot process's, the visualization publisher's and the keyboard teleoperation's settings |
-| `[problem]` | the optimal control problem on a walking schedule (`ProblemDump.h`): every term's name, and at three points of the horizon and at its end every cost and soft-constraint term's value and quadratic approximation and the linear-quadratic approximation of the whole problem |
+| `[problem]` | the optimal control problem on a walking schedule (`ProblemDump.h`): every term's name, and at three points of the horizon and at its end every cost and soft-constraint term's value and quadratic approximation and the linear-quadratic approximation of the full problem |
 
 `[model_settings]` lists each 3-DoF contact as `model_settings.pointContacts[i]`: its `name`, `parentJointName`,
 `posContactRtLinkEwrtLink.{x,y,z}`, `kind` (the value of its `ModelSettings::ContactKind` enumerator) and

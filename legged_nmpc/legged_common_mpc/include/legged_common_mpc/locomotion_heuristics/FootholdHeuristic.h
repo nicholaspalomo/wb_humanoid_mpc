@@ -50,13 +50,12 @@ namespace ocs2::legged {
  * of them needs a per-thread copy of it.
  */
 struct FootholdHeuristicContext {
-  // Three kinds of field, and it matters which is which. PREDICTED: where the
-  // base will be when this foot lands, because Bledt's H_r is relative to the
-  // hip at the step's own time. MEASURED at the last solve and latched: the
-  // feedback quantities the capture point closes its loop on, with the command
-  // at that same instant to compare them with. COMMANDED at the touch-down
-  // time: what the operator asked for, which the Raibert-style leads are
-  // proportional to.
+  // Three distinct kinds of field. PREDICTED: where the base will be when this
+  // foot lands, because Bledt's H_r is relative to the hip at the step's own
+  // time. MEASURED at the last solve and latched: the feedback quantities the
+  // capture point closes its loop on, with the command at that same instant to
+  // compare them with. COMMANDED at the touch-down time: what the operator
+  // asked for, which the Raibert-style leads are proportional to.
 
   /** Which contact is landing, an index into ModelSettings::contactNames; on
    * a biped kContactLeftIndex or kContactRightIndex. */

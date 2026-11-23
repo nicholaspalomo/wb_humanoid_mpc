@@ -71,8 +71,8 @@ ContactPlannerModule::Create(
   const ContactSetSummary contactSet = {
       .numContacts = modelSettings.numContacts(),
       .isBiped = modelSettings.isBipedContactSet()};
-  // makeContactPlanner validates first and returns the rejection that names the
-  // key, or the planner a contact set other than the biped's cannot run.
+  // makeContactPlanner validates first and returns the rejection that reports
+  // the key, or the planner a contact set other than the biped's cannot run.
   ASSIGN_OR_RETURN(std::unique_ptr<ContactPlannerInterface> planner,
                    makeContactPlanner(config, contactSet));
   RETURN_IF_ERROR(referenceManagerPtr->setConfigStatus(config));
@@ -383,7 +383,7 @@ void ContactPlannerModule::preSolverRun(
     return;
   }
 
-  // A plan handed over after this cycle's activation (the worker finished
+  // A plan delivered after this cycle's activation (the worker finished
   // between the reference manager's and this module's pre-solve hooks) is not
   // in the schedule this snapshot was taken from: the worker, idle again, would
   // plan from a schedule without it, and the drop above never sees that

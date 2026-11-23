@@ -72,8 +72,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *    boolean assembled from the old list;
  *  - `useContactPlanning` became `contact_schedule_source`, "gait_schedule" or
  * "contact_planner";
- *  - a task file still carrying either retired boolean is refused when it is
- * parsed, naming the replacement.
+ *  - a task file still containing either retired boolean is refused when it is
+ * parsed, reporting the replacement.
  */
 namespace ocs2::legged {
 namespace {
@@ -250,8 +250,8 @@ TEST_P(FormulationNamesTest,
       test::identical(test::fingerprintOf(interface), listedFingerprint));
 }
 
-/** The retired boolean is refused whatever its value, naming the entry that
- * replaced it, before any term is built. */
+/** The retired boolean is refused whatever its value, reporting the entry
+ * that replaced it, before any term is built. */
 TEST_P(FormulationNamesTest,
        theRetiredDcmBooleanIsRefusedNamingTheCostThatReplacedIt) {
   for (const char* absl_nonnull value : {"true", "false"}) {
@@ -270,7 +270,7 @@ TEST_P(FormulationNamesTest,
 }
 
 /** Listing both terminal costs is ambiguous now that the list is the switch,
- * and refused naming both. */
+ * and refused, reporting both. */
 TEST_P(FormulationNamesTest, bothTerminalCostsAreRefusedNamingBoth) {
   mpc_config::TaskFile task = shipped_.task;
   task.costs.emplace_back("terminal_cost");
@@ -296,7 +296,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 class AtlasFormulationNamesTest : public FormulationNamesTest {};
 
-/** `useContactPlanning` is refused whatever its value, naming the field that
+/** `useContactPlanning` is refused whatever its value, reporting the field that
  * replaced it. */
 TEST_P(AtlasFormulationNamesTest,
        theRetiredContactPlanningBooleanIsRefusedNamingTheSource) {
@@ -315,8 +315,8 @@ TEST_P(AtlasFormulationNamesTest,
   }
 }
 
-/** An unknown source is refused, naming the field and listing every registered
- * name. */
+/** An unknown source is refused, reporting the field and listing every
+ * registered name. */
 TEST_P(AtlasFormulationNamesTest,
        anUnknownContactScheduleSourceIsRefusedListingTheNames) {
   mpc_config::TaskFile task = shipped_.task;
@@ -359,7 +359,7 @@ TEST_P(AtlasFormulationNamesTest,
 }
 
 /** A value of interface.verbose that is not a bool does not parse, and the
- * parser names the field and its position. */
+ * parser reports the field and its position. */
 TEST_P(AtlasFormulationNamesTest,
        anInterfaceVerboseThatIsNotABoolIsRefusedNamingTheField) {
   mpc_config::TaskFile task = shipped_.task;

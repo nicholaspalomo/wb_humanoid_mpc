@@ -146,7 +146,7 @@ class TestTheIdentityAndTheMessage(unittest.TestCase):
             ),
             ATLAS_IDENTITY,
         )
-        # The robot's bundle and the checkout name the same file alike; the last robot_models/ component counts.
+        # The robot's bundle and the checkout refer to the same file alike; the last robot_models/ component counts.
         self.assertEqual(
             robot_config_save.config_path_of(
                 os.path.join("/opt/robot_models/bundle", ATLAS_IDENTITY)

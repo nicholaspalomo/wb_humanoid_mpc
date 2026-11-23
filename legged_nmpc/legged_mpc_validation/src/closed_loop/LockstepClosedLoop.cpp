@@ -160,10 +160,10 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   robot::mujoco_sim_interface::MujocoSimInterface& sim = *simulator;
   RETURN_IF_ERROR(driver->connectSimulator(sim));
   RobotController& controller = driver->robotController();
-  // The state the controller is handed, as RobotProcess::Create() builds its
+  // The state passed to the controller, as RobotProcess::Create() builds its
   // source: the simulator's state itself (ground_truth), or the task file's
   // state estimator's estimate from it (kalman). A state-estimator variant
-  // names the estimator in place of the task file.
+  // specifies the estimator in place of the task file.
   ASSIGN_OR_RETURN(const mpc_config::TaskFile task,
                    loadTaskFile(configuration_.taskFile));
   const RobotProcessSettings estimatorSettings =

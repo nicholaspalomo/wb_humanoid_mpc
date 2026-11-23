@@ -40,14 +40,14 @@ namespace ocs2::legged {
  * Checks that what `task` selects runs on the contact set of `modelSettings`
  * (legged_nmpc/docs/multi_contact_planning/README.md, section 7.2). On the
  * biped's two 6-DoF feet everything does. On any other set the centroidal MPC
- * runs the terms written per contact for any contact - the dynamics, the cones,
- * zero_wrench and zero_velocity - and the costs of the whole state and input,
- * and refuses those written for exactly two feet: the costs
- * external_torque_cost and dcm_terminal_cost, the soft constraints
- * foot_collision, foot_collision_cbf and the contact-implicit terms, the hard
- * constraint knee_joint_mimic, contact_schedule_source "contact_planner" (its
- * H-LIP and MIQP planners and their contact-planning rules and constraints),
- * the base-pose and wrench locomotion heuristics and the step_width foothold
+ * runs the terms written per contact for any contact (the dynamics, the cones,
+ * zero_wrench, and zero_velocity) and the full state and input costs, and
+ * refuses those written for exactly two feet: the costs external_torque_cost
+ * and dcm_terminal_cost, the soft constraints foot_collision,
+ * foot_collision_cbf and the contact-implicit terms, the hard constraint
+ * knee_joint_mimic, contact_schedule_source "contact_planner" (its H-LIP and
+ * MIQP planners and their contact-planning rules and constraints), the
+ * base-pose and wrench locomotion heuristics and the step_width foothold
  * anchor with a positive step width. The swing terms task_space_foot_cost and
  * the soft and hard normal_velocity, and the foothold heuristics, run on a set
  * that model_settings.legs describes (ModelSettings::isLeggedContactSet()) and
@@ -56,14 +56,14 @@ namespace ocs2::legged {
  * on a set with a 3-DoF contact, for which no generator set exists. On a set
  * with a rolling contact (model_settings.contacts_rolling) the terms that hold
  * a point fixed on its link or place a contact on a tilted patch are refused
- * first, with one InvalidArgument naming the rolling contacts and the terms:
+ * first, with one InvalidArgument listing the rolling contacts and the terms:
  * the contact-implicit terms, foot_collision and foot_collision_cbf,
  * contact_swing, terrain_non_penetration and contact_moment_xy, the
  * basis_vectors contact inputs, the contact_planner and multi_contact_plan
  * schedule sources and the foot_motion leg joint reference
  * (legged_nmpc/docs/rolling_contact/README.md).
  *
- * @return OkStatus, or one InvalidArgument naming the contact set and every
+ * @return OkStatus, or one InvalidArgument listing the contact set and every
  * refused selection by its key; the errors of the conversions it reads the
  * selections with.
  */

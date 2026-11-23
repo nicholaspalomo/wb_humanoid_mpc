@@ -262,7 +262,7 @@ TEST(StrideMotionHistory, BeforeTheFirstSampleTheSeedsMotionIsAveragedIn) {
         ++seedCalls;
         return seed;
       };
-  // The first sample: the window holds the seed alone.
+  // The first sample: the window contains the seed alone.
   history.addSample(/*time=*/10.0, vector2_t(1.0, 1.0), /*yawBaseRtWorld=*/0.2,
                     countedSeed);
   EXPECT_EQ(seedCalls, 1);
@@ -402,9 +402,9 @@ TEST(StrideMotionHistory,
                     .maxCoeff(),
                 1.0e-12)
           << times[i];
-      // A window that holds the gap is a mean, not a measured one (the sample a
-      // window after the gap left out, at which the comparison is one of
-      // round-off).
+      // A window that contains the gap is a mean, not a measured one (the
+      // sample a window after the gap left out, at which the comparison is one
+      // of round-off).
       const scalar_t afterTheGap = times[i] - kCycle - (kGapStart + gap);
       if (times[i] <= kGapStart) {
         EXPECT_TRUE(history.isMeasuredOver(kCycle)) << times[i];

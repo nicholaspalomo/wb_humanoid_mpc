@@ -44,7 +44,7 @@ namespace ocs2::legged::multi_contact {
 
 /**
  * The multi-contact planners by name (design section 5.3): the only place a
- * planner is added. A scenario names its planner (Scenario.planner), and the
+ * planner is added. A scenario specifies its planner (Scenario.planner), and the
  * registry builds it. A name of the design (kPlannerNames) that no planner
  * implements yet is refused as Unimplemented, any other unknown name as
  * InvalidArgument; both list the available planners.

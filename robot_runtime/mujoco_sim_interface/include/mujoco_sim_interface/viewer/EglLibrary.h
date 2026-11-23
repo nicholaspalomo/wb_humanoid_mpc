@@ -43,7 +43,7 @@ namespace robot::mujoco_sim_interface {
 /**
  * The EGL library the web viewer renders through, loaded at run time with
  * dlopen() rather than linked, so that the robot binary needs no EGL (and no
- * Mesa) to start and a machine without EGL gets a Status that names the fix.
+ * Mesa) to start and a machine without EGL gets a Status that specifies the fix.
  *
  * Get() loads a library once per name and keeps it for the life of the process:
  * it is never dlclose()d, because glvnd and Mesa keep destructors and
@@ -61,7 +61,7 @@ class EglLibrary {
    * The EGL entry points the viewer uses, resolved through eglGetProcAddress.
    * The core ones are never null in a loaded library (Get() fails instead); the
    * extensions are null where the library has none. (The PFN types are pointer
-   * typedefs, which carry no nullability annotation.)
+   * typedefs, which have no nullability annotation.)
    */
   struct Functions {
     PFNEGLGETPROCADDRESSPROC getProcAddress;

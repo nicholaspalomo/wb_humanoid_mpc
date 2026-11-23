@@ -76,12 +76,12 @@ namespace ocs2::legged {
  * the CppAD-taped dynamics), with its rollout and initializer. Made by
  * Create(), or by CreateControllerModels() for the models of a robot process
  * whose MPC runs elsewhere. The accessors are const and safe to call
- * concurrently; the reference manager and the Pinocchio interface it hands out
+ * concurrently; the reference manager and the Pinocchio interface it returns
  * are not thread-safe themselves.
  *
  * Both factories come in two forms with the same meaning: of the typed task and
  * reference files (legged_nmpc/legged_mpc_config: TaskFile, ReferenceFile),
- * and of the files at a path - the root of the MPC's configuration - which
+ * and of the files at a path (the root of the MPC's configuration), which
  * loads them strictly (loadTaskFile(), loadReferenceFile()) and builds the
  * typed form, prefixing its errors with the file they are about.
  */
@@ -91,12 +91,12 @@ class WBMpcInterface final : public RobotInterface {
    * The whole-body MPC of the task file `taskFile`, the URDF `urdfFile` and the
    * reference file `referenceFile`. Nothing of the two files is retained.
    *
-   * @return The interface, or InvalidArgument: naming the field of a block that
-   * does not convert (state_weights.joint_positions, ...); naming a formulation
-   * this MPC does not implement - the contact-implicit terms,
+   * @return The interface, or InvalidArgument: identifying the field of a block that
+   * does not convert (state_weights.joint_positions, ...); identifying a formulation
+   * this MPC does not implement (the contact-implicit terms,
    * com_and_acom_tracking_cost, dcm_terminal_cost,
    * contact_input_parameterization "basis_vectors" or contact_schedule_source
-   * "contact_planner", all of them the centroidal MPC's; naming the URDF when
+   * "contact_planner", all of them the centroidal MPC's); identifying the URDF when
    * it does not parse or its joints are not model_settings'; or with what
    * OCS2's CppAD code generation threw for a library it cannot build or load.
    * Nothing is thrown.
@@ -110,8 +110,8 @@ class WBMpcInterface final : public RobotInterface {
    * Create() of the files at the paths `taskFile`, `urdfFile` and
    * `referenceFile`.
    *
-   * @return NotFound naming the path when one of the three files does not
-   * exist, checked before anything reads them; InvalidArgument naming the file,
+   * @return NotFound identifying the path when one of the three files does not
+   * exist, checked before anything reads them; InvalidArgument identifying the file,
    * line and column of a task or reference file that does not parse; and the
    *         typed form's errors, prefixed with the file they are about.
    */
@@ -219,7 +219,7 @@ class WBMpcInterface final : public RobotInterface {
   /**
    * The names the errors of a typed file's conversion are prefixed with: the
    * files' paths for the path forms of the factories, empty for the typed
-   * forms, whose errors name their fields alone.
+   * forms, whose errors identify their fields alone.
    */
   struct ConfigSources {
     std::string taskFile;
@@ -253,7 +253,7 @@ class WBMpcInterface final : public RobotInterface {
    * which checks its actuated joints against model_settings in order), the MPC
    * robot models, the reference manager on `gaitSchedule` and the swing
    * trajectory planner of `taskFile`, and the initial state. A model that does
-   * not match its settings is an InvalidArgument naming the first joint that
+   * not match its settings is an InvalidArgument identifying the first joint that
    * differs, returned rather than thrown.
    */
   absl::Status setupModels(const mpc_config::TaskFile& taskFile,

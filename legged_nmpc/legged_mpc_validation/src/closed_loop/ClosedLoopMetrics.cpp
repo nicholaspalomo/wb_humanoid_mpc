@@ -63,7 +63,7 @@ std::optional<double> rmsOf(double squaredSum, size_t count) {
   return std::sqrt(squaredSum / static_cast<double>(count));
 }
 
-/** [%] The percentiles of summarizeSample(), and the whole sample. */
+/** [%] The percentiles of summarizeSample(), and the full sample. */
 constexpr double kMedianPercent = 50.0;
 constexpr double kTailPercent = 99.0;
 constexpr double kWholePercent = 100.0;

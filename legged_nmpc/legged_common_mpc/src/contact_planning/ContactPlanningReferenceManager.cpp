@@ -103,7 +103,7 @@ constexpr scalar_t kStalePlanTolerance = 1.0e-6;
 constexpr int kDroppedPlanLogInterval = 50;
 // The fewest knots of a prediction that can be interpolated.
 constexpr int kMinPredictionKnots = 2;
-// The fewest entries of a target state that holds a velocity command, read
+// The fewest entries of a target state that contains a velocity command, read
 // through getProxyLinvelComRtWorldEwrtWorld() (linear) and getRefPlanarMotion()
 // (yaw rate).
 constexpr int kMinCommandTargetStateDim = kTwistDim;
@@ -178,7 +178,7 @@ scalar_array_t boundedAngleResampleTimes(
 
 /**
  * Returns the input of a tail knot at `time` (targetOnPlanGrid()): the
- * operator's when the published target carries one, the live target's
+ * operator's when the published target includes one, the live target's
  * otherwise.
  */
 vector_t tailInput(const TargetTrajectories& operatorTarget,
@@ -397,7 +397,7 @@ void ContactPlanningReferenceManager::setTargetTrajectories(
 void ContactPlanningReferenceManager::captureOperatorCommand(
     scalar_t initTime, const vector_t& initState) {
   // Both commands are read off the momentum channel of the target: the linear
-  // part is the commanded CoM velocity, and the angular part carries the yaw
+  // part is the commanded CoM velocity, and the angular part stores the yaw
   // rate as the momentum of a rigid turn about the vertical, h_z = I_zz omega /
   // m, with the same locked inertia this manager derives from the model. The
   // target's base yaw is not usable for the latter - it blends the measured yaw
@@ -577,9 +577,9 @@ absl::Status ContactPlanningReferenceManager::setConfigStatus(
   // with this file would have installed; without it the planner would silently
   // take the base yaw for the heading while its heading rate stays a whole-body
   // quantity. Resolved before anything is replaced, so a network that does not
-  // fit refuses the reload as a whole. Before loadHeadingModelEvaluator() has
-  // run - while the interface is still being constructed, and Create() and
-  // ContactPlannerModule::Create() hand the configuration over through here -
+  // fit rejects the reload. Before loadHeadingModelEvaluator() has run (while
+  // the interface is still being constructed, and Create() and
+  // ContactPlannerModule::Create() pass the configuration through here),
   // the evaluator is left to that call, which the interface makes once from
   // setupOptimalControlProblem(), after the planner module exists.
   if (loadsHeadingModelEvaluator_) {
@@ -726,7 +726,7 @@ void ContactPlanningReferenceManager::updatePredictedComState(
     predictedState = mpcRobotModelPtr_->interpolateStateTrajectory(
         initTime, predictedTimes_, predictedStates_);
   }
-  // A diverged solve hands over a non-finite trajectory; measuring against it
+  // A diverged solve returns a non-finite trajectory; measuring against it
   // would poison the foot reference.
   if (predictedState.size() !=
           static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim()) ||
@@ -842,10 +842,9 @@ void ContactPlanningReferenceManager::modifyReferences(
   // It REPLACED the target with a grid spanning the plan's horizon alone.
   // Nothing intersected that with the solver horizon, and OCS2
   // zero-order-extrapolates past the last knot, so whenever the plan ended
-  // before finalTime - which is any time the plan is older than (plan horizon -
-  // MPC horizon), the same regime as an expiring plan - the whole reference
-  // tail froze at the plan-end sample instead of following the command. The
-  // grid is now EXTENDED past the plan's end with the operator's knots, and
+  // before finalTime (any time the plan is older than plan horizon - MPC
+  // horizon, the same regime as an expiring plan), the reference tail froze at
+  // the plan-end sample instead of following the command. The grid is now EXTENDED past the plan's end with the operator's knots, and
   // with a final sample at finalTime when even those fall short, and the rules
   // leave every knot outside the plan alone (planCoversTime).
   //
@@ -872,7 +871,7 @@ void ContactPlanningReferenceManager::modifyReferences(
   const scalar_t posSurfaceRtWorldEwrtWorldZ =
       applyPosSurfaceRtWorldEwrtWorldZ(targetTrajectories, initState, initMode);
   // The operator's copy of the target stands on the same ground as the live one
-  // - both are the target as published - and the tail of the densified target
+  // (both are the target as published) and the tail of the densified target
   // above is read from it, so it moves with the ground as well. Left behind, a
   // hot reload of `posSurfaceRtWorldEwrtWorldZ` moved the plan's knots but put
   // every tail knot back on the old ground from the next run on, for as long as
@@ -1175,12 +1174,12 @@ ContactPlanningReferenceManager::getSwingFootReference(size_t contactIndex,
   // getPrevDesPosFootRtWorldEwrtWorldXy(), not
   // getDesPosFootRtWorldEwrtWorldXy() with the argument nudged back half a
   // step: the nudge rounds back up to the lift-off node itself, and under the
-  // shipped `hlip` planner that node already carries the swing's LANDING
+  // shipped `hlip` planner that node already stores the swing's LANDING
   // position, so `initDesPosFootRtWorldEwrtWorldXy` became
   // `*touchdownDesPosFootRtWorldEwrtWorldXy`, `desErrPosFootRtWorldEwrtWorldXy`
-  // became zero, and this whole reference collapsed to a constant at the
-  // landing target with zero commanded velocity for every later swing in the
-  // horizon. See ContactPlan.h.
+  // became zero, and the reference collapsed to a constant at the landing
+  // target with zero commanded velocity for every later swing in the horizon.
+  // See ContactPlan.h.
   vector2_t initDesPosFootRtWorldEwrtWorldXy =
       liftoffPosFeetRtWorldEwrtWorld_[contactIndex]
           .head<kHorizontalPositionDim>();

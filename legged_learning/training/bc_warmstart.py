@@ -128,7 +128,7 @@ def train_behavioral_cloning(
         actions: The demonstrated actions in [-1, 1], (num_samples, action_dim).
         epochs: Number of passes over the demonstrations.
         learning_rate: Adam's learning rate.
-        batch_size: The samples of one step; the last minibatch of an epoch holds the remainder.
+        batch_size: The samples of one step; the last minibatch of an epoch contains the remainder.
         seed: The seed of the initialization and of every epoch's shuffle.
         verbose: Whether to print the loss five times over the run.
 

@@ -383,7 +383,7 @@ class InertiaAlgebraTest(unittest.TestCase):
 
 
 class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
-    """Each robot's MJCF bodies carry the inertia Pinocchio gives the same bodies from the URDF."""
+    """Each robot's MJCF bodies have the inertia Pinocchio gives the same bodies from the URDF."""
 
     def test_model_pairs_are_discovered(self):
         """Guards the test itself: a walk that silently found nothing would pass every assertion below."""
@@ -427,7 +427,7 @@ class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
     def _assert_agree(
         self, robot: str, body: str, urdf: _Inertia, mjcf: _Inertia
     ) -> None:
-        """Fails, naming both sets of numbers, when one body's two inertias differ."""
+        """Fails, reporting both sets of numbers, when one body's two inertias differ."""
         mass_error = abs(urdf.mass - mjcf.mass)
         # [m] The largest component of the URDF's center of mass minus the MJCF's.
         max_norm_err_pos_linkcom_rt_link_ewrt_link = float(

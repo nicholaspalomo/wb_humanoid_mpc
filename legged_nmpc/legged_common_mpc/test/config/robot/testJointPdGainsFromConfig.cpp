@@ -62,7 +62,7 @@ std::vector<std::string> otherJoints() {
   return {"neck", "wrist"};
 }
 
-/** A file whose default_gains sets every gain, and names no joint. */
+/** A file whose default_gains sets every gain and lists no joint. */
 mpc_config::JointPdGainsFile completeDefaults() {
   mpc_config::JointPdGainsFile file;
   file.default_gains.kp = 250.0;

@@ -113,9 +113,9 @@ vector_t commandedState(const vector_t& state,
 }
 
 /**
- * Makes `schedule` the reference manager's with a target that holds the
+ * Makes `schedule` the reference manager's with a target that keeps the
  * initial state under the command (v_x, h_z), solves the references at 0 the
- * way the MPC loop does, and points the problem at the target.
+ * way the MPC loop does, and assigns the target to the problem.
  */
 void prepareCommandedSolve(CentroidalMpcInterface& mpc,
                            const ModeSchedule& schedule,

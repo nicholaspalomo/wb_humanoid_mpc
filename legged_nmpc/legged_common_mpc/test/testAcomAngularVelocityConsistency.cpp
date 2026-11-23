@@ -264,8 +264,8 @@ std::string urdfFileOf(const AcomRobotCase& robotCase) {
  * samples in base axes at the identity base (a MuJoCo free joint, whose angular
  * velocity is the body angular velocity omega_B). So this file is the C++-side
  * acceptance test for the TRAINING, evaluated through the exported weight
- * header that the robot actually runs - not through the JAX parameters the
- * Python tests see - for every robot that has one. A retrained or re-exported
+ * header that the robot actually runs (rather than through the JAX parameters
+ * the Python tests see) for every robot that has one. A retrained or
  * network that regressed, a transposed weight matrix, a row permutation applied
  * in the wrong direction, or a header exported for the wrong robot all show up
  * here and nowhere else.
@@ -291,7 +291,7 @@ std::string urdfFileOf(const AcomRobotCase& robotCase) {
  *
  * The relation is an approximation and cannot be otherwise: the connection
  * Abar_omega,j has non-zero curvature, so no exact integrable whole-body
- * orientation exists at all - that is the entire premise of the paper. The
+ * orientation exists at all, which is the premise of the paper. The
  * thresholds are therefore acceptance bounds on the fit quality, not tolerances
  * on a numerical identity; they are stated relative to the magnitude of the
  * target so that a number means the same thing on every robot, and set per
@@ -412,7 +412,7 @@ class AcomAngularVelocityConsistencyTest
   }
 
   /**
-   * The velocity v at `q` that rotates the whole robot, its joints locked, with
+   * The velocity v at `q` that rotates the full robot, its joints locked, with
    * the body angular velocity `angvelBaseRtWorldEwrtBase` about the base
    * origin: the root joint's velocity coordinates whose local spatial velocity
    * is (0, angvelBaseRtWorldEwrtBase), whatever coordinates the root joint has.
@@ -460,9 +460,9 @@ class AcomAngularVelocityConsistencyTest
   /**
    * The map from joint velocities to the ACoM's angular velocity in base axes,
    * J_l(Delta_theta) J_Delta_theta, at the joint positions `qJoints`:
-   * R(Delta_theta) - the attitude at the identity base, Exp(Delta_theta) -
-   * times the tangent Jacobian's joint block J_r(Delta_theta) J_Delta_theta,
-   * which carries that block from the attitude's axes into the base's (J_l = R
+   * R(Delta_theta) (the attitude at the identity base, Exp(Delta_theta)) times
+   * the tangent Jacobian's joint block J_r(Delta_theta) J_Delta_theta, which
+   * transforms that block from the attitude's axes into the base's (J_l = R
    * J_r). This, not J_Delta_theta alone, is what the composition xi (x)
    * Exp(Delta_theta) makes the network responsible for.
    */
@@ -737,8 +737,8 @@ TEST_P(AcomAngularVelocityConsistencyTest,
 TEST_P(AcomAngularVelocityConsistencyTest,
        theExportedJointNamesMatchTheMpcModelJointForJoint) {
   // The network is a function of a VECTOR of joint angles, so a permutation
-  // between the order it was trained in and the order the MPC hands it is not
-  // an error that degrades gracefully - it evaluates a different robot. The
+  // between the order it was trained in and the order the MPC passes it does
+  // not degrade mildly: it evaluates a different robot. The
   // shapes still match, the analytic Jacobian still matches finite differences
   // and the equivariance still holds, so only a comparison of names catches it.
   // Checked against both the model settings and the reduced Pinocchio model the

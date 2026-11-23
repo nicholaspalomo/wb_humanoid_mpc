@@ -55,7 +55,7 @@ Proto Reparsed(const Proto& message) {
 }
 
 /**
- * FromProto() of a message into a struct that holds a value of the same shape
+ * FromProto() of a message into a struct that stores a value of the same shape
  * (same sizes, same oneof alternatives, same map keys, strings of the same
  * lengths), and ToProto() of a struct into a message of that shape, make no
  * heap allocation. The first conversions, into empty objects, are free to.

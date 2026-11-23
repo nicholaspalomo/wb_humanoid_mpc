@@ -161,7 +161,7 @@ class DecodeTest(unittest.TestCase):
         )
 
     def test_a_saved_file_decodes_with_its_text(self) -> None:
-        # The GUI's Save of a file for the robot's copy (operator/config_save) carries the file's text.
+        # The GUI's Save of a file for the robot's copy (operator/config_save) contains the file's text.
         message_decoding.import_message_modules()
         save = config_file_save_pb2.ConfigFileSave(
             kind=config_file_kind_pb2.CONFIG_FILE_KIND_JOINT_PD_GAINS,

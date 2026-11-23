@@ -28,7 +28,7 @@
 """The contact rows that cannot act on the running MPC say so (finding AC9), from the schema's own annotations.
 
 Under basis-vector contact inputs the wrench cone's soft constraint is never built, so its barrier rows moved nothing,
-and the geometry of the same block - which builds the basis generators, one of them the input dimension - only takes
+and the geometry of the same block (which builds the basis generators, one of them the input dimension) only takes
 effect at the next start. The schema says both (contacts_config.proto: the barrier's `active_when`, the block's
 RELOAD_START_UP), and the labels come from it alone: there is no list of contact keys in the GUI any more. The
 classification is checked headless on the DRC Atlas file and on a copy switched to wrench inputs; one test renders the

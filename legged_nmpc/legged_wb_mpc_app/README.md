@@ -29,7 +29,7 @@ bazel run //legged_nmpc/legged_wb_mpc_app:legged_wb_mpc_dummy_sim -- --robot_nam
 - `WBMpcInterface::Create()` and an `SqpMpc`;
 - the procedural motion manager over `WBMpcTargetTrajectoriesCalculator`, fed from `operator/walking_velocity_command`;
   a reset of the MPC resets it and, through its reset hook, the calculator;
-- resets served from `wbMpcResetTargetTrajectories()`, the reset target the MRT joint controller hands its in-process
+- resets served from `wbMpcResetTargetTrajectories()`, the reset target the MRT joint controller passes to its in-process
   link (`legged_wb_mpc/mrt/WBMpcResetTarget.h`);
 - with every policy, the scaled velocity command (`MpcPolicy.annotations`).
 
@@ -49,7 +49,7 @@ own under `SCHED_IDLE`, so that a solver thread that wakes on its core takes the
 file's `mpc.mpc_desired_frequency` (`node::DummySimLoop`), and publishes `robot/mpc_observation` as the bus node `robot`.
 
 <!-- LINT.IfChange(node_flags) -->
-The node's own flag: `--ipc_node` (default `mpc`). The task file holds the rest: `multiple_shooting.thread_priority`
+The node's own flag: `--ipc_node` (default `mpc`). The task file contains the rest: `multiple_shooting.thread_priority`
 is the SCHED_FIFO priority of every solver thread, the node's and the SQP solver's workers alike (0 keeps them on the
 time-sharing scheduler), and `interface.walking_command_timeout` the seconds a walking command stays in force without a
 newer one, after which the robot is commanded to stop at its pelvis height (positive; 0.5 by default).
@@ -64,7 +64,7 @@ Both take the shared flags of [`legged_common_mpc_app/node`](../legged_common_mp
 `:test_wb_mpc_node` (large: it builds the G1 whole-body CppAD libraries on a cold cache) runs the node with the SQP
 solver against a scripted robot and operator over loopback buses (observation in and policy out, resets through the
 observation counters, the velocity command reaching the motion manager and the next policy), checks that it resets to
-the target the controller hands its in-process link, and runs the dummy simulator against it for four seconds:
+the target the controller passes to its in-process link, and runs the dummy simulator against it for four seconds:
 it stands, the policies flow, and no reset after the start-up one.
 
 ## The robot process (robot side)
@@ -86,7 +86,7 @@ task-file fields it reads. It reaches its MPC, the MPC node, over the bus only, 
 The whole-body MPC of the Unitree G1 is configured by textprotos, each a message of the schemas in
 [`legged_nmpc/legged_mpc_config`](../legged_mpc_config/README.md) named in its first two lines
 (`# proto-file:`, `# proto-message:`). They are read strictly: a field the schema does not have, a retired one or a value
-of the wrong type stops the process with the file, line and column, and a retired field's error names its replacement.
+of the wrong type stops the process with the file, line and column, and a retired field's error identifies its replacement.
 
 | File | Message | Read by |
 |---|---|---|
@@ -95,9 +95,9 @@ of the wrong type stops the process with the file, line and column, and a retire
 | `robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto` | `JointPdGainsFile` | the robot process's MRT joint controller, beside the task file (`config/controller/`) |
 | `legged_nmpc/legged_common_mpc/config/command/gait.textproto` | `GaitFile` | the MPC node's motion manager |
 
-**Tuning.** The weights and values are addressed by name, not by position: `state_weights { pos_base_rt_world_ewrt_world { z: ... } }`,
+**Tuning.** The weights and values are addressed by name rather than position: `state_weights { pos_base_rt_world_ewrt_world { z: ... } }`,
 the base orientation in Euler angles ZYX (`eulerzyx_base_rt_world { yaw: ... pitch: ... roll: ... }`), a joint as
-`joint_positions { joint: "left_knee_joint" value: ... }`. The MPC's state holds the orientation as a unit quaternion
+`joint_positions { joint: "left_knee_joint" value: ... }`. The MPC's state stores the orientation as a unit quaternion
 and the base angular velocity in the body frame, so `angvel_base_rt_world_ewrt_base { yaw: ... pitch: ... roll: ... }` weighs
 and sets the body angular velocity about z, y and x; one layer maps the Euler-written rows onto the state
 (legged_nmpc/docs/quaternion_base_orientation/README.md, section 2.10). The MPC node's parameter updater applies an edit of the task
@@ -107,7 +107,7 @@ it reads while it runs: the task file's `contact_estimator` and `contact_wrench_
 gains file, which it checks about once a second.
 
 **The GUI** ([`remote_control`](../remote_control/README.md), "Tuning the configuration") edits the same files, rendered from
-their schemas. Its Joint PD Gains tab publishes the whole gains file to the robot process (`operator/pd_gains`), and the
+their schemas. Its Joint PD Gains tab publishes the full gains file to the robot process (`operator/pd_gains`), and the
 task file its MPC Parameters tab publishes (`operator/mpc_parameters`) reaches the MPC node's parameter updater, which
 applies its `RELOAD_HOT` fields before the next solve, and the robot process's contact estimator and contact wrench gate.
 **Save** writes the edited values into the file and keeps every other byte of it (comments, blank lines, LINT
@@ -119,5 +119,5 @@ The formulation choices only the centroidal MPC implements are refused at start-
 
 The whole-body MPC runs on the biped's two 6-DoF feet alone. `WBMpcInterface` refuses any other contact set (a 3-DoF
 contact, a third 6-DoF contact, or a set of point contacts with no foot) with an InvalidArgument that gives the number
-of 3-DoF and 6-DoF contacts and names the centroidal MPC as the one that takes any contact set
+of 3-DoF and 6-DoF contacts and notes that the centroidal MPC supports arbitrary contact sets
 (`testWBMpcFormulation`: `aContactSetOtherThanTheFeetIsRefused`, `aSetOfFourPointContactsIsRefused`).

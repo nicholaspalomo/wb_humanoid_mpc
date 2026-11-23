@@ -203,7 +203,7 @@ class MixedIntegerOcpQp::Search {
   Search& operator=(const Search&) = delete;
   ~Search() = default;
 
-  /** Runs the whole search from `initialAssignment` and returns its result, or
+  /** Runs the full search from `initialAssignment` and returns its result, or
    * the first error of the QP solver. */
   absl::StatusOr<MiqpResult> run(
       const MiqpAssignment& initialAssignment,
@@ -525,9 +525,9 @@ class MixedIntegerOcpQp::Search {
   absl::Span<const MiqpBinaryVariable> binaries_;
   std::vector<BinaryLocation> locations_;
   const MiqpPropagateFn* absl_nonnull
-  propagate_;  // may hold no target: no propagation
+  propagate_;  // may be empty: no propagation
   const MiqpAssignmentCostFn* absl_nonnull
-  assignmentCost_;  // may hold no target: no assignment cost
+  assignmentCost_;  // may be empty: no assignment cost
   Clock::time_point startTime_;
   MiqpResult result_;
   // The first problem the QP solver rejects (inconsistent data, memory). Every

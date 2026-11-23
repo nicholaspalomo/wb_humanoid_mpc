@@ -168,7 +168,7 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> CentroidalMpcNode::Create(
   }
 
   // Hot reloading of the MPC parameters, wired by the one function every node
-  // that runs the centroidal MPC uses; the reloaders hand the command limits of
+  // that runs the centroidal MPC uses; the reloaders pass the command limits of
   // a reloaded reference file to their consumers built above, so that the
   // Command Limits tab of the remote control changes them on the running node.
   ASSIGN_OR_RETURN(

@@ -93,7 +93,7 @@ VECTOR6_T<SCALAR_T> computeBaseGeneralizedAcceleration(
   pinocchio::crba(model, data, q);
   pinocchio::nonLinearEffects(model, data, q, qd);
 
-  // The base columns [dp_W, w_B] - the head of v - of the LOCAL_WORLD_ALIGNED
+  // The base columns [dp_W, w_B] (the head of v) of the LOCAL_WORLD_ALIGNED
   // Jacobian of each configured contact frame (modelSettings.contactNames),
   // which take world-frame wrenches. The state-aware accessor is frame-correct
   // for every input parameterization; for the wrench-space WB model it is the

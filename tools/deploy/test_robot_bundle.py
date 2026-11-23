@@ -211,8 +211,8 @@ class RobotBundleTest(unittest.TestCase):
                         os.path.isfile(os.path.join(copy, gains)), gains
                     )
                     self.assertEqual(flags["--backend"], "mujoco")
-                    # The launch file names no viewer, so the plot configuration's mujoco_viewer (web) chooses unless
-                    # the image or the environment names one; the web viewer serves this machine only.
+                    # The launch file specifies no viewer, so the plot configuration's mujoco_viewer (web) chooses unless
+                    # the image or the environment specifies one; the web viewer serves this machine only.
                     self.assertEqual(flags["--viewer"], "")
                     self.assertEqual(
                         flags["--plot_config"],
@@ -262,8 +262,8 @@ class RobotBundleTest(unittest.TestCase):
             self.assertIn("--web_viewer_port=16090", lines)
             self.assertIn("--realtime_priority=0", lines)
 
-            # The entry point gives the script the image's viewer when the environment names neither a viewer nor a
-            # plot configuration; one that names a plot configuration gets that file's viewer.
+            # The entry point gives the script the image's viewer when the environment specifies neither a viewer nor a
+            # plot configuration; one that specifies a plot configuration gets that file's viewer.
             for default in ("none", "glfw"):
                 with self.subTest(default=default):
                     lines = self.run_script(

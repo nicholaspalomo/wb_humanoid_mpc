@@ -42,7 +42,7 @@ namespace robot::web_viewer {
 // The parsers of the query parameters of POST /input and POST /settings
 // (README.md, "Routes"). Each takes the parameters of one request by name,
 // refuses an unknown or missing parameter and a malformed value with
-// InvalidArgument naming the parameter (the server answers 400 with the
+// InvalidArgument reporting the parameter (the server answers 400 with the
 // message), and clamps a value that is merely out of range. They are pure
 // functions, safe to call from any thread.
 

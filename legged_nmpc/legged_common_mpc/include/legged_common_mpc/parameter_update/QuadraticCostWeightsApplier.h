@@ -46,11 +46,11 @@ namespace ocs2::legged {
  * the quadratic terminal cost (terminalCost, TuningQuadraticStateCost). The
  * weights are converted by the helpers the start-up factory converts with
  * (trackingStateWeightsFromConfig(), terminalStateWeightsFromConfig()) and
- * handed to the same setters, so that each cost's TuningLayoutDeviation is the
+ * passed to the same setters, so that each cost's TuningLayoutDeviation is the
  * one map from their Euler-written rows to the state in both paths. Under the
  * CoM + ACoM tracking cost the base-pose blocks of Q and Q_final are zeroed
  * first, as the factory does, because that cost regulates the base pose;
- * whether the problem carries it is read off the running problem, never the
+ * whether the problem includes it is read off the running problem, never the
  * reloaded file. A Q that does not have the rows of the tuning layout, and an R
  * that does not have the problem's input dimension, are refused by field; a
  * weight matrix a cost's setter refuses (its size against the running term's,

@@ -71,11 +71,11 @@ namespace ocs2::legged {
  * tape, the linear approximation captures both ∂f/∂λ and the additional ∂f/∂x
  * contribution that stems from the configuration-dependent rotation.
  *
- * The generated CppAD model name carries basisInputsLibraryKey() of the basis,
+ * The generated CppAD model name includes basisInputsLibraryKey() of the basis,
  * so the DYNAMICS library is never reused for a different basis. The other
  * taped terms built on the basis-vector input (their domain and, for some,
  * their body depend on it too) are protected the same way because
- * CentroidalMpcInterface keys the whole CppAD model folder by that key
+ * CentroidalMpcInterface keys the CppAD model folder by that key
  * (CentroidalMpcInterface::keyCppAdModelFolder).
  *
  * Not thread-safe: the CppAD model it evaluates is not, so the solver gives
@@ -85,8 +85,8 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
  public:
   /**
    * Validates the arguments, then builds (and, unless cached, compiles) the
-   * CppAD model. Configuration errors are an InvalidArgumentError naming the
-   * task-file key to change.
+   * CppAD model. Configuration errors are an InvalidArgumentError identifying
+   * the task-file key to change.
    *
    * @param pinocchioInterface The pinocchio model interface.
    * @param info               CentroidalModelInfo with the *original*

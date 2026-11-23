@@ -49,7 +49,7 @@ namespace ocs2::legged::config_dump {
  * fixed perturbed state and input, every cost and soft-constraint term's value
  * and quadratic approximation (the diagonals of its Hessians element by
  * element, the rest as fingerprints) and the linear-quadratic approximation of
- * the whole problem (cost, dynamics, equality constraints), then the same of
+ * the full problem (cost, dynamics, equality constraints), then the same of
  * the final cost. The terms are evaluated on a copy of `problem`. `robotModel`
  * is the robot model whose state and input the problem has (for the centroidal
  * MPC the effective one): the target moves its base through

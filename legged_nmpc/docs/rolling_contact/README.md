@@ -13,7 +13,7 @@ dynamics and the costs of the wheel joints, and it lists what the formulation do
 
 ## 1. Geometry
 
-The MPC model has one frame per rolling contact, named after the contact, at the wheel center. It hangs from the
+The MPC model has one frame per rolling contact, named after the contact, at the wheel center. It is attached to the
 child link of the wheel's own joint (`parent_joint_name`) at `pos_wheel_rt_link_ewrt_link`, so the frame turns with the
 wheel. Only two things are read off it: the position of its origin $\mathbf{p}_w$ and its world twist
 $(\mathbf{v}_w, \boldsymbol{\omega}_w)$, whose angular velocity includes the wheel's spin about its axle. The frame's
@@ -147,11 +147,11 @@ always had. `testRollingContactSet` compares the angular rows of the flow map wi
 
 A wheel's angle has no reference: the wheel rolls as far as the robot drives. The state cost therefore gives the
 position of a rolling contact's wheel joint no weight; `state_weights.joint_positions` and
-`final_state_weights.joint_positions` must give it 0, and start-up and a hot reload refuse any other value naming the
-joint (`stateWeightsFromConfig()`). The wheel joint is a URDF `continuous` joint, which the Pinocchio build turns into
+`final_state_weights.joint_positions` must give it 0, and start-up and hot reload reject any other value, reporting the
+joint name (`stateWeightsFromConfig()`). The wheel joint is a URDF `continuous` joint, which the Pinocchio build turns into
 a revolute joint with infinite limits (`robot_model/UrdfContinuousJoints.h`), so the joint-limit constraint has no row
 for it. Start-up refuses a rolling contact whose wheel joint the URDF declares revolute with position limits, as the
-upstream Tron1 description does, naming the joint and its limits (`checkRollingContactJoints()`).
+upstream Tron1 description does, reporting the joint name and its limits (`checkRollingContactJoints()`).
 
 The input cost weighs each wheel joint's velocity against its reference. In stance the reference is the rolling speed
 of the commanded base twist at the contact point,
@@ -191,7 +191,7 @@ to the leg joints' let the no-slip rows, not the cost, decide how fast a wheel t
 ## 9. Refused terms
 
 `checkCentroidalContactSet()` refuses, on a contact set with a rolling contact, every selection that keeps a contact
-point fixed on its link or places a contact on a tilted patch, with one `InvalidArgument` that names the rolling
+point fixed on its link or places a contact on a tilted patch, with one `InvalidArgument` that lists the rolling
 contacts and the selections. They are:
 
 <!-- LINT.IfChange(rolling_refused_terms) -->
@@ -228,10 +228,10 @@ control cycle allocates nothing.
 The other runtime consumers of the contact set treat a rolling contact as follows:
 
 - State estimation: `stateEstimatorContacts()` gives a rolling contact as an `estimation::ContactPointKind::kRolling`
-  point on its wheel link at the wheel center, with its radius. The `kalman` estimator refuses it with
-  InvalidArgument naming the contact, because its contact measurement is a point at rest on its link;
+  point on its wheel link at the wheel center, with its radius. The `kalman` estimator rejects it with
+  InvalidArgument identifying the contact, because its contact measurement is a point at rest on its link;
   `ground_truth`, the simulator default, takes it.
-- MuJoCo: the contact frame exists only in the MPC's model and hangs from the wheel joint, so `resolveContactBodies()`
+- MuJoCo: the contact frame exists only in the MPC's model and is attached to the wheel joint, so `resolveContactBodies()`
   finds the wheel body through that joint, and the ground-truth contact mask is set while the wheel's collision
   cylinder carries a normal force, whichever point of the rim touches.
 - Visualization: the scene draws a rolling contact's force arrow, its planned path and its foothold at the wheel's

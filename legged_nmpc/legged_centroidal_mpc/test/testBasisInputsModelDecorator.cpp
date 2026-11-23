@@ -441,7 +441,7 @@ TEST_F(BasisInputsModelDecoratorTest,
       EXPECT_LE(decorator_->getTorqueContactEwrtWorld(state, input, i).norm(),
                 kTol * forceContactEwrtWorld.norm());
     }
-    // The same through the helper that builds the whole weight-compensating
+    // The same through the helper that builds the full weight-compensating
     // input.
     const vector_t compensating = weightCompensatingInput(
         *pinocchioInterface_, {true, true}, *decorator_, state);
@@ -588,7 +588,7 @@ TEST_F(BasisInputsModelDecoratorTest, CloneProducesWorkingCopy) {
       cloned->getWrenchContactEwrtParam(input, /*contactIndex=*/0);
   EXPECT_FALSE(recovered_wrench_contact_ewrt_param.isZero(1.0e-6));
 
-  // The clone must carry its own pinocchio copy so that the world-frame
+  // The clone must keep its own pinocchio copy so that the world-frame
   // accessors keep working after cloning.
   const vector_t state = makeState(kQuarterTurnEulerzyxBaseRtWorldYaw);
   EXPECT_TRUE(
@@ -811,7 +811,7 @@ TEST_F(BasisInputsModelDecoratorTest, YawedBaseRotatesLocalXForceIntoWorldY) {
         << "Contact frame " << i << " should be world-aligned at zero yaw:\n"
         << unturned_rotmat_contact_rt_world;
     // The base yaw is the first ZYX Euler angle: a positive yaw is a
-    // right-handed rotation about world z of the whole chain.
+    // right-handed rotation about world z of the full chain.
     EXPECT_TRUE(turned_rotmat_contact_rt_world.isApprox(
         Rz90 * unturned_rotmat_contact_rt_world, kTol))
         << "Yaw = +90deg must rotate contact frame " << i << " about world z:\n"

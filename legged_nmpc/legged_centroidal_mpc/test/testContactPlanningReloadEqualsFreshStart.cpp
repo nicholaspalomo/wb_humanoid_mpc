@@ -65,12 +65,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * A reload of the contact planner's file is a fresh start (the contact-planning
  * half of test L4 of the live-tuning design,
  * legged_nmpc/legged_mpc_config/README.md): every RELOAD_HOT field of the
- * file is perturbed into the file E - every real number it sets scaled by a few
- * percent, and every name list of terms (costs, soft and hard constraints,
+ * file is perturbed into the file E: every real number it sets is scaled by a
+ * few percent, and every name list of terms (costs, soft and hard constraints,
  * logic rules, assignment costs, the searches and the execution rules; not the
- * dynamics, which the terms need) left one entry short - and a DRC Atlas
- * reference stack started from the file and handed E as
- * MpcParameterUpdaterModule hands a reloaded file over (converted without the
+ * dynamics, which the terms need) is left one entry short. A DRC Atlas
+ * reference stack started from the file and given E in the same way
+ * MpcParameterUpdaterModule applies a reloaded file (converted without the
  * model's parameters, then ContactPlannerModule::setConfig()) plans exactly as
  * a stack started from E: the same mode schedule, target trajectories, contact
  * flags, swing references and target contact poses, solve for solve, standing
@@ -170,8 +170,8 @@ void perturb(Message& message,
     }
     // A name list of terms (the file's top-level lists): one entry short (the
     // last), so that a term the reload drops is dropped. The dynamics list is
-    // left whole: the terms of the other lists name the blocks of the planner's
-    // state they act on.
+    // left intact: the terms of the other lists reference the blocks of the
+    // planner's state they act on.
     if (prefix.empty() && field.name() != "dynamics" &&
         field.cpp_type() == FieldDescriptor::CPPTYPE_STRING &&
         field.is_repeated() && reflection.FieldSize(message, &field) > 1) {
@@ -182,7 +182,7 @@ void perturb(Message& message,
 }
 
 /** The leaves of the contact planner's file a reload applies are all of them:
- * the whole file is RELOAD_HOT. */
+ * every field in the file is RELOAD_HOT. */
 TEST(ContactPlanningReload, EveryTunableFieldOfTheFileIsReloadHot) {
   for (const ConfigLeaf& leaf :
        configLeaves(*ContactPlanningProto::descriptor())) {
@@ -275,8 +275,8 @@ TEST(ContactPlanningReloadEqualsFreshStart,
 
   AtlasReferenceStack reloaded(baseFileStruct, /*plannerType=*/"");
   AtlasReferenceStack fresh(editedFileStruct, /*plannerType=*/"");
-  // As MpcParameterUpdaterModule::applyContactPlanningFile() hands a reloaded
-  // file over, before the first solve.
+  // As MpcParameterUpdaterModule::applyContactPlanningFile() applies a reloaded
+  // file, before the first solve.
   const absl::StatusOr<ContactPlanningConfig> reload =
       contactPlanningConfigFromConfig(
           editedFileStruct,
@@ -304,8 +304,8 @@ TEST(ContactPlanningReloadEqualsFreshStart,
     if (HasFatalFailure()) return;
     time += kSolvePeriod;
   }
-  // Positive control: the edit matters, so the equality above is not two stacks
-  // that ignore the file.
+  // Positive control: the edit changes the plan, so the equality above is not
+  // two stacks that ignore the file.
   AtlasReferenceStack unedited(baseFileStruct, /*plannerType=*/"");
   EXPECT_NE(unedited.contactPlannerModule()->getConfig().planner.commitTime,
             reloaded.contactPlannerModule()->getConfig().planner.commitTime);

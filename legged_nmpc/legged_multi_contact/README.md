@@ -45,8 +45,8 @@ the certifier's conditions). Planner B (`stance_graph`) plans the box climb and 
 and the dummy sim tracks each of those plans too; the other scenarios do not plan yet, and the design's sections 4.4
 and 5.5 ("Status") say where each planner stops. `plan_multi_contact` prints the certifier's report and a summary (stances, contacts used, duration, the smallest
 static margin, the largest torque utilization, the smallest sphere clearance) and exits 0 with a certified plan, 1 when
-no plan is found or the certifier refuses it (the message names the stance nearest the goal and why its changes
-failed, or the failing knots), 2 on an error. `--v=1` logs every stance the search reaches, `--v=2` every failed
+no plan is found or the certifier refuses it (the message reports the stance nearest the goal and why its changes
+failed, or lists the failing knots), 2 on an error. `--v=1` logs every stance the search reaches, `--v=2` every failed
 change, `--v=3` every knot of every motion.
 
 ## Certifying and playing a plan

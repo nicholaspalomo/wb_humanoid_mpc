@@ -132,7 +132,7 @@ class KalmanBaseEstimator {
     scalar_t contactHeightNoise = kDefaultContactHeightNoise;
     /** [m] The flat ground's height (nom_pos_contact_rt_world_ewrt_world_z);
      * any finite value. The estimator does not read it: the robot process
-     * gives it to every contact while no multi-contact plan names a surface
+     * gives it to every contact while no multi-contact plan specifies a surface
      * (FlatGroundSurfaceHeights). The contact points are the MPC's sole and
      * pad centers and point offsets (ContactPointSpec), so 0 is flat ground at
      * z = 0. */
@@ -148,7 +148,7 @@ class KalmanBaseEstimator {
 
   /**
    * The refusals Create() makes on `config`, without building an estimator:
-   * InvalidArgument naming the field by its task file name
+   * InvalidArgument identifying the field by its task file name
    * ("kalman_state_estimator.imu_acceleration_noise must be a positive standard
    * deviation, got -1").
    */

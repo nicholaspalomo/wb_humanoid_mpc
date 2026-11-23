@@ -60,8 +60,8 @@ constexpr scalar_t kHalfTurnDegrees = 180.0;
  * chord dpsi apart on an arc of radius rho. */
 constexpr scalar_t kSagittaBoundDivisor = 8.0;
 
-/** The twists the first segment of a velocity command holds the mean of: the
- * measured and the commanded one. */
+/** The measured and commanded twists whose mean is used for the first segment
+ * of a velocity command. */
 constexpr int kAveragedMotionCount = 2;
 
 /** The constant-twist segments of a velocity command's reference: to the
@@ -402,7 +402,7 @@ TargetTrajectoriesCalculatorBase::velocityCommandKnots(
   const vector2_t measLinvelBaseRtWorldEwrtWorldXy = rotatedAboutZ(
       initYawBaseRtWorld, measuredMotion.linvelBaseRtWorldEwrtHeadingXy);
 
-  // The first segment holds the mean of the measured and the commanded twist,
+  // The first segment uses the mean of the measured and the commanded twist,
   // the second the command, from the intermediate knot's heading on.
   const scalar_t intermediateOffset =
       kIntermediateKnotHorizonFraction * mpcHorizon_;

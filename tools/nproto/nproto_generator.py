@@ -27,7 +27,7 @@
 
 """nproto's code generator: plain C++ structs and their protobuf conversions from .proto files.
 
-Every .proto file of the repository defines one top-level message or enum, and that definition names the C++ type
+Every .proto file of the repository defines one top-level message or enum, and that definition specifies the C++ type
 nproto generates for it with an option, the first statement of its body (tools/nproto/README.md):
 
     message Vector3 {
@@ -40,7 +40,7 @@ nproto generates for it with an option, the first statement of its body (tools/n
       ...
     }
 
-Its nested messages and enums become nested C++ types of that struct (TargetContactPatch::Kind) and carry no option of
+Its nested messages and enums become nested C++ types of that struct (TargetContactPatch::Kind) and have no option of
 their own. For every file protoc asks it to generate, the generator writes three files next to protoc's own output:
 
 - `<file>.nproto.h`: the struct (or the `enum class` for an enum file) in the namespace of the option, with Eigen,
@@ -52,13 +52,13 @@ their own. For every file protoc asks it to generate, the generator writes three
 
 The generator is plain Python on the descriptor API, so that the protoc plugin (protoc_gen_nproto.py) and the tests
 share it: `generate(request)` turns a CodeGeneratorRequest into a CodeGeneratorResponse, and a file nproto cannot map
-is an error of the response that names the file and the definition.
+is an error of the response that identifies the file and the definition.
 
 Two more options shape the code or are checked here: `(nproto.optional_message)` on a singular message field makes its
 member a std::optional<Struct>, and `(nproto.retired_field)` lists the fields a message no longer has; a retired name
 that is a live field of the message is an error, as the parsers could never report it.
 
-protoc hands a plugin the custom options of a definition as extension fields of its MessageOptions / EnumOptions /
+protoc passes a plugin the custom options of a definition as extension fields of its MessageOptions / EnumOptions /
 FieldOptions. They are only readable as extensions when nproto's extensions are registered when the request is parsed,
 which importing `options_pb2` and `retired_field_options_pb2` here does; `_extension_value()` also parses the options
 again, in case they were parsed before (then they are unknown fields).
@@ -90,7 +90,7 @@ STRUCT_HEADER_SUFFIX = ".nproto.h"
 CONVERSIONS_HEADER_SUFFIX = ".nproto.pb.h"
 CONVERSIONS_SOURCE_SUFFIX = ".nproto.pb.cc"
 # LINT.ThenChange(//tools/nproto/nproto.bzl:generated_suffixes)
-# The option a top-level definition names its C++ type with, by the keyword of the definition, as error messages write
+# The option a top-level definition specifies its C++ type with, by the keyword of the definition, as error messages write
 # it; the generator reads the options themselves through options_pb2.
 # LINT.IfChange(option_names)
 STRUCT_OPTION = "(nproto.generate_struct)"
@@ -114,7 +114,7 @@ BTREE_MAP_HEADER = "absl/container/btree_map.h"
 # A map whose value is a struct nested in the struct that declares the member stays a std::map: absl::btree_map
 # instantiates std::pair<const K, V> at the member's declaration, and the default member initializers of a struct nested
 # in a struct that is not yet complete cannot be used there (GCC: "default member initializer required before the end
-# of its enclosing class"). The std::map member carries this NOLINT for the absl-ordered-container check.
+# of its enclosing class"). The std::map member has this NOLINT for the absl-ordered-container check.
 STD_MAP_NOLINT = (
     "// NOLINTNEXTLINE(absl-ordered-container): btree_map needs a complete"
     " value"
@@ -200,7 +200,7 @@ def _output_parameter(type_name: str, name: str) -> str:
 
 
 class GenerationError(Exception):
-    """A .proto file nproto cannot generate a struct for. The message names the file and the definition."""
+    """A .proto file nproto cannot generate a struct for. The message identifies the file and the definition."""
 
 
 def snake_case(name: str) -> str:
@@ -276,7 +276,7 @@ class Definition:
 
     @property
     def option(self) -> str:
-        """The option this kind of definition names its C++ type with: (nproto.generate_struct) or _enum."""
+        """The option this kind of definition specifies its C++ type with: (nproto.generate_struct) or _enum."""
         return OPTION_OF[self.keyword]
 
 
@@ -543,7 +543,7 @@ class TypeTable:
         """The struct of the message or enum `full_name`, which the field `user` refers to."""
         if full_name in self.types:
             return self.types[full_name]
-        # The top-level definition that holds the type, to name what lacks the option.
+        # The top-level definition that contains the type, to name what lacks the option.
         owner = None
         for file_proto in self.files.values():
             prefix = f"{file_proto.package}." if file_proto.package else ""
@@ -805,7 +805,7 @@ def _has_default_constant(field: _Field) -> bool:
     string or enum default reads as what it is and stays the initializer.
 
     Args:
-      field: A field of a message, as its struct holds it.
+      field: A field of a message, as its struct stores it.
 
     Returns:
       True when the struct declares _default_constant(field) and initializes the member with it.
@@ -1099,7 +1099,7 @@ class _FileGenerator:
     def _referenced_messages(
         self, message: Descriptor
     ) -> list[tuple[FieldDescriptor, Descriptor]]:
-        """The message types the fields of `message` hold, with the field that holds each (map values included)."""
+        """The message types the fields of `message` contain, with the field that contains each (map values included)."""
         references = []
         for field in message.fields:
             if _is_map(field):
@@ -2267,7 +2267,7 @@ def generate_files(
         try:
             pool.Add(file_proto)
         except (TypeError, ValueError) as error:
-            # protoc only sends files it has checked; a request built by hand may hold one the descriptor API rejects.
+            # protoc only sends files it has checked; a request built by hand may contain one the descriptor API rejects.
             raise GenerationError(
                 f"{file_proto.name}: not a valid .proto file: {error}"
             ) from error

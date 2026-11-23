@@ -16,7 +16,7 @@ sources and the BSD-3 license are in [`../anymal_b_description`](../anymal_b_des
 
 Four 3-DoF contacts in this order: `LF_FOOT`, `RF_FOOT`, `LH_FOOT` and `RH_FOOT`, the URDF's own `FOOT` frames, each on
 its leg's `<leg>_KFE` joint, and one leg of the same name per contact. There is no gait file in this package: the launch
-files' `gait_file` and the validation's `RobotConfiguration::gaitFile` name the shared
+files' `gait_file` and the validation's `RobotConfiguration::gaitFile` reference the shared
 `legged_nmpc/legged_common_mpc/config/command/quadruped_gait.textproto` (mode bits LF = 8, RF = 4, LH = 2, RH = 1),
 whose `gait_switching` table goes from stance to trot and flying_trot.
 

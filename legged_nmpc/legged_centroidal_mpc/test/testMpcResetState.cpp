@@ -215,8 +215,8 @@ void resetMpc(AtlasReferenceStack& stack) {
  * The core property: a stack that walked and was then reset (by `reset`)
  * answers, solve after solve, exactly as a stack built at that moment, for the
  * same observations and the same command, [m/s] `commandAfterReset` forward.
- * Under the contact planner `plannerType` names the planner (empty: the shipped
- * one).
+ * Under the contact planner, `plannerType` specifies the planner (empty: the
+ * shipped one).
  */
 void resetStackBehavesAsAFreshOne(ScheduleSource source,
                                   ResetFunction reset,
@@ -267,7 +267,7 @@ TEST(MpcResetState, AResetContactPlanningStackAnswersExactlyAsAFreshOne) {
 TEST(MpcResetState, AResetStackWalksExactlyAsAFreshOne) {
   // Commanded to walk at once after the reset: the gait decisions, the schedule
   // and, under the contact planner, the steps it places are those of a fresh
-  // stack too - also under the mixed-integer planner, which carries its
+  // stack too - also under the mixed-integer planner, which keeps its
   // previous plan and assignment from one plan to the next.
   resetStackBehavesAsAFreshOne(ScheduleSource::kGaitSchedule, resetMpc,
                                /*commandAfterReset=*/1.0);
@@ -467,7 +467,7 @@ ContactPlan standingPlan(scalar_t startTime, scalar_t dt, size_t numNodes) {
 TEST(MpcResetState, APlanMadeBeforeTheResetIsNeverActivatedAfterIt) {
   // The planner thread may be half-way through a plan made from a snapshot
   // taken before the reset. The reset starts a new plan epoch, and a plan from
-  // an earlier one is refused when it is handed over.
+  // an earlier one is refused when it is submitted.
   AtlasReferenceStack stack(ScheduleSource::kContactPlanner);
   ContactPlanningReferenceManager& manager = *stack.planningReferenceManager();
   const uint64_t epochBeforeReset = manager.planEpoch();
@@ -520,7 +520,7 @@ TEST(MpcResetState,
      TheJointTargetStartsFromTheCurrentJointsHoweverLateTheResetComes) {
   // A reset comes at whatever time the robot fell, not at t = 0. The
   // joint-state filter of the target must start from the joints the robot has
-  // then, as it does after construction; it used to decay over the whole time
+  // then, as it does after construction; it used to decay over the full time
   // since its clock was last set, which put it at the nominal joints at once
   // after a late reset.
   AtlasReferenceStack used;

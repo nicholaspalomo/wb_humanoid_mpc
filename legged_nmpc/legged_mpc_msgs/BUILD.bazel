@@ -109,7 +109,7 @@ cc_test(
 )
 
 # The messages of the realtime loop convert without allocating once sized. A binary of its own, because the allocation
-# counter replaces malloc for the whole process.
+# counter replaces malloc process-wide.
 cc_test(
     name = "messages_nproto_allocations_test",
     size = "small",

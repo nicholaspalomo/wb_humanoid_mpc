@@ -27,7 +27,7 @@
 
 """Export a trained policy checkpoint to ONNX format for C++ runtime deployment.
 
-The graph is the whole deterministic policy actor_critic.policy_action(): the observation normalizer, the two ELU torso
+The graph is the full deterministic policy actor_critic.policy_action(): the observation normalizer, the two ELU torso
 layers, the actor's mean and the tanh that squashes it into (-1, 1), so that the runtime feeds it raw observations.
 """
 

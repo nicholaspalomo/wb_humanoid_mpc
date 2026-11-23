@@ -68,7 +68,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * the barrier it wraps the cone in, `mu` and `delta` of the task file's
  * contacts.contact_wrench_cone_soft_constraint: a negative mu would make the
  * penalty a REWARD for leaving the cone. A barrier that is not a finite
- * positive number is an InvalidArgument naming its field, as the ground's
+ * positive number is an InvalidArgument identifying its field, as the ground's
  * fields of the same block are, and a word where the number goes is refused by
  * the strict parser with a Status. Built on the G1 whole-body model, whose task
  * file has no such block: each case gives it one. Builds no CppAD model.
@@ -236,7 +236,7 @@ TEST_F(ContactWrenchConeBarrierRangeTest,
 
 TEST_F(ContactWrenchConeBarrierRangeTest,
        AWordWhereTheNumberGoesIsRefusedByTheParserNamingTheFile) {
-  // The strict parser returns the refusal, naming the file (and the line and
+  // The strict parser returns the refusal, reporting the file (and the line and
   // column).
   const std::string path =
       (std::filesystem::path(testing::TempDir()) /

@@ -9,8 +9,8 @@ load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # robot_ipc - the Cyclone DDS bus of the distributed runtime (legged_nmpc/docs/distributed_runtime/README.md), in C++
-# and in Python. Generic: it knows nothing of the MPC's messages, which live in legged_nmpc; the shipped
-# network file names the MPC's topics only to give each its quality of service.
+# and in Python. Generic: it knows nothing of the MPC's messages, which are in legged_nmpc; the shipped
+# network file lists the MPC's topics only to give each its quality of service.
 
 package(default_visibility = ["//visibility:public"])
 
@@ -90,7 +90,7 @@ genrule(
 # C++
 # ==============================================================================
 
-# The strict textproto parser of the network file: an error names the file, the line and the column. Private to the
+# The strict textproto parser of the network file: an error reports the file, the line and the column. Private to the
 # package; the configuration files of the rest of the repository can share it once it moves to a package of its own.
 cc_library(
     name = "textproto",

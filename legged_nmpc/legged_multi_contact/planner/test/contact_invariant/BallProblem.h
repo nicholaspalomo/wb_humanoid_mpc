@@ -61,7 +61,7 @@ inline constexpr double kBallConeSmoothing = 1.0e-3;  // eps of the cone
 inline constexpr int kBallStateDim = 6;               // position, velocity
 inline constexpr int kBallInputDim = 3;               // the force
 
-/** The ball's layout: one point candidate, its force the whole input. */
+/** The ball's layout: one point candidate, its force the only input. */
 ContactInvariantLayout ballLayout();
 
 /** The floor: a box whose top face is z = 0. */

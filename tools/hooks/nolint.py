@@ -181,7 +181,7 @@ def comment_lines(source: str, style: str) -> list[str]:
 
 
 def _is_prose(text: str, start: int) -> bool:
-    """True when the marker at text[start] is quoted - a backtick or quote directly before it - and so prose."""
+    """True when the marker at text[start] is quoted (a backtick or quote directly before it) and so prose."""
     return start > 0 and text[start - 1] in "`'\""
 
 

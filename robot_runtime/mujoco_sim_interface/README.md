@@ -7,17 +7,17 @@ visualizations for the robot runtime (`robot_runtime/robot_control`). MuJoCo is 
 ## Creating a simulator
 
 `MujocoSimInterface::Create(config, urdfPath)` loads the scene of `MujocoSimConfig::scenePath` (compiled with the ball
-of `sim_projectile`, if the task file names one) and returns the simulator, or an `absl::Status` saying why it could not:
+of `sim_projectile`, if the task file specifies one) and returns the simulator, or an `absl::Status` saying why it could not:
 a scene that does not load, parse or compile, an unknown `sim_projectile` or `gantry_hold` name, viewer settings
 `validateViewerSettings()` refuses, simulation data MuJoCo could not create, or a URDF `RobotDescription::Create()`
 refuses.
 
-`initSim()` starts the viewer that `MujocoSimConfig::viewer` names (see [Viewers](#viewers)) on threads of its own, and
+`initSim()` starts the viewer specified by `MujocoSimConfig::viewer` (see [Viewers](#viewers)) on threads of its own, and
 `viewerStatus()` says whether it did.
 
 ## The accelerometer
 
-Every published state carries the base's specific force, `R^T (a - g)` at the free joint's origin in the base frame
+Every published state includes the base's specific force, `R^T (a - g)` at the free joint's origin in the base frame
 (`RobotState::getSpecforceBaseRtWorldEwrtBase()`, the input of the `kalman` state estimator). `a` is the mean
 acceleration of the base over the last `round(accelerometerWindow / dt)` physics steps, at least one, taken from the
 change of the free joint's world velocity over them (`BaseAccelerometer`). MuJoCo's `qacc` would not do: it leaves out
@@ -41,12 +41,12 @@ the controller, the gantry or its weld. It is selected by registry name (`includ
 
 `MujocoSimConfig::viewer.names` (the robot app's `--viewer`, or without it the `mujoco_viewer` of its `--plot_config`,
 the plot configuration the Rerun bridge reads too: `legged_nmpc/legged_rerun_viewer/config/plot_config.textproto`
-names `web`, and `make launch-<robot>-sim VIEWER=glfw` brings back the window) is a preference list: `initSim()`
+specifies `web`, and `make launch-<robot>-sim VIEWER=glfw` brings back the window) is a preference list: `initSim()`
 creates and starts each viewer in turn, destroys one that fails before it tries the next (so a port it bound is free
-again), and keeps the first that starts. `web` alone refuses to run without the web viewer (`viewerStatus()` is a FailedPrecondition naming
+again), and keeps the first that starts. `web` alone refuses to run without the web viewer (`viewerStatus()` is a FailedPrecondition explaining
 why each viewer failed, and the robot app stops at start-up), while `web,none` falls back to no viewer with a WARNING.
 `parseViewerNames()` refuses unknown, empty and repeated names, anything after `none` (which always starts) and anything
-after `glfw`, which cannot fail at start-up: a window it cannot open is logged, `ok()` turns false and the simulation
+after `glfw`, which cannot fail at start-up: a window it cannot open is logged, `ok()` becomes false and the simulation
 runs on without it, as it always has.
 
 The two viewers that draw share `MujocoFrameRenderer`: the camera, the visualizations below, the keys (`0`-`5` geometry
@@ -57,7 +57,7 @@ snapshot's run-time model arrays, so neither render thread reads the model the p
 
 ### The web viewer
 
-Run the robot with `--viewer=web` (or with neither `--viewer` nor a plot configuration that names another, as `make
+Run the robot with `--viewer=web` (or with neither `--viewer` nor a plot configuration that specifies another, as `make
 launch-<robot>-sim` does) and open `http://localhost:6090` (the dev and robot containers use the host's
 network, so nothing needs to be published). From another machine, forward the port: `ssh -L 6090:127.0.0.1:6090 <host>`,
 or VS Code's port forwarding, and open the forwarded address in a browser tab ("Open in Browser"): an editor preview
@@ -70,12 +70,12 @@ How it renders:
 
 - A render thread of its own creates a desktop OpenGL context through EGL with no X server: on an EGL device that is a
   GPU (`MUJOCO_EGL_DEVICE_ID` picks one), else on Mesa's surfaceless platform (llvmpipe). `libEGL.so.1` is loaded with
-  `dlopen()` (`EglLibrary`), so the robot binary links no EGL; without it, `web` fails with a Status that names the
+  `dlopen()` (`EglLibrary`), so the robot binary links no EGL; without it, `web` fails with a Status listing the
   packages to install. A GL preflight (`checkGlCapabilities()`) refuses, before MuJoCo would end the process, a context
   without framebuffer objects, an offscreen buffer past `GL_MAX_RENDERBUFFER_SIZE`, more samples than
   `GL_MAX_SAMPLES` or a shadow map past `GL_MAX_TEXTURE_SIZE`.
 - It draws with a private copy of the model, made by `WebMujocoViewer::Create()` before the physics starts, and reads
-  the simulator's state snapshots only, so it never reads the model the physics thread writes. Each snapshot carries
+  the simulator's state snapshots only, so it never reads the model the physics thread writes. Each snapshot includes
   the model arrays the simulator changes while it runs (`MjRuntimeModelFields`: the ragdoll damping, the gantry weld's
   relpose, the ball's collision flags, mass and gravity compensation), and each frame writes them into the copy before
   it computes the contacts and forces it draws, so they are the physics', as in the GLFW window, which does the same. Whether the gantry weld
@@ -125,7 +125,7 @@ Measured in the robot-sim image on the DRC Atlas with one client pulling frames 
 
 ### The viewer never delays the physics
 
-The physics thread hands the viewer state snapshots through a lock-free triple buffer, and shares exactly one lock with
+The physics thread passes state snapshots to the viewer through a lock-free triple buffer, and shares exactly one lock with
 it: the contact timeline's. Its side takes that lock with `try_lock`: a sample that finds the viewer copying the timeline
 waits for the next one, and of two that find it so the older is dropped (`droppedContactTimelineSamples()`); the
 viewer's copy goes into a vector reserved to the timeline's capacity, so it never allocates under the lock. The physics
@@ -185,7 +185,7 @@ Two placements are not defaults, and fail the bounds:
 
 ## The virtual gantry
 
-The task file's `gantry_hold` names how the gantry holds the floating base while it is locked (`GantryHold` in
+The task file's `gantry_hold` selects how the gantry holds the floating base while it is locked (`GantryHold` in
 `MujocoSimInterface.h`). `weld_constraint`, the default, needs the scene to declare a weld named `gantry` from the world
 (`body1`) to the body of the robot's free joint (`body2`):
 
@@ -199,7 +199,7 @@ The simulator anchors it where the robot is caught and writes the gantry height 
 file are only a starting point. `checkSceneSupportsGantryHold()` checks a compiled scene against a hold; a simulator
 whose scene cannot hold the robot by the weld logs an ERROR saying why and falls back to `kinematic_teleport`
 (`MujocoSimInterface::gantryHold()` is the hold it runs on). Every shipped scene declares the weld (Atlas, SA01, G1 and
-R1), and every task file names `weld_constraint`. `//legged_nmpc/legged_mpc_validation:test_robot_scene_gantry_hold`
+R1), and every task file sets `weld_constraint`. `//legged_nmpc/legged_mpc_validation:test_robot_scene_gantry_hold`
 checks every robot configuration's scene against its task file, and that the robot process's simulator runs on that
 hold. `test_mujoco_sim_interface_gantry` holds each scene's robot by its weld, and checks that gravity-compensating
 torques keep its limbs where they were caught, as GRAVITY_COMP does on a physical gantry, and that on
@@ -219,5 +219,5 @@ cheatsheet with the current state. Unknown names are reported with the available
 starts none; a `MujocoSimConfig` built in code starts from `defaultVisualizationNames()`.
 
 To add a marker: derive from `MujocoVisualization`, add the source to `BUILD.bazel`, and register it in the table of
-`src/visualization/VisualizationRegistry.cpp` (drawing order is the table order); the IFTTT directive there points at
+`src/visualization/VisualizationRegistry.cpp` (drawing order is the table order); the IFTTT directive there references
 the task file comments to update with the new name.

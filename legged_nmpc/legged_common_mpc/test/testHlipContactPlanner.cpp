@@ -487,7 +487,7 @@ TEST(HlipContactPlanner, standsAtZeroCommand) {
 }
 
 TEST(HlipContactPlanner, standingAsksForACenterOfMassAtRest) {
-  // A standing plan must not hand the controller the measured drift as its
+  // A standing plan must not pass the controller the measured drift as its
   // reference: the reduced model's double support drifts at constant velocity
   // and can never decelerate, so a plan that simply rolled it out would ask the
   // robot to keep sliding. The blend against the static standing reference (the
@@ -1147,7 +1147,7 @@ TEST(HlipContactPlanner,
 TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
   // Roll the planner and its own reduced model forward: from standing, the
   // deadbeat steps must bring the average velocity of the model to the command
-  // within a few steps, which is the property the whole planner rests on.
+  // within a few steps, which is the property the planner relies on.
   const ContactPlanningConfig config = makeConfig();
   LEGGED_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner,
                               HlipContactPlanner::Create(config));
@@ -1499,7 +1499,7 @@ TEST(HlipContactPlanner, clipsStepsToTheReachableRegion) {
 }
 
 TEST(HlipContactPlanner, isPlannedInTheHeadingFrame) {
-  // Rotating the whole problem must rotate the whole plan: the geometry is
+  // Rotating the full problem must rotate the full plan: the geometry is
   // planned in the frame of `yawHeadingRtWorld`, and that frame has to come
   // from `yawHeadingRtWorld` even when the heading model is off and
   // `initYawHeadingRtWorld` is therefore never filled.
@@ -1834,7 +1834,7 @@ TEST(HlipContactPlanner,
   // At runtime every touch-down comes from an earlier plan's grid, so it is off
   // the node grid of the plan that has to place it. The deadbeat step of the
   // swing in flight used to be evaluated at the start of the node the executed
-  // touch-down falls in - up to a node early, always early - and the double
+  // touch-down falls in (up to a node early, always early), and the double
   // support after it was counted from that node start, so the next lift-off
   // came up to a node early too. The property that must hold instead: the step
   // the robot lands with is the deadbeat step, u = u* + K (x - x*), of the

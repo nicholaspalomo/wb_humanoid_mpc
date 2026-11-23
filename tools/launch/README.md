@@ -18,13 +18,13 @@ through Bazel: `bazel run //tools/launch -- ...`, or the binary `bazel build //t
 
 - The launcher changes into the repository root and runs every process there, so the paths in
   commands are relative to it (`.bazel/bin/...`, `robot_models/...`). The root is `--repo_root`, else the workspace of
-  `bazel run`, else the nearest directory above the launch file (or the working directory) that holds `MODULE.bazel`.
+  `bazel run`, else the nearest directory above the launch file (or the working directory) that contains `MODULE.bazel`.
 - Every process starts in its own session and process group, with stdin from `/dev/null`. A
   Ctrl-C in the terminal therefore reaches only the launcher, which stops the processes in order, and a signal to a
   group also reaches what the process started itself.
 - Every line a process writes to stdout or stderr is printed behind its `[name]`, colored per process
   (`--color auto|always|never`; `auto` colors on a terminal unless `NO_COLOR` is set). The launcher's own messages
-  carry `[launch]`. Python children get `PYTHONUNBUFFERED=1` unless their environment sets it.
+  are prefixed with `[launch]`. Python children get `PYTHONUNBUFFERED=1` unless their environment sets it.
 - On SIGINT (Ctrl-C), SIGTERM or SIGHUP, or when a `required` process exits, the launcher sends SIGINT
   to every process group, waits up to the SIGINT grace period for the groups to empty, then sends SIGTERM and waits
   the SIGTERM grace period, then SIGKILL. A SIGTERM or SIGHUP to the launcher starts at the SIGTERM stage. A second
@@ -73,10 +73,10 @@ processes {                    # at least one; started in this order, each after
 <!-- LINT.ThenChange(//tools/launch/proto/launch_file.proto:launch_file_schema) -->
 
 - The file is parsed strictly with protobuf's text format (`google.protobuf.text_format.Parse`): an unknown
-  field, a value of the wrong type, a field given twice or a syntax error is an error that names the file, the line
-  and the column, `my.launch.textproto:5:3: Message type "launch_proto.LaunchFile.Process" has no field named
+  field, a value of the wrong type, a field given twice or a syntax error is an error that reports the file, line
+  and column, `my.launch.textproto:5:3: Message type "launch_proto.LaunchFile.Process" has no field named
   "requried".` A typo therefore fails at start-up instead of silently launching a process that is not required. The
-  launcher's own checks then name the process (`process 'mpc': 'machine' must be one of ...`) or the variable.
+  launcher's own checks then identify the process (`process 'mpc': 'machine' must be one of ...`) or the variable.
 - In text format, strings take double or single quotes, and a backslash starts an escape (`\n`, `\"`); single quotes
   save escaping the double quotes of a shell command. A repeated field is either one entry per line (`command: "sh"
   command: "-c"`) or a list (`command: ["sh", "-c"]`). `#` starts a comment. Values are typed: a variable's value and a
@@ -117,10 +117,10 @@ bazel run //tools/launch:export_script -- robot_models/drc_atlas/drc_atlas_centr
 ```
 
 - The launch file is validated as the launcher validates it, and the script runs the process in `--root` (absolute, or
-  relative to the script's directory), which `{repo_root}` names.
+  relative to the script's directory), which `{repo_root}` expands to.
 - Every variable becomes a shell variable `<env_prefix><NAME>` that the environment may set (unset or empty: the
-  file's value, after `--set`), assigned in dependency order: overriding `config_dir` moves the `task_file` written
-  as `{config_dir}/mpc/task.textproto` along.
+  file's value, after `--set`), assigned in dependency order: overriding `config_dir` also updates `task_file` when
+  it is written as `{config_dir}/mpc/task.textproto`.
 - The process's environment is exported, its delay slept, and its command `exec`ed, so the process takes the script's
   PID and receives its signals.
 - A machine with more or fewer than one process, or a `terminal: true` process, is refused: several processes need a

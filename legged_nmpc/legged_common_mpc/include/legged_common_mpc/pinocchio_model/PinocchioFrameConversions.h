@@ -119,7 +119,7 @@ inline VECTOR6_T<SCALAR_T> rotateVectorWorldToLocal(
     const VECTOR6_T<SCALAR_T>& worldComponents,
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex& localFrameIndex) {
-  // A spatial vector - a twist, or a wrench - is two vectors of space, each
+  // A spatial vector (a twist or a wrench) is two vectors of space, each
   // rotated on its own.
   VECTOR6_T<SCALAR_T> localComponents(kTwistDim);
   localComponents.head(kPositionDim) = rotateVectorWorldToLocal(
@@ -148,7 +148,7 @@ inline VECTOR6_T<SCALAR_T> rotateVectorLocalToWorld(
     const VECTOR6_T<SCALAR_T>& localComponents,
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex& localFrameIndex) {
-  // A spatial vector - a twist, or a wrench - is two vectors of space, each
+  // A spatial vector (a twist or a wrench) is two vectors of space, each
   // rotated on its own.
   VECTOR6_T<SCALAR_T> worldComponents(kTwistDim);
   worldComponents.head(kPositionDim) = rotateVectorLocalToWorld(

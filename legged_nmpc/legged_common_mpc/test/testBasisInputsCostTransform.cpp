@@ -53,8 +53,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * Tests of the basis-space input cost R_basis = Mᵀ R M + reg · blkdiag(S, 0)
  * and of its two regularizations.
  *
- * The property that matters for null_space is that it leaves the wrench-space
- * cost exactly as the task file writes it: the cost of any input is the R cost
+ * The required property of null_space is that it leaves the wrench-space cost
+ * exactly as the task file writes it: the cost of any input is the R cost
  * of the wrench it produces plus a term that vanishes on every λ in range(Mᵀ),
  * and the metric the optimizer sees on the wrench is R itself. full_diagonal
  * does not have it, which is the point.

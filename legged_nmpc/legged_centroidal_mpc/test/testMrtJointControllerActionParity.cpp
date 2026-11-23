@@ -89,7 +89,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * $TEST_UNDECLARED_OUTPUTS_DIR/mrt_joint_controller_actions.txt (in the test's
  * outputs), which replaces test/golden/mrt_joint_controller_actions.txt.
  *
- * The golden file holds the actions on the quaternion base orientation. There,
+ * The golden file stores the actions on the quaternion base orientation. There,
  * "the base held" of computeBaseHeldJointTorques() is the inverse dynamics at a
  * zero body angular acceleration, a zero twist rate (design README
  * section 2.5).
@@ -254,7 +254,7 @@ class ActionRecorder {
   std::unique_ptr<CentroidalMpcMrtJointController> controller_;
 };
 
-/** The whole file at `path`, or nullopt when it cannot be read. */
+/** The full contents of the file at `path`, or nullopt when it cannot be read. */
 std::optional<std::string> readFile(absl::string_view path) {
   std::ifstream file{std::filesystem::path(path)};
   if (!file.is_open()) return std::nullopt;

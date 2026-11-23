@@ -81,7 +81,7 @@ constexpr std::array<absl::string_view, 11> kFields = {
 // LINT.ThenChange(//legged_nmpc/legged_mpc_config/task_file.proto, //legged_nmpc/legged_mpc_config/contacts_config.proto, //legged_nmpc/legged_mpc_config/collision_constraint_config.proto, //legged_nmpc/legged_mpc_config/collision_cbf_constraint_config.proto)
 // clang-format on
 
-/** Whether any foot of `contactNames` carries the soft constraint with `suffix`
+/** Whether any foot of `contactNames` has the soft constraint with `suffix`
  * in `ocp`. */
 bool carriesContactTerm(const OptimalControlProblem& ocp,
                         absl::Span<const std::string> contactNames,

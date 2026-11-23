@@ -32,8 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // files: every shipped robot's files load and build its model settings,
 // Pinocchio model, gait schedule, target calculator, motion manager and the
 // factory's terms; a file that does not parse, or a block that does not
-// convert, is refused naming the file or the field; the factory serves the
-// constructor it was built with.
+// convert, is refused with an error reporting the file or the field; the
+// factory serves the constructor it was built with.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 

@@ -133,9 +133,9 @@ const std::vector<TermKind>& allTermKinds();
 /** The configuration key of the list of a kind (`dynamics`, `costs`, ...,
  * `execution`). */
 std::string termKindName(TermKind kind);
-/** Returns the ContactPlanningFile block that holds the parameters of the term
+/** Returns the ContactPlanningFile block that stores the parameters of the term
  * `name`, a registry name: the name itself, or the name with `_parameters`
- * where it holds a frame-dependent quantity word (`yaw_torque_regularization`;
+ * where it contains a frame-dependent quantity word (`yaw_torque_regularization`;
  * legged_nmpc/docs/frame_naming). */
 std::string termBlockName(absl::string_view name);
 /** Canonical names of every term of a kind, in the order of the default
@@ -150,17 +150,17 @@ std::string canonicalTermName(TermKind kind, absl::string_view name);
  * empty when it needs none. This is the one definition of "belongs to the
  * heading model": validateStatus() checks the lists against it and
  * setHeadingModel() adds and removes exactly these terms, where both used to
- * carry a list of their own that nothing kept in step. Each term's
+ * keep a list of their own that nothing kept in step. Each term's
  * ContactPlanningTerm::requiredBlocks() says the same thing a third time, from
- * the term's side; a test builds every term through the factory and holds the
- * two answers equal.
+ * the term's side; a test builds every term through the factory and checks that
+ * the two answers match.
  */
 std::string requiredModelBlock(TermKind kind, absl::string_view name);
 
 /**
  * The term lists of the planner's formulation: which model blocks, costs,
  * constraints, logic rules, assignment costs, search stages and execution rules
- * the planner is assembled from. Order matters where it is stated:
+ * the planner is assembled from. Order affects behavior where noted:
  *  - `dynamics` fixes the variable layout (blocks append their variables in
  * list order);
  *  - `costs` is the accumulation order of the stage matrices (a sum in floating
@@ -270,7 +270,7 @@ struct ContactPlanningFormulation {
   std::string summary() const;
 };
 
-/** Equal when every list names the same terms in the same order, the names
+/** Equal when every list contains the same terms in the same order, the names
  * compared like every other lookup. */
 bool operator==(const ContactPlanningFormulation& lhs,
                 const ContactPlanningFormulation& rhs);

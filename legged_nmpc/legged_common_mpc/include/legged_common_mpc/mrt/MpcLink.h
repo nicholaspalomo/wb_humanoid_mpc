@@ -54,7 +54,7 @@ inline constexpr scalar_t kMaxPolicyLookahead = 0.02;
 
 /**
  * [s] The time from the first node of an MRT joint controller's reset target
- * (MpcLink::ResetTargetFunction) to its second, which holds the same state and
+ * (MpcLink::ResetTargetFunction) to its second, which has the same state and
  * input.
  */
 inline constexpr scalar_t kResetTargetDuration = 2.0;
@@ -95,7 +95,7 @@ inline constexpr scalar_t kResetTargetDuration = 2.0;
  * policy that was solved before a reset the robot requested (its served-reset
  * counters below the requested ones);
  *      - start(): begins publishing observations and accepting policies; every
- * observation carries the request counters of this class's MpcResetSupervisor,
+ * observation includes the request counters of this class's MpcResetSupervisor,
  * so a lost message loses no reset. stop(): ends both and joins the link's
  * threads; it must be idempotent and must not throw;
  *      - resets: when the communication thread sees a new request count it
@@ -111,9 +111,9 @@ inline constexpr scalar_t kResetTargetDuration = 2.0;
  * combined with the link's) and from the control thread by
  *        setRemotePolicyExpired() (the policy-timeout watchdog), so that the
  * controller holds the robot in JOINT_PD on link loss as it does for a failing
- * solver. It ignores the reset target the controller hands its factory: the MPC
- * node computes the formulation's reset target itself, from the observation the
- * reset is served at.
+ * solver. It ignores the reset target the controller passes to its factory: the
+ * MPC node computes the formulation's reset target itself, from the observation
+ * the reset is served at.
  */
 class MpcLink {
  public:
@@ -153,7 +153,7 @@ class MpcLink {
   virtual MRT_BASE& mrt() = 0;
   virtual const MRT_BASE& mrt() const = 0;
 
-  /** Hands the solver the observation of this control cycle. */
+  /** Passes the solver the observation of this control cycle. */
   void setCurrentObservation(const SystemObservation& observation) {
     mrt().setCurrentObservation(observation);
   }

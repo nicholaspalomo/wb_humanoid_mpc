@@ -218,12 +218,12 @@ scalar_t stanceDutyFactor(const ModeSchedule& schedule,
     }
   }
 
-  // Outside this foot's complete strides. Standing - before the first lift-off
-  // of ANY foot, or after the last event of the whole schedule - is 1: nothing
+  // Outside this foot's complete strides. Standing (before the first lift-off
+  // of ANY foot, or after the last event of the schedule) is 1: nothing
   // is being carried through a swing. Otherwise a gait is under way and the
   // nearest stride stands in: this foot is in its first stance while the other
   // foot takes its first step, or in its last one while the other finishes, and
-  // a foot carrying the robot through the other's swing must not be handed the
+  // a foot carrying the robot through the other's swing must not be given the
   // standing value of half the weight.
   scalar_t firstLiftOffOfAnyFoot = std::numeric_limits<scalar_t>::infinity();
   for (size_t other = 0; other < static_cast<size_t>(kBipedFootCount);
@@ -338,7 +338,7 @@ scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule,
     // reached
   }
   // Clamping can leave the boundary inside a swing that is already in flight,
-  // which hands a later plan the authority to re-time it. That is the price of
+  // which gives a later plan the authority to re-time it. That is the price of
   // keeping the boundary finite; the cap is off by default for that reason.
   return std::min(boundary, limit);
 }
@@ -372,7 +372,7 @@ std::vector<scalar_t> committedSampleTimes(scalar_t startTime,
     // The last committed node is sampled at the boundary whether it straddles
     // the boundary or ends on it: an event inside it (a touch-down after its
     // midpoint) has been executed by the boundary, and the plan's first free
-    // node has to continue from the state the executed schedule hands over
+    // node has to continue from the state the executed schedule produces
     // there, not from the state at the node's midpoint.
     const bool last = nodeEnd >= committedUntil - kMinTimeShift;
     sampleTimes.push_back(last ? committedUntil : nodeStart + 0.5 * dt);
@@ -649,7 +649,7 @@ LipState flowReducedModel(
   return state;
 }
 
-// Whether the plan carries the reduced model of each continuous phase
+// Whether the plan includes the reduced model of each continuous phase
 // (ContactPlan::phasePosZmpRtWorldEwrtWorldXyTraj).
 bool hasPhaseReducedModel(const ContactPlan& plan) {
   return plan.hasContinuousPhases() &&

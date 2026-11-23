@@ -49,7 +49,7 @@ namespace ocs2::legged {
 // MPC is set up with, on the coordinates of a StateInputLayout: a matrix
 // element is `scaling` times its entry, an element off the diagonal or left out
 // `scaling` times 0. What the file must give, and what it may not, is refused
-// with an InvalidArgument that names the field path (`fieldPath`,
+// with an InvalidArgument that identifies the field path (`fieldPath`,
 // "state_weights" in a task file) and lists every problem at once: a missing
 // block, joint or contact; a block, joint list, joint or contact the MPC does
 // not have (a fixed joint said so); a name given twice; a value that is not

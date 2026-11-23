@@ -36,9 +36,9 @@ namespace ocs2::legged {
 
 // The range checks of the conversions of the typed configuration
 // (src/config/<area>/): each returns OK when `value` is in its range, and
-// otherwise InvalidArgument naming the field by `path` (its path from the file
-// message, e.g. "multiple_shooting.dt") and saying the range. Every check is
-// written so that it passes only when its comparisons hold, so NaN, which
+// otherwise InvalidArgument identifying the field by `path` (its path from the
+// file message, e.g. "multiple_shooting.dt") and saying the range. Every check
+// is written so that it passes only when its comparisons hold, so NaN, which
 // compares false with everything, is refused by each of them.
 
 /** OK when `value` is finite. */

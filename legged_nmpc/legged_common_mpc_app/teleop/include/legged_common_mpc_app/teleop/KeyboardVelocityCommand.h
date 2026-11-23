@@ -83,9 +83,9 @@ struct KeyboardCommandLimits {
  * requires it.
  *
  * @return NotFound when the file does not exist; the errors of
- * loadReferenceFile(), which name the file, the line and the column; and
- * InvalidArgument naming the file and the field when one is missing, is not a
- * finite number or, for the four limits, is not positive.
+ * loadReferenceFile(), which report the file, the line and the column; and
+ * InvalidArgument identifying the file and the field when one is missing, is
+ * not a finite number or, for the four limits, is not positive.
  */
 absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(
     absl::string_view referenceFile);
@@ -93,7 +93,8 @@ absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(
 /**
  * The command of one typed line, "v_x v_y delta_height yaw_rate" separated by
  * white space, of the PELVIS: words left out are 0 and words past the fourth
- * are ignored. InvalidArgument naming the word that is not a finite number.
+ * are ignored. InvalidArgument identifying the word that is not a finite
+ * number.
  */
 absl::StatusOr<vector4_t> parseKeyboardCommandLine(absl::string_view line);
 

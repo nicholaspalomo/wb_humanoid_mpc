@@ -364,7 +364,7 @@ absl::StatusOr<std::vector<TimedPolygon>> HardContactRefinement::polygonsOf(
                      StaticEquilibrium::Create(
                          stance.stance, certifier_->options().equilibrium));
     // An LP HPIPM cannot solve gives the knot no polygon, as the stance
-    // graph treats it: the certifier names the knot if it fails.
+    // graph treats it: the certifier reports the knot if it fails.
     const absl::StatusOr<std::vector<Eigen::Vector2d>> vertices =
         equilibrium.supportPolygon();
     if (!vertices.ok()) {
@@ -379,7 +379,7 @@ absl::StatusOr<std::vector<TimedPolygon>> HardContactRefinement::polygonsOf(
         polygonOf(*vertices, trajectory.times[k] - halfStep,
                   trajectory.times[k] + halfStep - kTimeTolerance);
     // A stance without a polygon (no equilibrium, or a single point) has no
-    // constraint: the certifier names the knot.
+    // constraint: the certifier reports the knot.
     if (polygon.ok()) polygons.push_back(*polygon);
   }
   return polygons;

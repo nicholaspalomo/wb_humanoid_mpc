@@ -52,11 +52,10 @@ namespace ocs2::legged {
  *
  * Here the same alpha decides whether the planner emits a stepping gait at all,
  * and scales the commanded velocity it plans the footholds for. That keeps the
- * whole standing-to-walking transition in one smooth scalar law with two
- * constants, in place of a stepping trigger with a dead band and a hysteresis
- * of its own.
+ * standing-to-walking transition in one smooth scalar law with two constants,
+ * in place of a stepping trigger with a dead band and a hysteresis of its own.
  *
- * With the shipped rho_1 = 40 and rho_2 = 0.02 the half point sits at
+ * With the shipped rho_1 = 40 and rho_2 = 0.02 the half point is at
  * sqrt(0.02), 14 % of a component's range (0.099 m/s of Atlas's 0.7 m/s forward
  * command); alpha is about 0.83 at a fifth of the range and passes 0.99 only
  * near 28 %.

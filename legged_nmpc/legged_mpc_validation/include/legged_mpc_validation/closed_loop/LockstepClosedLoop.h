@@ -99,8 +99,8 @@ struct LockstepResult {
  * number of simulation steps) runs in the order of RobotProcess::cycle(): the
  * runner reads the simulator's state, estimates the controller's state from it
  * with the task file's state_estimator as the robot process does
- * (createRobotProcessStateEstimator(); ground_truth hands on the simulator's
- * state itself), hands the controller the mode and the JOINT_PD posture,
+ * (createRobotProcessStateEstimator(); ground_truth passes on the simulator's
+ * state itself), passes the controller the mode and the JOINT_PD posture,
  * computes the joint action, applies the controller-side settings of the task
  * file, serves the operator's commands of this cycle (which take effect from
  * the next one) and applies the action last. A solve is due every 1 /
@@ -128,7 +128,7 @@ class LockstepClosedLoop {
   LockstepClosedLoop(RobotConfiguration configuration, LockstepOptions options);
 
   /**
-   * Runs `scenario` once on a fresh MPC and simulator. `info` names the run in
+   * Runs `scenario` once on a fresh MPC and simulator. `info` identifies the run in
    * the metrics document; its formulation, robot, scenario and settings are
    * filled in here. The error of a driver or simulator that cannot be built, or
    * of an entry into WB_MPC that does not end.
@@ -144,8 +144,8 @@ class LockstepClosedLoop {
 /**
  * The total feedback torque (JointAction::getTotalFeedbackJointTorque()) that
  * `action` commands at `state` for each of `joints`, in their order: what a
- * control cycle of the run records. An internal error names the first joint
- * `action` holds no action for.
+ * control cycle of the run records. An internal error identifies the first joint
+ * `action` has no action for.
  */
 absl::StatusOr<Eigen::VectorXd> jointFeedbackTorques(
     const robot::model::RobotJointAction& action,

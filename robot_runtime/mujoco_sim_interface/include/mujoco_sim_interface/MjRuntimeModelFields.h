@@ -46,7 +46,7 @@ namespace robot::mujoco_sim_interface {
  * control restores (dof_damping);
  * - the gantry weld's relpose, which the gantry height and the base's pose at
  * locking move (eq_data). Whether the weld holds at all is mjData::eq_active,
- * which the snapshot's mjData carries already: off while the robot walks;
+ * which the snapshot's mjData already contains: off while the robot walks;
  * - the projectile's collision flags (geom_ and body_contype / conaffinity),
  * and its mass, inertia, the constants derived from them and its gravity
  * compensation (body_mass, body_inertia, body_invweight0, body_subtreemass,
@@ -58,7 +58,7 @@ namespace robot::mujoco_sim_interface {
  * Sized for one model at construction. captureFrom() and applyTo() copy into
  * the existing storage and allocate nothing, and so does a copy assignment
  * between two of one model, which is how
- * MujocoSimInterface::readLatestMjState() hands them over. Not thread-safe: it
+ * MujocoSimInterface::readLatestMjState() passes them over. Not thread-safe: it
  * travels between threads inside an MjState, through the simulator's triple
  * buffer.
  */
@@ -90,7 +90,7 @@ class MjRuntimeModelFields {
   void applyTo(mjModel* absl_nonnull model) const;
 
   /** True when `model` has the sizes these fields were made for; false for
-   * every model when they hold no arrays. */
+   * every model when they contain no arrays. */
   bool fits(const mjModel* absl_nonnull model) const;
 
  private:

@@ -72,9 +72,9 @@ const std::vector<JsonSchemaField>& closedLoopMetricsSchema();
 /**
  * OK when `document` is a closed-loop metrics document of this version: its
  * `schema` is kClosedLoopMetricsSchemaName, every field of
- * closedLoopMetricsSchema() is present with its kind, and it holds no value the
- * schema does not list (the members of an open object are free).
- * InvalidArgument naming every field that is missing, mistyped or unknown.
+ * closedLoopMetricsSchema() is present with its kind, and it contains no value
+ * the schema does not list (the members of an open object are free).
+ * InvalidArgument listing every field that is missing, mistyped or unknown.
  */
 absl::Status validateClosedLoopMetrics(const JsonValue& document);
 

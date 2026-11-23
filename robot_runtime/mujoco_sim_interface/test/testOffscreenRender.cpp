@@ -250,7 +250,7 @@ TEST(OffscreenRender, TogglingTheContactTimelineChangesOnlyTheBottomBand) {
 }
 
 /** True when the arrays of two models of one layout (one a copy of the other)
- * hold the same bytes. */
+ * contain the same bytes. */
 bool sameModelArrays(const mjModel& first, const mjModel& second) {
   return first.nbuffer == second.nbuffer &&
          std::memcmp(first.buffer, second.buffer,

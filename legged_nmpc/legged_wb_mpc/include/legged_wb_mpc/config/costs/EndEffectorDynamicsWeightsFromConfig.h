@@ -46,7 +46,7 @@ namespace ocs2::legged {
  * @param weights The weights block.
  * @param path The block's path in the task file, for the errors (e.g.
  * "task_space_foot_cost.weights").
- * @return The weights; InvalidArgument naming the field when a weight is not
+ * @return The weights; InvalidArgument identifying the field when a weight is not
  * finite (inf or nan) or is negative.
  */
 absl::StatusOr<EndEffectorDynamicsWeights> endEffectorDynamicsWeightsFromConfig(
@@ -59,7 +59,7 @@ absl::StatusOr<EndEffectorDynamicsWeights> endEffectorDynamicsWeightsFromConfig(
  * @return The weights; InvalidArgument for the weights' errors, and when the
  * block sets a name or a link_name (the named costs' fields) or an
  * active_phases other than "swing", which the whole-body foot cost does not
- * have: it weighs a swing foot only. InvalidArgument naming the field, too, for
+ * have: it weighs a swing foot only. InvalidArgument identifying the field, too, for
  * a weight the foot cost multiplies by an error that is zero by construction,
  * so that it would weigh nothing: pos_x, pos_y and pos_z (the cost has no
  *         position error; the swing height is the swing constraint's) must be 0

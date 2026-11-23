@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The contract of the crash-safe writes (AtomicFileWrite.h): a write replaces
  * the file and leaves no temporary, and an error that is not DataLoss leaves
- * the file as it was. DataLoss - the file replaced, its directory not synced -
+ * the file as it was. DataLoss (the file replaced, its directory not synced)
  * cannot be provoked on a test's file system, whose directories always sync;
  * ConfigFileStore and RobotConfigDirectory take it as written.
  */

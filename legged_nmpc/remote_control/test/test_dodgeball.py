@@ -27,7 +27,7 @@
 
 """Unit tests for the dodgeball throw geometry and for the tab that publishes it.
 
-The geometry tests are headless by construction - `remote_control.tk_app.dodgeball` imports neither Tk nor the bus -
+The geometry tests are headless by construction (`remote_control.tk_app.dodgeball` imports neither Tk nor the bus)
 and are where the angle conventions, the gravity compensation and the wire format are actually pinned. The widget
 tests build a real `Tk` root and withdraw it, which is what test_base_controller_contact_estimator.py already does, and
 skip themselves where no display is available so the file is still runnable over ssh.
@@ -458,7 +458,7 @@ class TestClamping(unittest.TestCase):
 
     def test_nan_takes_the_low_end_of_every_range(self):
         # NaN fails every comparison and used to pass straight through the clamp into the payload, where the
-        # simulator either dropped the throw silently or, for a NaN speed, reset the whole simulation.
+        # simulator either dropped the throw silently or, for a NaN speed, reset the simulation.
         nan = float("nan")
         throw = dodgeball.DodgeballThrow(
             nan, nan, nan, nan, mass_kg=nan
@@ -810,7 +810,7 @@ class TestDodgeballTab(unittest.TestCase):
         self.assertIn("1.75 kg", status)
 
     def test_the_topic_is_the_operator_dodgeball_throw_topic(self):
-        # The tab's constant, the publisher the GUI hands it and the README's topic (test_operator_topics.py) agree.
+        # The tab's constant, the publisher the GUI passes it and the README's topic (test_operator_topics.py) agree.
         self.assertEqual(
             dodgeball_tab.DodgeballTab.TOPIC_NAME,
             topics.OPERATOR_DODGEBALL_THROW,

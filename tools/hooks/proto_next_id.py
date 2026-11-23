@@ -25,9 +25,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Checks, and can fix, the `// Next ID: N` comment and the `reserved N to max;` line every protobuf message carries.
+"""Checks, and can fix, the `// Next ID: N` comment and the `reserved N to max;` line every protobuf message has.
 
-Every `message` in a .proto file is preceded by a comment naming the next free field number, and opens by reserving
+Every `message` in a .proto file is preceded by a comment specifying the next free field number, and opens by reserving
 every number from it on:
 
     // One MPC solution.
@@ -49,7 +49,7 @@ line directly above `message Name {`, after the message's own documentation; the
 the message body after its `option` statements (the nproto option, tools/hooks/proto_file_layout.py).
 
 The check fails when a message has no such comment, when its number is not greater than every other number the message
-uses (its fields - in oneofs too, map fields and proto2 groups included - its other `reserved` numbers and ranges, and
+uses (its fields, in oneofs too, map fields and proto2 groups included, its other `reserved` numbers and ranges, and
 its `extensions` ranges), or when the message does not open with `reserved <that number> to max;`. A number larger
 than the largest one in use is fine - a field was deleted, and its number must not come back. Enums are not checked.
 
@@ -164,7 +164,7 @@ def _parse_number(text: str) -> int | None:
 def _range_numbers(statement: list[Token]) -> list[int]:
     """The numbers of a `reserved` or `extensions` statement: `1, 3 to 5, 9 to max` -> [1, 5, 9]; names are ignored.
 
-    Only the largest number of a range matters for the check; `to max` closes the message for good, so it counts as the
+    Only the largest number of a range counts for the check; `to max` closes the message for good, so it counts as the
     start of the range (nothing can follow it anyway).
 
     Args:
@@ -457,7 +457,7 @@ def _check_top_reservation(
 def fix_source(source: str) -> str:
     """`source` with every comment and opening reservation added, or raised to the next free number.
 
-    A comment that already names a number above every number in use is kept (a field was deleted), and the
+    A comment that already specifies a number above every number in use is kept (a field was deleted), and the
     reservation follows it.
 
     Args:

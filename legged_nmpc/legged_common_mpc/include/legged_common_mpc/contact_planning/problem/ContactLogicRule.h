@@ -51,8 +51,8 @@ namespace ocs2::legged {
  * satisfies it, and may only fix a binary to a value that every completion
  * satisfying it shares. A preference (which foot should go first, which gait is
  *    nicer) is never a reason to fix anything: it belongs in the objective. A
- * rule that fixes more than is implied prunes feasible subtrees silently -
- * MixedIntegerOcpQp still reports `optimal` - and no test on complete
+ * rule that fixes more than is implied prunes feasible subtrees silently
+ * (MixedIntegerOcpQp still reports `optimal`), and no test on complete
  *    assignments can see it (testContactPlanningRegression enumerates the
  * partial assignments the search reaches).
  *

@@ -57,7 +57,7 @@ WORDS = {
     "redlines": "limits",
     "redlined": "limited",
 }
-# The checker and its tests name the words on purpose.
+# The checker and its tests list the words on purpose.
 _OWN_FILES = frozenset(
     {
         "tools/hooks/inclusive_language.py",

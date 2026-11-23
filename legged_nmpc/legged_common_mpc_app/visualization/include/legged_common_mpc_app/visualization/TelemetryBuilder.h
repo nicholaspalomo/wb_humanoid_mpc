@@ -90,7 +90,7 @@ namespace ocs2::legged::visualization {
  * kCentralDifferenceHalfInterval, so that they do not jump when a new policy
  * arrives.
  *
- * Orientation: the MPC's q holds the base quaternion and v the body angular
+ * Orientation: the MPC's q stores the base quaternion and v the body angular
  * velocity w_B (Composite(Translation, Spherical) root). The plots show the ZYX
  * Euler angles, their rates T_B(Theta)^-1 w_B (eulerZyxRatesForDisplay(), NaN
  * near a pitch of +-90 degrees) and w_B itself; the groups of generalized
@@ -106,7 +106,7 @@ namespace ocs2::legged::visualization {
  * and z0 the pendulum height of the nominal state
  * (VisualizationModel::nominalState; NaN without one); the ZMP of the source's
  * contact wrenches at its contact frames (NaN below
- * kZmpMinForceWorldEwrtWorldZ; the measured wrenches carry no torque, so the
+ * kZmpMinForceWorldEwrtWorldZ; the measured wrenches have no torque, so the
  * measured ZMP is the normal-force-weighted mean of the contact frames); and
  * the ACoM attitude (AngularCenterOfMass::computeQuatAcomRtWorldXyzw() of the
  * source's base quaternion and joints) as roll, pitch, yaw (NaN for a robot
@@ -147,7 +147,7 @@ class TelemetryBuilder {
   /**
    * @return InvalidArgument when the model is not the MPC's
    * (checkVisualizationModel()), when a frame of config.telemetryFrames or a
-   * contact frame is not a frame of the MPC's model. `termNames` names the
+   * contact frame is not a frame of the MPC's model. `termNames` specifies the
    * series of the solution's term groups (empty: groups without series).
    */
   static absl::StatusOr<std::unique_ptr<TelemetryBuilder>> Create(
@@ -324,7 +324,7 @@ class TelemetryBuilder {
   std::vector<google::protobuf::RepeatedField<double>* absl_nonnull>
       groupValues_;
 
-  // The groups, by what they plot: a `group<quantity>_` member holds the
+  // The groups, by what they plot: a `group<quantity>_` member stores the
   // indices of the groups that plot that quantity, per axis, contact or
   // source. The per-contact ones are sized to the contact set at
   // construction.

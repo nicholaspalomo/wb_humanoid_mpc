@@ -6,7 +6,7 @@ three joints, hip abduction/adduction (`HAA`), hip flexion/extension (`HFE`) and
 continuous wheel joint (`wheel`), on legs named `LF`, `RF`, `LH` and `RH` (left/right, front/hind). Each wheel is a
 0.098 m cylinder on the leg's foot adapter, so the robot stands and drives on its four wheels.
 
-This directory holds two Bazel packages:
+This directory contains two Bazel packages:
 
 | Package | Contents |
 | --- | --- |

@@ -57,8 +57,8 @@ struct CentroidalMpcConfig {
   // The contact planner's file, config/mpc/contact_planning.textproto beside
   // the task file. Absent for a robot that ships none: it runs the planner's
   // library defaults (ContactPlanningConfig{}) where its
-  // contact_schedule_source names the planner, never the conversion of an empty
-  // file.
+  // contact_schedule_source specifies the planner, never the conversion of an
+  // empty file.
   std::optional<mpc_config::ContactPlanningFile> contactPlanning;
 };
 
@@ -85,9 +85,10 @@ void overrideMultiContactPlanFiles(const MultiContactPlanFiles& files,
  * with the contact planner's file beside the task file when there is one
  * (loadContactPlanningFileBeside()).
  *
- * @return The loaders' errors: NotFound naming a file that does not exist, and
- * InvalidArgument naming the file, the line and the column of a file that does
- * not parse strictly (a file in another format, such as YAML, among them).
+ * @return The loaders' errors: NotFound identifying a file that does not exist,
+ * and InvalidArgument reporting the file, the line and the column of a file
+ * that does not parse strictly (a file in another format, such as YAML, among
+ * them).
  */
 absl::StatusOr<CentroidalMpcConfig> loadCentroidalMpcConfig(
     absl::string_view taskFile, absl::string_view referenceFile);

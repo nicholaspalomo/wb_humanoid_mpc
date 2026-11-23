@@ -484,8 +484,8 @@ absl::Status WBMpcInterface::setupModels(
       loadCustomPinocchioInterface(taskFile, urdfFile, modelSettings_));
   pinocchioInterfacePtr_ =
       std::make_unique<PinocchioInterface>(std::move(pinocchioInterface));
-  // Every term that reads a contact frame - the dynamics, the inverse dynamics,
-  // the foot costs and constraints - looks it up by model_settings' name; a
+  // Every term that reads a contact frame (the dynamics, the inverse dynamics,
+  // the foot costs and constraints) looks it up by model_settings' name; a
   // name the model does not have would be read out of bounds.
   RETURN_IF_ERROR(checkContactFramesExist(pinocchioInterfacePtr_->getModel(),
                                           modelSettings_.contactNames));

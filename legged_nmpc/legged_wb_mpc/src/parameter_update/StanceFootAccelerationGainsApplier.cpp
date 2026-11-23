@@ -102,7 +102,7 @@ void StanceFootAccelerationGainsApplier::apply(HotUpdateTarget& target) {
     // The swing foot's vertical-motion coefficients, which every worker's
     // pre-computation derives itself.
     WBMpcPreComputation* absl_nullable preComputationPtr =
-        // NOLINTNEXTLINE(rtti): OCS2 holds the pre-computation as a PreComputation; the whole-body problem's is a WBMpcPreComputation.
+        // NOLINTNEXTLINE(rtti): OCS2 stores the pre-computation as a PreComputation; the whole-body problem's is a WBMpcPreComputation.
         dynamic_cast<WBMpcPreComputation*>(problem.preComputationPtr.get());
     if (preComputationPtr == nullptr) {
       target.reportNotApplied(

@@ -64,8 +64,8 @@ namespace ocs2::legged {
  * reloaded file through this conversion, so a refused reload keeps the running
  * limits.
  *
- * @return The settings; InvalidArgument naming the field that is absent or out
- * of range.
+ * @return The settings; InvalidArgument identifying the field that is absent or
+ * out of range.
  */
 absl::StatusOr<ReferenceSettings> referenceSettingsFromConfig(
     const mpc_config::ReferenceFile& file);
@@ -83,17 +83,17 @@ absl::Span<const absl::string_view> hotReferenceFileFields();
  * The joint positions [rad] of the reference file's default posture, in the
  * order of the MPC model's joints.
  *
- * default_joint_state names every joint of `mpcJointNames` exactly once, in any
+ * default_joint_state lists every joint of `mpcJointNames` exactly once, in any
  * order: the index of a joint is the model's, never the file's.
  *
  * @param file The reference file.
  * @param mpcJointNames The joints of the MPC model in state order
  * (ModelSettings::mpcModelJointNames).
  * @param fixedJointNames The joints the task file fixes
- * (ModelSettings::fixedJointNames), which the posture may not name.
+ * (ModelSettings::fixedJointNames), which the posture must not include.
  * @return The posture, one entry per MPC joint; InvalidArgument listing every
- * joint that is missing, named twice, fixed or not a joint of the model, and
- * naming a value that is not a finite number.
+ * joint that is missing, listed twice, fixed or not a joint of the model, and
+ * identifying any value that is not a finite number.
  */
 absl::StatusOr<vector_t> defaultJointStateFromConfig(
     const mpc_config::ReferenceFile& file,

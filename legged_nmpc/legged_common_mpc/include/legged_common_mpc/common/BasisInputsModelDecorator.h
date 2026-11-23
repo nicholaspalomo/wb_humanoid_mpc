@@ -108,7 +108,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
    * no generator set for a point contact exists yet, so a set with one is
    * refused before this is reached (contactWrenchConeBasesFromConfig).
    *
-   * @return InvalidArgument naming the counts that disagree.
+   * @return InvalidArgument reporting the counts that disagree.
    */
   static absl::Status validateBasisMatrices(
       absl::Span<const ContactWrenchConeBasisMatrix> basisMatrices,
@@ -242,8 +242,8 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
     return getContactWrenchStartIndices(contactIndex);
   }
 
-  /** The contact block holds the basis scalings, not the six wrench components.
-   */
+  /** The contact block stores the basis scalings, not the six wrench
+   * components. */
   size_t getContactInputDim(size_t /*contactIndex*/) const override {
     return numBasisPerFoot_;
   }

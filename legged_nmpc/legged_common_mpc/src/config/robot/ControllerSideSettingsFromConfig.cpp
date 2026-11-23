@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged {
 namespace {
 
-/** OK for a time of 0 or more; InvalidArgument naming the field of
+/** OK for a time of 0 or more; InvalidArgument reporting the field of
  * contact_wrench_gate otherwise (NaN included). */
 absl::Status nonNegativeTime(absl::string_view field, double value) {
   // Negated, so that NaN is refused too.

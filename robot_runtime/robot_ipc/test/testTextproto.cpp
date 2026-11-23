@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The strict textproto parser (src/Textproto.h): a valid file fills the
 // message, and every kind of malformed file is an InvalidArgument error that
-// names the file, the line and the column, a deprecated field included.
+// reports the file, the line and the column, a deprecated field included.
 
 #include <cstdlib>
 #include <fstream>

@@ -80,7 +80,7 @@ namespace robot::ipc {
  * start() launches. Handlers and periodic callbacks run on it, one at a time,
  * so they must return quickly and need no locking among themselves. publish()
  * may be called from any thread except a realtime one: it serializes on the
- * caller and hands the sample to the IO thread through a short mutex-protected
+ * caller and passes the sample to the IO thread through a short mutex-protected
  * queue; only the IO thread calls dds_write(). A realtime thread never calls
  * the bus; it exchanges data with a periodic callback through lock-free
  * mailboxes instead.
@@ -116,7 +116,7 @@ class Bus {
   Bus& operator=(const Bus&) = delete;
 
   /**
-   * Hands every message of `topic` that carries the type Msg to `handler`, on
+   * Passes every message of `topic` that has the type Msg to `handler`, on
    * the IO thread. A message of another type, or one that does not parse, is
    * rejected and counted. The reference is valid during the call only, and the
    * message object is reused for the next one, so copy what you keep. One

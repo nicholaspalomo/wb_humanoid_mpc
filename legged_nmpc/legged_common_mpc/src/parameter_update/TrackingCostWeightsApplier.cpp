@@ -108,8 +108,8 @@ bool namesTerm(absl::Span<const TermWeights> entries, absl::string_view term) {
 /**
  * Reports what of the reloaded task_space_costs `reloaded` a reload cannot
  * apply, because it would assemble another problem: an entry whose link cost
- * the running problem does not carry (added or renamed), and a link cost the
- * running problem carries that no entry names any more (removed or renamed).
+ * the running problem does not have (added or renamed), and a link cost the
+ * running problem has that no entry lists anymore (removed or renamed).
  * Both take effect at the next start, as the start-up report says too
  * (task_space_costs[i].name). A problem assembled without link costs (its costs
  * do not list task_space_torso_cost) has nothing to compare: the entries are

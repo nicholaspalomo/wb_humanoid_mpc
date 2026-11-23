@@ -33,7 +33,7 @@
 
 The fix-its are the `--export-fixes` files of the aspect's actions (output group `clang_tidy_fixes`). A header's
 diagnostic comes from the header's own action and from every .cpp that includes it, so replacements are deduplicated by
-(file, offset, length, text). A diagnostic - identified by its check, location and message - is applied all or
+(file, offset, length, text). A diagnostic (identified by its check, location and message) is applied all or
 nothing, so that a rename never lands half-way:
 
 - a replacement outside the source tree (a generated file under bazel-out/, an external repository) is never applied,

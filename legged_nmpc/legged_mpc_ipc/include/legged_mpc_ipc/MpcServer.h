@@ -79,7 +79,7 @@ namespace ocs2::legged::ipc {
  * reset is MPC_BASE::reset() or resetSolver(), then the reference manager's
  * target trajectories from the caller's ResetTargetTrajectoriesFunction, as
  *      MPC_MRT_Interface::resetMpcNode() / resetMpcSolver() do;
- *   3. hands the observation to Hooks::preSolveObserver, solves from it
+ *   3. passes the observation to Hooks::preSolveObserver, solves from it
  * (MPC_BASE::run()) and reports the result to its supervisor, which backs off
  * and declares the MPC unhealthy exactly as in process;
  *   4. on success, publishes mpc/policy: the solution as
@@ -151,10 +151,10 @@ class MpcServer {
      * Name, CPU cores and SCHED_FIFO priority of the solver thread, set by
      * robot::realtime::configureCurrentThread() when the thread starts. A
      * setting it cannot be given is skipped and the others are still applied;
-     * one warning names every one skipped. The memory of the MPC process is not
+     * one warning lists every one skipped. The memory of the MPC process is not
      * locked by default (MemoryLock::kNone): the solver allocates as it runs,
      * and mlockall()'s MCL_FUTURE would make those allocations fail at a finite
-     * RLIMIT_MEMLOCK. MemoryLock::kLockProcess locks the memory of the whole
+     * RLIMIT_MEMLOCK. MemoryLock::kLockProcess locks the memory of the
      * process, every thread of it.
      */
     robot::realtime::RealtimeThreadConfig solverThread{

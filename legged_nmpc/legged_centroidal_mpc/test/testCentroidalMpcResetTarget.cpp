@@ -200,7 +200,7 @@ TEST(CentroidalMpcResetTarget,
 }
 
 /** The controller's link, made by a factory that keeps the reset target the
- * controller hands it. */
+ * controller passes to it. */
 class CapturingFactory {
  public:
   explicit CapturingFactory(MPC_BASE& mpc) : mpc_(mpc) {}
@@ -239,8 +239,8 @@ TEST(CentroidalMpcResetTarget, IsWhatTheControllerHandsItsMpcLink) {
       controllerOrStatus = CentroidalMpcMrtJointController::Create(
           description, stack.modelSettings(), stack.model(),
           capturing.factory(), stack.pinocchioInterface(), stack.pdGainsFile());
-  // The controller, which owns the link the factory captured, lives in
-  // controllerOrStatus for the whole test.
+  // The controller, which owns the link the factory captured, is stored in
+  // controllerOrStatus throughout the test.
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   ASSERT_TRUE(capturing.resetTarget());
   for (const scalar_t time : {0.0, 1.25, 7.5}) {

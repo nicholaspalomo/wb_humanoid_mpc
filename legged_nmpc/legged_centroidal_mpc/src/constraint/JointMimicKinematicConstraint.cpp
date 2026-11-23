@@ -89,7 +89,7 @@ JointMimicKinematicConstraint::JointMimicKinematicConstraint(
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-// isActive_ is copied deliberately: the SQP solver clones the whole problem
+// isActive_ is copied deliberately: the SQP solver clones the full problem
 // once per worker thread, and a copy constructor that dropped this flag
 // silently reverted a deactivated term to active.
 JointMimicKinematicConstraint::JointMimicKinematicConstraint(

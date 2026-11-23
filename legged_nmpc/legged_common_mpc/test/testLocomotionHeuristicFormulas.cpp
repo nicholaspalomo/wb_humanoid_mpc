@@ -432,7 +432,7 @@ TEST(LocomotionHeuristicFormulas,
 TEST(LocomotionHeuristicFormulas,
      WorldFrameFlagIsSetWhereverTheCentripetalHeuristicSitsInTheList) {
   // The same overwrite bug for wrenchHeuristicsNeedWorldFrame_ would send a
-  // horizontal force down the input-only, vertical-only path and hand it to the
+  // horizontal force down the input-only, vertical-only path and pass it to the
   // basis-vector parameterization in the wrong frame.
   for (const std::vector<std::string>& wrenchHeuristics :
        {std::vector<std::string>{"centripetal_acceleration", "impulse_scaling"},
@@ -584,8 +584,8 @@ TEST(LocomotionHeuristicFormulas,
   EXPECT_NEAR(longOffsetPosRfootRtWorldEwrtWorldXy.y(), 0.12330127018922195,
               1.0e-9);
 
-  // T_stance = 0 - what the context carries when the schedule does not say - is
-  // exactly Bledt's constant form: gains 0.1 and 0.05.
+  // T_stance = 0 (what the context stores when the schedule does not specify)
+  // is exactly Bledt's constant form: gains 0.1 and 0.05.
   left.stanceDuration = 0.0;
   right.stanceDuration = 0.0;
   const vector2_t constantOffsetPosLfootRtWorldEwrtWorldXy =
@@ -787,7 +787,7 @@ TEST(LocomotionHeuristicFormulas,
      HipCenteredSteppingAppliesEachScaleToItsOwnAxisAndFoot) {
   // Atlas ships lateralScale 2.528, so ignoring it, or swapping it with the
   // longitudinal one, changes its stance by centimeters. With both scales at 1
-  // and hip x = 0 - the older test - neither would be visible.
+  // and hip x = 0 (the older test), neither would be visible.
   LocomotionHeuristicConfig config;
   config.hipCenteredStepping.lateralScale = 2.0;
   config.hipCenteredStepping.longitudinalScale = 0.5;
@@ -807,7 +807,7 @@ TEST(LocomotionHeuristicFormulas,
   EXPECT_NEAR(offsetPosRfootRtWorldEwrtWorldXy.y(), -0.18, 1.0e-12);
 
   // At yaw pi/3 the scaled hip is rotated into the world, and the predicted
-  // base position - which the reference manager adds back as the anchor - must
+  // base position (which the reference manager adds back as the anchor) must
   // not leak into the offset.
   FootholdHeuristicContext turnedLeft = leftFoot();
   turnedLeft.yawBaseRtWorld = std::numbers::pi / 3.0;
@@ -1040,7 +1040,7 @@ TEST(LocomotionHeuristicFormulas,
           .x(),
       -30.0, 1.0e-9);
 
-  // A demand of m psidot v = 40 * 2.5 * 1.5 = 150 N sits between the ratio
+  // A demand of m psidot v = 40 * 2.5 * 1.5 = 150 N is between the ratio
   // clamp (0.3 W = 117.72 N) and a 200 N absolute clamp. With the absolute
   // clamp set, the ratio must play no part...
   WrenchHeuristicContext fast = context;
@@ -1284,7 +1284,7 @@ TEST(LocomotionHeuristicFormulas,
      PeriodicOrientationRatesAreTheTimeDerivativesOfItsOffsets) {
   // Along a node trajectory the phase advances at gaitPhaseRate, so d(roll)/dt
   // is the central difference of the roll over a step of the phase, times that
-  // rate - for both channels, at several phases, rates and coefficients - and
+  // rate (for both channels, at several phases, rates and coefficients), and
   // it vanishes where the phase is frozen. Every other base-pose heuristic is a
   // function of the command alone and leaves the rates at 0.
   LocomotionHeuristicConfig config;
@@ -1758,9 +1758,9 @@ TEST(LocomotionHeuristicFormulas,
       -0.04, 1.0e-12);
   EXPECT_EQ(log.count("changed on disk"), 1u) << log.all();
 
-  // A further, DIFFERENT edit is reported, naming the list it touched - and a
-  // foothold heuristic added on disk is not instantiated either (capture_point
-  // would answer this push).
+  // A further, DIFFERENT edit is reported, identifying the list it touched, and
+  // a foothold heuristic added on disk is not instantiated either
+  // (capture_point would answer this push).
   LocomotionHeuristicConfig editedAgain = edited;
   editedAgain.formulation.footholdHeuristics = {"capture_point"};
   ASSERT_TRUE((*layer)->reconfigure(editedAgain).ok());
@@ -1866,8 +1866,8 @@ struct OutOfRange {
 }  // namespace
 
 TEST(LocomotionHeuristicFormulas, ValidateRejectsEveryOutOfRangeKeyByName) {
-  // One case per branch of validate(), each asserting the message names the key
-  // the operator has to change.
+  // One case per branch of validate(), each asserting the message includes the
+  // key the operator has to change.
   const std::vector<OutOfRange> cases{
       {"locomotion_heuristics.base_pose_heuristics",
        [](LocomotionHeuristicConfig& c) {
@@ -2096,8 +2096,8 @@ TEST(LocomotionHeuristicFormulas,
         << "expected '" << entry.key << "' in: " << status.message();
   }
   // Both centripetal clamps NaN: neither is a positive clamp, so the pair is
-  // refused too (the per-key check names the first one; the point here is that
-  // the pair cannot slip through as "a clamp is set").
+  // refused too (the per-key check reports the first one; the point here is
+  // that the pair cannot slip through as "a clamp is set").
   LocomotionHeuristicConfig both;
   both.centripetalAccelerationParameters.maxForceComEwrtWorldXy = nan;
   both.centripetalAccelerationParameters.maxWnormForceComEwrtWorldXy = nan;

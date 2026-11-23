@@ -81,7 +81,7 @@ py_binary(
 )
 
 # The bundle of the robot images: both robot binaries with their runfiles under bin/, every robot model, the network
-# files, the plot configurations (the launch files' plot_config, whose mujoco_viewer names the viewer of robot-sim) and
+# files, the plot configurations (the launch files' plot_config, whose mujoco_viewer specifies the viewer of robot-sim) and
 # the entry scripts, as one deterministic tar (robot_bundle.bzl).
 robot_bundle(
     name = "robot_bundle",

@@ -84,7 +84,7 @@ absl::string_view configSeedPolicyName(ConfigSeedPolicy policy);
  * store").
  *
  * Without a store directory (--config_store_dir empty, a `bazel run` in the dev
- * container) the process reads the bundled files - the seeds - in place. With
+ * container) the process reads the bundled files (the seeds) in place. With
  * one, every file the robot reads has a copy there at its path below config/
  * (mpc/task.textproto, command/reference.textproto,
  * controller/joint_pd_gains.textproto, so that the PD gains file is still the

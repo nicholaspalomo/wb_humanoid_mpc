@@ -56,7 +56,7 @@ namespace ocs2::legged {
  * over the horizon rather than being a single knot extrapolated.
  *
  * The one definition of the reset target for every path that serves a reset:
- * WBMpcMrtJointController hands it to its MPC link (InProcessMpcLink serves its
+ * WBMpcMrtJointController passes it to its MPC link (InProcessMpcLink serves its
  * resets from it), and the MPC node's MpcServer resets from it. Pure: it reads
  * `pinocchioInterface` (the robot's mass) and the model, and may be called on
  * any thread.

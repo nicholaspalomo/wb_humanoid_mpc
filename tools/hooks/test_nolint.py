@@ -204,7 +204,7 @@ class MarkerProblemsTest(unittest.TestCase):
         self.assertEqual(
             self.problems("a;  // NOLINT(boost)\n"), [("nolint-reason", 1)]
         )
-        # A NOLINTEND carries no reason of its own: its NOLINTBEGIN does.
+        # A NOLINTEND has no reason of its own: its NOLINTBEGIN does.
         self.assertEqual(
             self.problems("// NOLINTBEGIN(boost): why\n// NOLINTEND(boost)\n"),
             [],

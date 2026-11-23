@@ -108,7 +108,7 @@ struct StaticEquilibriumOptions {
  *   sum_g lambda_g w_g = (e_z, (c - r) x e_z),  lambda >= 0,
  *
  * with the generators w_g of the stance (WrenchGenerators, moments about r) and
- * the forces in units of the robot's weight, so the CoM height does not matter.
+ * the forces in units of the robot's weight, so the CoM height has no effect.
  * The set of such c is a convex polygon.
  *
  * supportPolygon() computes an inner approximation of that polygon without

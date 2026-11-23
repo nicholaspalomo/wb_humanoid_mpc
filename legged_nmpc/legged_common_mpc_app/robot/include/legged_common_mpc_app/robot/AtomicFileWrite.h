@@ -37,10 +37,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /**
  * Crash-safe writes of the robot's persistent configuration files
- * (RobotConfigDirectory, ConfigFileStore): a reader of a file - the task file's
- * watcher, the PD gains file's poll, the next start - sees its old or its new
+ * (RobotConfigDirectory, ConfigFileStore): a reader of a file (the task file's
+ * watcher, the PD gains file's poll, the next start) sees its old or its new
  * contents, never a part of either, also after a power loss. POSIX; an error is
- * the errno's absl::Status (absl::ErrnoToStatus) naming the path. They block on
+ * the errno's absl::Status (absl::ErrnoToStatus) identifying the path. They block on
  * the disk: for the main thread and the store's writer thread, never the
  * realtime thread and not the bus's IO thread.
  */
@@ -61,7 +61,7 @@ absl::Status writeFileAtomically(absl::string_view path,
                                  absl::string_view contents);
 
 /** The bytes of the file at `path`: NotFound when there is none, the errno's
- * status otherwise, naming the path. */
+ * status otherwise, identifying the path. */
 absl::StatusOr<std::string> readFileBytes(absl::string_view path);
 
 /**

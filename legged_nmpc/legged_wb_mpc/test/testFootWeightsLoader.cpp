@@ -102,7 +102,7 @@ std::string runfilePath(absl::string_view relativePath) {
 
 /**
  * The foot cost weights of the task file `contents`, written below the header
- * that names its schema to a file of its own under the test's temporary
+ * that specifies its schema to a file of its own under the test's temporary
  * directory and read as the stack reads a task file (loadTaskFile(),
  * endEffectorDynamicsWeightsFromConfig()); a test failure and the default
  * weights when it does not read or convert.

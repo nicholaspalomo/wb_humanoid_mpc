@@ -83,8 +83,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * QuadraticCostWeightsApplier on the quadratic costs the start-up factory
  * builds (the Tuning* costs and the input-only InputQuadraticCost): a hot
  * reload of state_weights, input_weights, final_state_weights and
- * terminal_cost_scaling reaches every one of them in every worker's problem -
- * no cast to another type, so no WARNING - and leaves each with exactly the
+ * terminal_cost_scaling reaches every one of them in every worker's problem
+ * (no cast to another type, so no WARNING) and leaves each with exactly the
  * weights a fresh start with the reloaded file builds, through the same one
  * conversion (trackingStateWeightsFromConfig(),
  * terminalStateWeightsFromConfig()), the CoM + ACoM tracking cost's zeroed

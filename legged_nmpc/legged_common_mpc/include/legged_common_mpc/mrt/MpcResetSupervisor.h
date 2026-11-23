@@ -184,7 +184,7 @@ class MpcResetSupervisor {
 
   /**
    * The request to serve before the next solve, if one is outstanding: the
-   * solver thread resets the MPC - fully when the ticket says so - and then
+   * solver thread resets the MPC (fully when the ticket says so) and then
    * passes the ticket to completeReset().
    */
   std::optional<ResetTicket> takeResetRequest() const;

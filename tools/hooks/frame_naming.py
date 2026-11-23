@@ -27,7 +27,7 @@
 
 """Names every frame-dependent quantity by its frames: `<quantity>_<frame1>_rt_<frame2>_ewrt_<frame3>`.
 
-The convention is legged_nmpc/docs/frame_naming/README.md; this module holds its vocabulary (the quantities, the
+The convention is legged_nmpc/docs/frame_naming/README.md; this module defines its vocabulary (the quantities, the
 frames, the qualifiers and the suffixes), which the README's tables list, and the check that measures the rename:
 
   frame-naming  in C++, Python and .proto (first-party code and lib/ocs2 without lib/ocs2/thirdparty):
@@ -37,7 +37,7 @@ frames, the qualifiers and the suffixes), which the README's tables list, and th
                   into the same words: a C++ name camelCase (`getPosBaseRtWorldEwrtWorld`), kName or, where the code
                   was snake_case, snake_case; a proto field and a Python name snake_case, a Python module constant
                   UPPER_SNAKE; never the mixed `getPos_base_rt_world_ewrt_world` or `nomPos_base_rt_com_ewrt_base`;
-                - an identifier without one that holds a legacy quantity word (position, velocity, orientation,
+                - an identifier without one that contains a legacy quantity word (position, velocity, orientation,
                   quaternion, rotation, acceleration, force, torque, wrench, twist, momentum, pose, ... and their
                   abbreviations) is a legacy name, unless it is exempt: a type, an enumerator, a macro, a module, a
                   joint-space, dimension or index name, a weight or gain, a third-party API name, or a test name.
@@ -462,7 +462,7 @@ REPRESENTATION_WORDS = frozenset(
 )
 # LINT.ThenChange(//legged_nmpc/docs/frame_naming/README.md:exemptions)
 
-# Third-party API names that hold a legacy word: Eigen, Pinocchio, MuJoCo and the Python libraries. A name that one of
+# Third-party API names that contain a legacy word: Eigen, Pinocchio, MuJoCo and the Python libraries. A name that one of
 # these namespaces or modules qualifies (`pinocchio::`, `np.`) is not read at all.
 THIRD_PARTY_NAMES = frozenset(
     {
@@ -905,7 +905,7 @@ def grammar_problems(identifier: str) -> list[str]:
 
 
 def is_legacy(identifier: str, member_access: bool = False) -> bool:
-    """True when `identifier` names a frame quantity without its frames and is not exempt (README section 4).
+    """True when `identifier` identifies a frame quantity without its frames and is not exempt (README section 4).
 
     Args:
       identifier: The identifier.
@@ -1008,7 +1008,7 @@ _PYTHON_STYLES: tuple[str, ...] = (SNAKE, UPPER_SNAKE)
 _PYTHON_KIND = "a Python name (a module constant: UPPER_SNAKE)"
 
 
-# The gtest macros whose second argument names a test (README section 5: test names describe behavior).
+# The gtest macros whose second argument specifies a test (README section 5: test names describe behavior).
 _GTEST_MACROS = frozenset(
     {"TEST", "TEST_F", "TEST_P", "TYPED_TEST", "TYPED_TEST_P"}
 )

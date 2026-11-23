@@ -90,7 +90,7 @@ CONTACT_PLANNING_FILE_NAME = "contact_planning.textproto"
 NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z = 0.8
 
 # The names each registry accepts, by registry: the choices of a string field whose (legged_mpc_config.tuning)
-# option names a registry. Written by `bazel run //tools/config_registries:print_config_registries`.
+# option specifies a registry. Written by `bazel run //tools/config_registries:print_config_registries`.
 REGISTRIES_FILE = "legged_nmpc/legged_mpc_config/config_registries.textproto"
 
 
@@ -120,13 +120,13 @@ def find_repo_root(start: str | None = None) -> str | None:
 
     In order: BUILD_WORKSPACE_DIRECTORY (set by `bazel run`), the checkout this source file lies in (its real path:
     Bazel's runfiles link to the sources), and the directories above `start` (default: the working directory). A root
-    holds MODULE.bazel and robot_models/.
+    contains MODULE.bazel and robot_models/.
 
     Args:
         start: The directory the last search walks up from; None for the working directory.
 
     Returns:
-        The absolute path of the checkout's root, or None when no candidate holds a checkout.
+        The absolute path of the checkout's root, or None when no candidate contains a checkout.
     """
     workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
     if workspace and _is_repository_root(workspace):
@@ -148,7 +148,7 @@ def resolve_input_path(path: str, repo_root: str | None = None) -> str:
         repo_root: The checkout to look in second; None to find it with find_repo_root().
 
     Returns:
-        The first candidate that exists, or the first candidate when none does, so that an error names the path the
+        The first candidate that exists, or the first candidate when none does, so that an error reports the path the
         user meant.
     """
     if not path or os.path.isabs(path):

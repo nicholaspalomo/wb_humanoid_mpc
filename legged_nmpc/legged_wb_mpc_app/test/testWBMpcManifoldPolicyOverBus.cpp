@@ -42,7 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // in process, on both sides of a contact event, bit for bit. Bitwise is what
 // holds: both stacks solve the same problem from the same observation on one
 // SQP thread (multiple_shooting.n_threads: 1, so that even the line search's
-// per-thread sums are fixed), and the link carries the doubles of the
+// per-thread sums are fixed), and the link transmits the doubles of the
 // controller's nodes unchanged (policyToProto(), policyFromProto()).
 //
 // Builds the CppAD libraries of the whole-body G1 MPC on a cold cache
@@ -109,7 +109,7 @@ struct WholeBodyMpc {
 
 WholeBodyMpc makeWholeBodyMpc() {
   WholeBodyMpc wholeBody;
-  // A file missing from the runfiles ends the test here, naming the data
+  // A file missing from the runfiles ends the test here, identifying the data
   // dependency to add (robot::resolveResourcePath).
   absl::StatusOr<std::unique_ptr<WBMpcInterface>> interface =
       WBMpcInterface::Create(
@@ -334,7 +334,7 @@ TEST(WBMpcManifoldPolicyOverBus,
   ASSERT_TRUE(mrt.updatePolicy());
   const PrimalSolution& solved = mrt.getPolicy();
 
-  // The robot holds the node's ManifoldLinearController, node for node.
+  // The robot stores the node's ManifoldLinearController, node for node.
   ASSERT_NE(decoded.controllerPtr_, nullptr);
   ASSERT_NE(solved.controllerPtr_, nullptr);
   EXPECT_EQ(solved.controllerPtr_->getType(), ControllerType::MANIFOLD_LINEAR);

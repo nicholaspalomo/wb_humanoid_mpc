@@ -10,7 +10,7 @@ Every physical quantity in this repository that depends on frames is named by th
 the left foot's contact frame relative to the world frame, with its components in the base frame's axes.
 
 This document is the specification the rename follows, and the reference afterwards. Its vocabulary (the quantities,
-the frames, the qualifiers and the suffixes) lives in one place, `tools/hooks/frame_naming.py`. The tables here list
+the frames, the qualifiers and the suffixes) is defined in `tools/hooks/frame_naming.py`. The tables here list
 the same words, and `tools/hooks/test_frame_naming.py` fails when they drift apart. The `frame-naming` check
 measures the rename and then enforces it (section 9).
 
@@ -60,7 +60,7 @@ section 2.4. A word is one of:
 
 ### 2.2 The four forms
 
-Each quantity has one form, fixed by its row in section 3. The form says which frames a name carries.
+Each quantity has one form, fixed by its row in section 3. The form determines which frames a name includes.
 
 | Form | Pattern | Quantities | Why |
 |---|---|---|---|
@@ -91,8 +91,8 @@ container   ::= "traj" | "samples" | "size"        (a time-indexed sequence; sam
 
 - frame1 and frame2 differ, except for `angmom` and `cmom`, whose frame1 is the point the moment is taken about:
   `angmom_world_rt_world_ewrt_world` is the angular momentum about the world origin. frame3 may equal either.
-- One name holds one quantity: a second `rt` or `ewrt` is an error. A difference of two quantities is the `err`
-  qualifier on one name (section 2.5), not two names joined.
+- One name represents one quantity: a second `rt` or `ewrt` is an error. A difference of two quantities uses the `err`
+  qualifier on one name (section 2.5) rather than joining two names.
 - The context never repeats a quantity word or a legacy word (`velocity`, `position`, ...).
 
 Examples: `pos_lfoot_rt_world_ewrt_world`, `quat_base_rt_world`, `wrench_rfoot_ewrt_world`, `normal_terrain_ewrt_world`,
@@ -124,9 +124,9 @@ Since every word of the vocabulary is one lowercase run, each spelling splits ba
   `nomPos_base_rt_com_ewrt_base` are errors, and so is a camelCase or kName frame name in Python or a proto. A C++
   name keeps the style of the name it replaces: `comToBasePositionNominal` becomes `nomPosBaseRtComEwrtBase`, the
   snake_case local `quat_l_to_w` becomes `quat_base_rt_world`. The check cannot see the replaced name, so in C++ it
-  accepts camelCase, kName and snake_case and rejects only the mixed spelling; choosing the right one of them is the
-  renamer's job.
-- A function's context words sit between the verb and the quantity: `getSwingRefPosFootRtWorldEwrtWorld`,
+  accepts camelCase, kName and snake_case and rejects only the mixed spelling; choosing the matching style is up to the
+  renamer.
+- A function's context words go between the verb and the quantity: `getSwingRefPosFootRtWorldEwrtWorld`,
   `getLinearApproximationPosEesRtWorldEwrtWorld`. The quantity always comes before the frames, and nothing follows
   the frames but the suffixes of section 2.6.
 - A function that returns or sets a quantity is named for it with the verb the code already uses (`get`, `set`,
@@ -141,7 +141,7 @@ Since every word of the vocabulary is one lowercase run, each spelling splits ba
 A qualifier is a context word with a fixed meaning. Write it exactly as below, in this order when a name has several
 (a C++ `initRefPos...`, `cmdMaxLinvel...`, `refErrPos...`, `getMnormRateCmom...`; a proto field or Python
 `init_ref_pos_...`, `cmd_max_linvel_...`: the bound of a command is `cmd_max_`, never `max_cmd_`). The check rejects the spelled-out synonyms and an out-of-order pair. Free context words (`swing`, `stance`, `liftoff`, `touchdown`, `planned`,
-`terminal`, `offset`, `norm`, `proxy`) may sit anywhere in the context. `proxy` marks a value that stands in for the
+`terminal`, `offset`, `norm`, `proxy`) may appear anywhere in the context. `proxy` marks a value that stands in for the
 quantity it names on some models: getProxyLinvelComRtWorldEwrtWorld() is the CoM velocity a centroidal state stores, or
 the base velocity a whole-body state stores instead (section 6).
 
@@ -193,7 +193,7 @@ After the frames, a name may end in one component and then one container suffix:
 - A container indexed by a generic role (contact index, foot index, end-effector index) names that role in the plural
   as frame1: `std::vector<vector3_t> posContactsRtWorldEwrtWorld`, `feet`, `hands`, `knees`, `hips`, `ankles`,
   `pads`, `ees`, `links`, `surfaces`, `spheres`. Only frame1 is ever plural.
-- frame3 (or frame2) that is "each element's own frame" is the singular role: `forceContactsEwrtContact` holds each
+- frame3 (or frame2) that is "each element's own frame" is the singular role: `forceContactsEwrtContact` stores each
   contact's force in that contact's frame.
 - A time-indexed container takes the `traj` suffix: `refPosBaseRtWorldEwrtWorldTraj`. A container that is both is
   plural and `traj`: `desPosFeetRtWorldEwrtWorldTraj`.
@@ -202,7 +202,7 @@ After the frames, a name may end in one component and then one container suffix:
 ### 2.8 CppAD and templated code
 
 A templated or taped value has the same name as its `scalar_t` counterpart: `SCALAR_T` does not change what a
-quantity is. Only when both live in one scope does the taped one take the `ad` qualifier:
+quantity is. Only when both exist in the same scope does the taped one take the `ad` qualifier:
 `adPosBaseRtWorldEwrtWorld`. Do not encode the scalar type in a suffix (`...Ad`, `...CppAd`). Class names such
 as `ZeroVelocityConstraintCppAd` are types and keep their names (section 5).
 
@@ -418,7 +418,7 @@ literal, a left-only constant).
 
 <!-- LINT.IfChange(exemptions) -->
 These keep their names. The check knows the word lists below (`EXEMPT_WORDS`, `OPERATION_WORDS`,
-`THIRD_PARTY_NAMES` of `tools/hooks/frame_naming.py`); anything else that is genuinely not a frame quantity carries
+`THIRD_PARTY_NAMES` of `tools/hooks/frame_naming.py`); anything else that is genuinely not a frame quantity uses
 `// NOLINT(frame-naming): <reason>` (`#` in Python).
 
 - Joint-space quantities (joint positions, velocities, accelerations and torques, and the generalized coordinates
@@ -434,7 +434,7 @@ These keep their names. The check knows the word lists below (`EXEMPT_WORDS`, `O
   `WalkingVelocityCommand`, `quaternion_t`, `BasePlanarMotion`; an enumerator names a mode or a registry entry
   (`ContactInputParameterization::kWrench`, `ZERO_TORQUE`); a macro is not a value. Their members and the variables of
   those types follow the convention.
-- Objects named after their concept hold a model, a configuration, a cost or constraint term, an
+- Objects named after their concept represent a model, a configuration, a cost or constraint term, an
   interface, a callback, a registry, a GUI widget, an execution rule, a locomotion heuristic or a message
   (`quaternionModel`, `wrenchConeConfig`, `velocityCommand`, `positionCppAdInterfacePtr_`, `makeWrenchHeuristic`):
   words `model`, `config`, `settings`, `options`, `parameters`,
@@ -453,12 +453,12 @@ These keep their names. The check knows the word lists below (`EXEMPT_WORDS`, `O
   `log`, `product`, `conjugate`, `slerp`, `tangent`, `safe`, `between`, `distance`, `random`, `unit`, and `<a>From<b>` /
   `<a>To<b>` with a representation `<b>`). Their parameters and locals follow the convention with the frame `local`
   where they are body-generic.
-- Momentum matrices (the centroidal momentum matrix and its blocks) map velocities to momentum and hold no frame
+- Momentum matrices (the centroidal momentum matrix and its blocks) map velocities to momentum and have no frame
   pair of their own (`getCentroidalMomentumMatrix`, `getSingleRigidBodyBaseMomentumMatrix`,
   `computeFloatingBaseCentroidalMomentumMatrixInverse`): a name whose only legacy word is `momentum` and that has the
   word `matrix` keeps its name.
 - OCS2's solver and problem interface (`getValue`, `getLinearApproximation`,
-  `computeFlowMap`, ...) holds no frame words. OCS2 virtual functions that do (`EndEffectorKinematics::getPosition`,
+  `computeFlowMap`, ...) contains no frame words. OCS2 virtual functions that do (`EndEffectorKinematics::getPosition`,
   `getVelocity`, `getOrientationError`) are renamed in the lib/ocs2 unit together with their base and every override,
   in one change.
 - Third-party APIs that Pinocchio, Eigen, MuJoCo, CppAD, protobuf's runtime, numpy, scipy, rerun or tkinter
@@ -475,7 +475,7 @@ These keep their names. The check knows the word lists below (`EXEMPT_WORDS`, `O
 - Generic value messages (the fields of a value type whose frames its user names, such as proto `Pose { position,
   orientation }`, `Wrench { force, torque }`, `Vector3`, `Quaternion`) keep their names with
   `// NOLINT(frame-naming): a component of a frame-generic value; the enclosing field names the frames`. The field
-  that holds one is named: `Pose pose_base_rt_world = 1;`.
+  storing one is named: `Pose pose_base_rt_world = 1;`.
 <!-- LINT.ThenChange(//tools/hooks/frame_naming.py:legacy_words) -->
 
 ## 6. Ambiguous cases
@@ -522,7 +522,7 @@ its tests (`tools/hooks/frame_naming.py`, `tools/hooks/test_frame_naming.py`, se
 Frequent identifiers and their new names, from the code as it was before the rename. Each new name keeps the case
 style of the old one (section 2.4): a camelCase C++ name stays camelCase, a snake_case one, a proto field or a Python
 name stays snake_case. Grep the old name repo-wide; the
-new name holds wherever the old one had the same meaning. Where the same old name means different frames in
+new name applies wherever the old one had the same meaning. Where the same old name means different frames in
 different places (a local `position`), decide each by section 6.
 
 | Where | Old | New |
@@ -826,14 +826,14 @@ unit owns the identifiers *declared* in it (functions, members, constants, field
 | 12 | Simulator | `robot_runtime/mujoco_sim_interface`, `robot_runtime/web_viewer` | |
 | 13 | Python | `legged_nmpc/remote_control`, `legged_nmpc/legged_rerun_viewer`, `legged_nmpc/legged_common_mpc_pyutils`, `legged_learning`, `tools/ipc`, `tools/locomotion_heuristics` | |
 | 14 | Robot models and tools | `robot_models`, `tools/config_dump`, `tools/config_registries` | |
-| 15 | Verify | the whole tree | switches the check on (section 9) |
+| 15 | Verify | all directories | switches the check on (section 9) |
 
 ### 8.2 What each rename agent does
 
 1. List the unit's findings:
    `CI=true python3 -m tools.hooks.lint_code --only frame-naming --paths <unit paths>`.
 2. For each identifier the unit declares, pick the new name from sections 2 to 7, deciding unclear frames by section
-   6. Rename the declaration and **every use in the whole repository** in the same change, across units: C++, Python,
+   6. Rename the declaration and **every use in the repository** in the same change, across units: C++, Python,
    proto, textproto, Markdown that names the identifier in backticks, and string literals that spell a field name
    (the GUI registries, `config_registries.textproto`, `getattr` / `HasField` strings, JSON keys). A later unit then
    finds only its own declarations left.
@@ -856,7 +856,7 @@ unit owns the identifiers *declared* in it (functions, members, constants, field
 ### 8.3 Protos, configurations and recorded data
 
 - A renamed field keeps its field number; never `reserved` the old name, and do not list it in
-  `(nproto.retired_field)` (that retires a field; this one lives on under a new name). Binary data stays valid: the
+  `(nproto.retired_field)` (that retires a field; here the field remains active under a new name). Binary data stays valid: the
   shipped multi-contact plans `legged_nmpc/legged_multi_contact/plans/*.binpb` are not regenerated.
 - Text data names fields, so it changes with them: every `.textproto` under `robot_models/` and `legged_nmpc/`,
   the plans' `.summary.textproto` files, the test data and the recorded text logs. Grep the old field name in every
@@ -897,5 +897,5 @@ CI=true python3 -m tools.hooks.lint_code --only frame-naming --summary
 ```
 
 The check ran opt-in while the rename was under way. The Verify phase (unit 15) switched it on once it reported
-nothing for the whole tree, and deleted the `opt_in` field of `Check` with it: `make lint`, the pre-commit hook and CI
+nothing across the repository, and deleted the `opt_in` field of `Check` with it: `make lint`, the pre-commit hook and CI
 run `frame-naming` like every other check.

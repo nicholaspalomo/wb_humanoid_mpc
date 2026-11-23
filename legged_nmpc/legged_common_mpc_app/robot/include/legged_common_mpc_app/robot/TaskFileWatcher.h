@@ -54,7 +54,7 @@ class TaskFileWatcher {
   using OnChange = absl::AnyInvocable<void(const std::string& file)>;
 
   /**
-   * Watches `file`, the robot's task file, which is handed to `onChange`, from
+   * Watches `file`, the robot's task file, which is passed to `onChange`, from
    * `readAt`: the write time the file had when its contents were last read
    * (writeTimeOf(), taken before the read). A write after that time is reported
    * by the first poll, also one made before the watcher existed (a save while

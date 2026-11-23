@@ -13,7 +13,7 @@ load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 package(default_visibility = ["//visibility:public"])
 
-# The import path drops tools/, so a proto imports "nproto/options.proto". The options that name the structs and ask for
+# The import path drops tools/, so a proto imports "nproto/options.proto". The options that specify the structs and ask for
 # presence (options.proto), and the retired fields of a message (retired_field_options.proto with its RetiredField
 # message, retired_field.proto): one library, so that Python finds every module under one `nproto` package.
 proto_library(

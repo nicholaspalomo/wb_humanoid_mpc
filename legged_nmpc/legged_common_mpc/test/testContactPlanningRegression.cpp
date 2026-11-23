@@ -256,7 +256,7 @@ std::string hashRows(const OcpQpStage& s) {
 /*---------------------------------------------- fixture i/o
  * ----------------------------------------------*/
 
-/** The fixture as an ordered list of "key value" lines; the key names the
+/** The fixture as an ordered list of "key value" lines; the key identifies the
  * problem, stage and quantity. */
 using Fixture = std::vector<std::pair<std::string, std::string>>;
 

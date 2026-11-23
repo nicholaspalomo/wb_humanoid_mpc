@@ -105,7 +105,7 @@ constexpr char kHingeScene[] = R"(
 </mujoco>
 )";
 
-/** The scene with a body that already carries the name the simulator gives its
+/** The scene with a body that already has the name the simulator gives its
  * projectile: it cannot compile with one. */
 constexpr char kSceneWithAProjectileName[] = R"(
 <mujoco>

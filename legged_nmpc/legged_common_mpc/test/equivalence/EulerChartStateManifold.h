@@ -66,7 +66,7 @@ namespace ocs2::legged {
  * P_e(x_e,F)^-1 here and Jr^-1(b) on the rotation rows (the identity elsewhere)
  * there:
  *   - the centroidal state: P_e depends on Theta only, so the two agree where
- * no gap carries a rotation (b = 0), and differ at first order in b otherwise
+ * no gap has a rotation (b = 0), and differ at first order in b otherwise
  * (T_B(Theta_next) T_B(Theta_F)^-1 and Jr^-1(b) are both I + O(|b|), with
  *     different first-order terms);
  *   - the whole body: P_e's (rotation, angular velocity) block is [[T_B, 0],
@@ -75,8 +75,8 @@ namespace ocs2::legged {
  * enter). At Theta_F = Theta_next the chart's sensitivity is [[I, 0],
  * [C(dTheta_next/dt - dTheta_F/dt) T_B^-1, I]], so the two also differ at first
  * order in a gap of the angular velocity (one with a yaw- or pitch-rate
- * component), without any rotation in the gap. They agree where no gap carries
- * a rotation and, on the whole body, no gap carries an angular velocity
+ * component), without any rotation in the gap. They agree where no gap has a
+ * rotation and, on the whole body, no gap has an angular velocity
  * (testMpcSqpStepEquivalence (S2) and (S2w)).
  *
  * Valid away from the Euler singularity (|pitch| < 90 degrees) and from a yaw

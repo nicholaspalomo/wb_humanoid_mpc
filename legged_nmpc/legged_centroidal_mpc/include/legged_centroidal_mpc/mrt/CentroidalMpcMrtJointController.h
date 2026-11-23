@@ -84,8 +84,8 @@ namespace ocs2::legged {
 
 /**
  * The joint controller of a robot run by the centroidal MPC: every control
- * cycle it hands the measured state to the MPC (through its MpcLink), evaluates
- * the policy in use and commands each joint a PD target with an
+ * cycle it passes the measured state to the MPC (through its MpcLink),
+ * evaluates the policy in use and commands each joint a PD target with an
  * inverse-dynamics feedforward, or the action of a passive mode (ZERO_TORQUE,
  * JOINT_PD, GRAVITY_COMP, SAFETY). Build it with Create().
  * computeJointControlAction() and the mode setters run on the control thread;
@@ -111,11 +111,11 @@ class CentroidalMpcMrtJointController final
    * @param [in] pdGainsFile: the robot's joint_pd_gains.textproto
    * (loadJointPdGains()), required: the controller has no gains of its own.
    * Reloaded by pollPdGainsFile().
-   * @return The errors of loadRequiredJointPdGains(), naming the file:
+   * @return The errors of loadRequiredJointPdGains(), including the file path:
    * InvalidArgument when `pdGainsFile` is empty, cannot be read or is refused
    * (a default_gains without kp, kd and max_joint_torque included), NotFound
-   * when it does not exist - the controller does not start on gains nobody
-   * wrote for the robot. NotFound naming the joint when `modelSettings` names a
+   * when it does not exist (the controller does not start on gains nobody wrote
+   * for the robot). NotFound identifying the joint when `modelSettings` lists a
    * joint (an MPC joint or a fixed one) that `robotDescription` does not have.
    */
   static absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>>
@@ -173,7 +173,7 @@ class CentroidalMpcMrtJointController final
    *
    * In WB_MPC the policy is read one lookahead (the time since the previous
    * cycle, clamped to [kMinPolicyLookahead, kMaxPolicyLookahead]) after the
-   * measurement - the joint targets and the feedforward - while its feedback
+   * measurement (the joint targets and the feedforward), while its feedback
    * acts on the error at the measurement time (LookaheadPolicyEvaluator): a
    * robot exactly on a moving plan gets exactly the feedforward. Every
    * feedforward torque is clamped to its joint's max_joint_torque, in every
@@ -181,9 +181,9 @@ class CentroidalMpcMrtJointController final
    *
    * In the passive modes (ZERO_TORQUE, JOINT_PD, GRAVITY_COMP, SAFETY), the
    * hold of WB_MPC, its weight compensation before a policy and the execution
-   * of a policy it allocates nothing once the controller is built - Pinocchio
-   * runs on the FreeFlyer twin of the model (RealtimeRigidBodyDynamics,
-   * legged_common_mpc_app/robot/README.md) -, takes no lock and writes no log
+   * of a policy it allocates nothing once the controller is built (Pinocchio
+   * runs on the FreeFlyer twin of the model; see RealtimeRigidBodyDynamics,
+   * legged_common_mpc_app/robot/README.md), takes no lock and writes no log
    * line (reports go to the event sink). A policy the realtime evaluator
    * refuses is never evaluated by MRT_BASE (which allocates, and aborts on a
    * malformed policy): the robot is held with the JOINT_PD action, and
@@ -205,15 +205,15 @@ class CentroidalMpcMrtJointController final
   const MpcLink& getMpcLink() const { return *mpcLink_; }
 
   /**
-   * Hands the controller the joint PD gains of a whole gains file (as the
+   * Passes the controller the joint PD gains of a complete gains file (as the
    * tuning GUI publishes it on operator/pd_gains), without writing the file.
    * Thread-safe, for any non-realtime thread: the gains are resolved on the
    * caller's thread (jointPdGainsFromConfig()) into a preallocated set of
    * gains, which the control thread takes into use at its next cycle without
    * locking or allocating (JointPdGainsMailbox). Gains jointPdGainsFromConfig()
    * refuses are returned as its InvalidArgument and change nothing. Of files
-   * handed in concurrently (here, or by pollPdGainsFile()), the one handed in
-   * last wins, whichever is resolved first.
+   * passed in concurrently (here, or by pollPdGainsFile()), the last one passed
+   * in wins, whichever is resolved first.
    */
   absl::Status setPdGains(const mpc_config::JointPdGainsFile& gains);
 
@@ -272,9 +272,9 @@ class CentroidalMpcMrtJointController final
    * @brief requestMpcReset(), and WB_MPC holds the robot until a policy solved
    * after the reset is active: with the GRAVITY_COMP action when
    * `holdGravityComp`, with the JOINT_PD action otherwise, then it ramps into
-   * the MPC action over mpcEntryBlendTime. For discontinuities of the plant - a
+   * the MPC action over mpcEntryBlendTime. For discontinuities of the plant (a
    * fall caught on the gantry, a reset of the simulator, the clock going
-   * backwards - and for entering WB_MPC. Call it from the thread that runs
+   * backwards) and for entering WB_MPC. Call it from the thread that runs
    *        computeJointControlAction().
    */
   void requestMpcResetAndHold(bool holdGravityComp = false);
@@ -347,7 +347,7 @@ class CentroidalMpcMrtJointController final
   }
   /**
    * The control cycles whose contact estimate was refused because it did not
-   * carry one flag per contact point: a configuration error of the estimator,
+   * include one flag per contact point: a configuration error of the estimator,
    * after which the measured contact flags stay those of the cycle before. The
    * first refusal of each run posts
    * ControllerEventCode::kContactEstimateRefused to the event sink, which the
@@ -585,7 +585,7 @@ class CentroidalMpcMrtJointController final
    */
   void reportPolicyUpdateLockContention();
 
-  /** Hands an event to the event sink. Control thread. */
+  /** Passes an event to the event sink. Control thread. */
   void postEvent(ControllerEventCode code,
                  scalar_t value0 = 0.0,
                  scalar_t value1 = 0.0,
@@ -771,8 +771,8 @@ class CentroidalMpcMrtJointController final
    * for a robot hanging on the gantry, which is how GRAVITY_COMP is operated.
    *
    * NOT what a robot standing on its own feet needs: those joint rows also
-   * carry -J_{c,j}^T f, see fillGravityCompAction. The result is a workspace of
-   * this controller, valid until the next call.
+   * include -J_{c,j}^T f, see fillGravityCompAction. The result is a workspace
+   * of this controller, valid until the next call.
    */
   const vector_t& computeGravityCompensation(
       const ::robot::model::RobotState& robotState);

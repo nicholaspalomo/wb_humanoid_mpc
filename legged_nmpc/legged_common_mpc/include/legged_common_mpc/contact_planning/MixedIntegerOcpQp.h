@@ -145,7 +145,7 @@ struct MiqpResult {
  * Open nodes are processed best-bound first with depth-first plunges in the
  * rounding direction. Branching always picks the first fractional binary in the
  * order given by the caller, which for contact planning is time order: early
- * contact decisions are settled first and the propagation hook (phase
+ * contact decisions are fixed first and the propagation hook (phase
  * durations, alternation) then fixes long runs of later variables. A warm-start
  * assignment (e.g. the previous plan) and a diving heuristic provide incumbents
  * early.
@@ -170,7 +170,7 @@ class MixedIntegerOcpQp {
    * @param problem            The OCP-QP. The binaries' box bounds are
    * overwritten by the search.
    * @param binaries           Binary variables in branching order.
-   * @param initialAssignment  Fixings that hold for the whole search (e.g. the
+   * @param initialAssignment  Fixings kept throughout the search (e.g. the
    * committed schedule); free entries are -1.
    * @param propagate          Logical propagation hook, may be empty.
    * @param warmStart          Optional complete assignment tried first to

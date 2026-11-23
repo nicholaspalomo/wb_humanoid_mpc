@@ -116,14 +116,14 @@ class LipContactPlanner final : public ContactPlannerInterface {
 
   /**
    * Builds a planner, or returns the rejection of
-   * ContactPlanningConfig::validateStatus() - an InvalidArgument whose message
-   * names the key to change - for an invalid configuration, an InvalidArgument
-   * naming the planner when shared.numContacts is not two (its variable layout
-   * has a left and a right foot, checkTwoContactCount()), and that of the
-   * term factory for a formulation it cannot assemble. The only way to build
-   * one: the constructor is private, and it used to be a public one that threw
-   * std::invalid_argument with the same message. makeContactPlanner builds
-   * through it.
+   * ContactPlanningConfig::validateStatus() (an InvalidArgument whose message
+   * identifies the key to change) for an invalid configuration, an
+   * InvalidArgument identifying the planner when shared.numContacts is not two
+   * (its variable layout has a left and a right foot, checkTwoContactCount()),
+   * and that of the term factory for a formulation it cannot assemble. The only
+   * way to build one: the constructor is private, and it used to be a public
+   * one that threw std::invalid_argument with the same message.
+   * makeContactPlanner builds through it.
    */
   static absl::StatusOr<std::unique_ptr<LipContactPlanner>> Create(
       ContactPlanningConfig config);
@@ -215,7 +215,7 @@ class LipContactPlanner final : public ContactPlannerInterface {
    * `dtOverride > 0` builds the context on a grid of that node duration instead
    * of planner.dt, which is how the cadence stretch re-times every phase of an
    * incumbent together (the terms are all exact functions of the node
-   * duration). The context points into `input`, `nominal` and this planner,
+   * duration). The context references `input`, `nominal` and this planner,
    * which must outlive it. With the heading block, a nominal that does not
    * cover every node or an input without a positive yaw inertia is an
    * InvalidArgument, and a configuration without the model-derived parameters a

@@ -45,7 +45,7 @@ namespace ocs2::legged::contact_term {
  * MpcParameterUpdaterModule finds them again by the same names to hot-reload
  * their weights, and the validation's SQP diagnostics find the hard
  * normal-velocity rows by theirs. The updater has to treat an absent term as
- * the normal case - most of them are only built for some task lists - so it
+ * the normal case (most of them are only built for some task lists), so it
  * could never tell a term that is not listed from a term whose name had
  * drifted, and a rename on one side used to turn every hot reload of that term
  * into a silent no-op. With one definition, a rename is a rename on both sides.

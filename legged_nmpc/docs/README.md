@@ -5,7 +5,7 @@ robot's `config/mpc/task.textproto`:
 
 | Selection | Effect |
 | --- | --- |
-| `dcm_terminal_cost` in `costs` | The horizon ends with a Divergent Component of Motion (capture point) viability cost, in place of the quadratic terminal cost `terminal_cost` on `final_state_weights`. The two are alternative ends of the horizon, and start-up refuses a list that names both. |
+| `dcm_terminal_cost` in `costs` | The horizon ends with a Divergent Component of Motion (capture point) viability cost, in place of the quadratic terminal cost `terminal_cost` on `final_state_weights`. The two are alternative ends of the horizon, and start-up rejects a list that includes both. |
 | `contact_schedule_source: "contact_planner"` | The contact sequence, the switching times and the footholds are planned online on a reduced model by the contact planner `planner.type` in `contact_planning.textproto` selects (the closed-form H-LIP stepper `hlip`, used by both shipped robots, or the mixed-integer program `lip_miqp` of section 2) and replace the clock-driven gait schedule. `gait_schedule`, the default and what every robot ships, is that gait schedule with the nominal footholds. |
 
 A third source, `contact_schedule_source: "multi_contact_plan"`, tracks an offline multi-contact plan instead
@@ -13,7 +13,7 @@ A third source, `contact_schedule_source: "multi_contact_plan"`, tracks an offli
 targets ([multi_contact_planning](multi_contact_planning/README.md), section 7.2).
 
 The task file's schema retires the top-level booleans `use_dcm_terminal_cost` and `use_contact_planning`: a task file
-that carries either is refused when it is read, whatever its value, with a message that names the replacement, so that a
+containing either is rejected on load regardless of its value, with an error identifying the replacement, so that a
 stale file cannot silently run the other formulation. The whole-body MPC
 implements neither and refuses both names.
 
@@ -26,7 +26,7 @@ whole-body formulation by the term lists of `task.textproto`. Two further docume
 [arXiv:2502.15630](https://arxiv.org/abs/2502.15630) in this repository:
 
 * [hlip_contact_planner](hlip_contact_planner/README.md) - the closed-form H-LIP contact planner, which both shipped
-  robots select (`planner.type: "hlip"`; a file that names no planner gets `lip_miqp`, the library default) in place of
+  robots select (`planner.type: "hlip"`; a file that omits the planner gets `lip_miqp`, the library default) in place of
   the mixed-integer planner described in section 2 below.
 * [contact_implicit_mpc](contact_implicit_mpc/README.md) - the relaxed complementarity formulation of contact in the
   whole-body NMPC, which lets the solver depart from the planner's nominal contact sequence. Off by default.
@@ -45,8 +45,7 @@ Another covers how the contact inputs themselves are parameterized, selected by 
   default): the conservative generator set that ships and the exact wrench-cone set, the full-diagonal and null-space
   regularizations of the input cost, the lambda >= 0 barrier that replaces the explicit cone, and how to select each.
 
-Another covers a feature that is not a formulation toggle but a reference-shaping layer over the ones that already
-exist:
+Another covers a reference-shaping layer over the existing formulation:
 
 * [locomotion_heuristics](locomotion_heuristics/README.md) - the ten regularization heuristics of Bledt's
   *Regularized Predictive Control Framework for Robust Dynamic Legged Locomotion* (MIT, 2020), selected by name in <!-- NOLINT(claudisms): cited paper title -->
@@ -166,9 +165,9 @@ The cost is implemented as a CppAD residual with a Gauss-Newton Hessian $J^\top 
 positive semi-definite for every configuration. $W$, $z_c$ and $\beta$ are parameters of the compiled model and are
 hot-reloadable from the `dcm_terminal_cost` block of `task.textproto` through the parameter updater (the block of the
 same name on the GUI's MPC Parameters tab). The choice between `dcm_terminal_cost` and `terminal_cost` in `costs` is
-not: which terminal cost the problem ends on is decided when it is built, and a reload applies `final_state_weights`
-and the `dcm_terminal_cost` block to whichever of the two the running problem carries - the updater asks the running
-problem, never the reloaded file - with a warning when the reloaded file selects the other one.
+not hot-reloadable: the terminal cost is fixed at construction, and a reload applies `final_state_weights`
+and the `dcm_terminal_cost` block to whichever one the running problem uses (the updater queries the running
+problem rather than the reloaded file), logging a warning when the reloaded file selects the other one.
 
 $z_c$ is the robot's own by default: a block without `nom_pos_com_rt_feetmean_ewrt_world_z`, as both shipped robots write it, has the model's
 center of mass above the mean height of its soles at the task file's `initial_state` (`computeProxyPosComRtFeetmeanEwrtWorldZ`, the
@@ -180,7 +179,7 @@ SA01). A positive `nom_pos_com_rt_feetmean_ewrt_world_z` is an explicit override
 locomotion heuristics take it from the robot model (the magnitude of the Pinocchio model's gravity, which
 `testShippedRobotGravity` pins to the dynamics' `kGravityMagnitude` and to every MuJoCo scene's
 `opt.gravity`), so no pendulum can run on another gravity than the dynamics. A `nom_pos_com_rt_feetmean_ewrt_world_z` of 0 or less (0 meant "the model's" before the
-field was optional) and a negative weight are refused with a Status naming the field, at
+field was optional) and a negative weight are rejected with a `Status` identifying the field, at
 start-up and on a reload, which then keeps the running cost.
 
 ```textproto
@@ -202,16 +201,16 @@ Implementation: `legged_centroidal_mpc/cost/DcmTerminalCost.{h,cpp}`; wiring in 
 Online contact planning is switched on by name, with `contact_schedule_source: "contact_planner"` in the robot's
 `config/mpc/task.textproto` (`gait_schedule`, the clock-driven gait schedule with the nominal footholds, is the default and
 what every robot ships; the registry in `MpcFormulationConfig.h` lists the names and refuses any other, naming the valid
-ones), and `planner.type` in `contact_planning.textproto` (the one place the planner is chosen) names the planner that
+ones), and `planner.type` in `contact_planning.textproto` selects the planner that
 runs. The source decides which reference manager the problem is built on, so it takes effect at start-up only; the
-parameter updater warns when a reloaded file names another one. It is implemented for the centroidal MPC only: the
+parameter updater warns when a reloaded file specifies another one. It is implemented for the centroidal MPC only: the
 whole-body MPC refuses `contact_planner`. This section is the mixed-integer one,
 `lip_miqp`; both shipped robots select the closed-form H-LIP planner, `hlip`, which
-[hlip_contact_planner](hlip_contact_planner/README.md) describes, and the start-up log names the one that is
-configured. Everything either planner is tuned with
+[hlip_contact_planner](hlip_contact_planner/README.md) describes, and the start-up log prints the configured planner.
+Everything either planner is tuned with
 is the contact planner's own file, `config/mpc/contact_planning.textproto` (a `legged_mpc_config.ContactPlanningFile`),
 which the interface looks for in the task file's directory; a robot without one plans with the library defaults, and a
-task file that still carries a `contact_planning` block is refused with the name of that file. The file is hot-reloaded
+task file that still contains a `contact_planning` block is rejected with an error referencing that file. The file is hot-reloaded
 whenever it is saved, like the task file, and the tuning GUI edits it in place.
 
 ### 2.1 Architecture
@@ -232,7 +231,7 @@ whenever it is saved, like the task file, and the tuning GUI edits it in place.
                                                               SQP NMPC (unchanged)
 ```
 
-The planner is not written as one problem. `LipContactPlanner` owns a `ContactPlanningProblem` that
+`LipContactPlanner` owns a modular `ContactPlanningProblem` that
 `ContactPlanningTermFactory` assembles from the term lists of `contact_planning.textproto`, in the way `WBMpcInterface`
 assembles the OCS2 `OptimalControlProblem` from the `costs` / `soft_constraints` / `hard_constraints` lists of the task
 file: model blocks that compose the variable layout, costs, soft and hard constraints, logic rules on the contact
@@ -369,16 +368,16 @@ can reach on a short horizon and checks both properties against the complete enu
   The boundary is `planner.commit_time` ahead of the planning instant, extended to the touch-down of any swing that has
   started or starts within that window. A swing in flight is therefore not re-timed or cut short by a later plan - with
   one exception: `planner.max_commit_extension` (0, the default, is no cap) caps that extension, and a capped boundary
-  can fall inside a swing in flight and hand a later plan the authority to re-time it, which is the price of keeping the
+  can fall inside a swing in flight and allow a later plan to re-time it, which is the price of keeping the
   boundary finite in a gait that exchanges support in an instant (`commitBoundaryForSchedule`). `planner.commit_time`
   must cover the planner latency. A plan is merged into the executed schedule exactly at its own boundary, `planner.commit_time` after the snapshot it was planned from; merging it any later (for instance at the boundary of the solve that activates it) cut its first lift-off short by the plan's age and the controller executed swings shorter than `min_swing_duration`. A plan whose boundary has already passed when it is activated is stale and dropped with a rate-limited warning (the planner latency exceeded `commit_time`, or a touch-down the boundary was extended to happened while the plan was computed); so is a plan that has a foot down where the executed schedule already has it in flight at the merge point, which means a swing was activated between the plan's snapshot and its activation. In both cases the executed schedule keeps running until a fresh plan arrives. Shifting a late plan forward onto the current boundary instead, whole, was tried and is wrong: a plan made just before a touch-down and activated just after it was delayed by a whole swing, and the foot that had just landed was lifted again at once, which threw the robot. The planner's
   node grid is not aligned with the executed events, so every node that *starts* before the boundary is committed: a
   node entirely inside the window takes the executed contacts at its midpoint, the last committed node (straddling the
-  boundary or ending exactly on it) takes the contacts the executed schedule hands over at the boundary itself. Sampling
+  boundary or ending exactly on it) takes the contacts of the executed schedule at the boundary itself. Sampling
   that node at its midpoint let the plan contradict the executed schedule inside it (a touch-down after the midpoint
   read as "still swinging"), and the merge then delayed an in-flight touch-down by up to half a node or re-lifted a foot
   that had just landed. A phase that begins inside a committed node (a touch-down
-  between two node boundaries) is counted from the executed event, not from the node start: the reference manager hands
+  between two node boundaries) is counted from the executed event, not from the node start: the reference manager passes
   the planner the phase start times of the committed nodes, and the propagation counts the nodes spent in such a phase
   rounded down against a minimum and up against a maximum, exactly like the elapsed time of the phase active at the
   planning instant. Counting from the node start credited a touch-down at 0.97 s inside the node [0.9, 1.0) with a full
@@ -436,7 +435,7 @@ $\Delta t = 0.1$ s.)
 1. Every relaxation is solved with HPIPM (Riccati-based interior point on the stage structure; the one-sided rows are
    masked instead of using loose finite bounds). A relaxation costs well under a millisecond for the planner's sizes.
 2. Search order: best-bound first among the open nodes, with depth-first descent into the rounding direction after each
-   branching. Branching picks the first fractional binary in time order, so early decisions are settled first; free
+   branching. Branching picks the first fractional binary in time order, so early decisions are resolved first; free
    binaries whose relaxation is already integral are skipped, so any binary can be the next one fixed.
 3. Incumbents come early from (a) the previous plan shifted by the elapsed time (`warm_start_previous_plan`), (b) a
    diving heuristic at the root (`diving`: fix every integral binary, round the first fractional one, propagate,
@@ -485,7 +484,7 @@ $\Delta t = 0.1$ s.)
 * `CentroidalMpcEndEffectorFootCost` tracks that reference through `task_space_foot_cost.weights.pos_x` / `.pos_y`. Without a
   plan the xy position error is switched off inside the cost, so the weights are harmless when planning is disabled.
 * Until the first valid plan arrives (or if the planner stalls) the gait schedule / the last applied schedule is used.
-* The whole contact-planning file is hot-reloadable through the parameter updater (its blocks on the GUI's MPC
+* The contact-planning file is hot-reloadable through the parameter updater (its blocks on the GUI's MPC
   Parameters tab): every term re-reads its parameter block, and a changed term list re-assembles the problem, the
   search stages and the execution rules before the planner's next run (the warm start survives unless the grid or the
   variable layout changed). The assembled formulation is logged at start-up and after every such reload.
@@ -505,14 +504,14 @@ $\Delta t = 0.1$ s.)
   target of the terminal DCM $\boldsymbol{\xi}_N$ from the last ZMP (a stop at the end of the horizon, which shortens the
   steps at speed) to `zmp + v_cmd / omega`, a CoM over the foot that keeps walking. `planner.log_plans` prints one line per plan with the
   phase durations, the step lengths and whether the branch-and-bound hit its node or time limit, which is the first
-  thing to check when steps come out irregular: a truncated search hands out a different near-optimal plan each time.
+  thing to check when steps come out irregular: a truncated search returns a different near-optimal plan each time.
 
 * `planner.dt` / `planner.num_nodes`: the horizon must cover `mpc.time_horizon`; coarser nodes make the search cheaper but
   quantize the switching times.
 * `planner.commit_time`: at least the planner latency (solve time plus one planning period) plus the time the NMPC needs to
   anticipate a switch; too small a value lets a fresh plan re-time switches the controller is already preparing, which
   shows as feet that stutter or barely lift.
-* `shared.gait_limits.min_swing_duration` / `max_swing_duration` / `min_contact_duration` are the main shape parameters of
+* `shared.gait_limits.min_swing_duration` / `max_swing_duration` / `min_contact_duration` are the main timing parameters of
   the gait. `shared.gait_limits.max_contact_duration` forces stepping even without a command (leave at 0 to allow
   standing).
 * `zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_x` / `.max_norm_pos_zmp_rt_foot_ewrt_foot_y` should stay inside the physical foot (the NMPC enforces the real wrench cone); a
@@ -529,13 +528,13 @@ fixture-based regression tests of the assembled formulation) and `legged_centroi
 ### 2.8 Adaptive execution between plans
 
 The planner decides the contact sequence on a coarse grid (0.1 s) and re-plans at about 10 Hz, and the commit window
-protects a swing in flight from being re-timed by a later plan. On its own that makes the executed schedule rigid at
-exactly the moments that matter for disturbance rejection: a swing foot that hits the ground early is still commanded to
+protects a swing in flight from being re-timed by a later plan. On its own that makes the executed schedule rigid
+during disturbance rejection: a swing foot that hits the ground early is still commanded to
 fly (zero-wrench constraint against the ground), a foot that misses the ground is switched to stance in mid-air, and a
 push during a swing cannot move the landing target before the next plan arrives. The reference manager therefore adapts
 the schedule it executes between plans, using only the measured contact state and the closed-form LIP. The features are
 implemented as `ExecutionRule` terms under `legged_common_mpc/contact_planning/execution/` (`PhaseResettingRule`,
-`EnergyCadenceModulationRule`, `DcmStepAdjustmentRule`; the same list also holds the two reference overrides,
+`EnergyCadenceModulationRule`, `DcmStepAdjustmentRule`; the same list also includes the two reference overrides,
 `PlannedComOverride` and the `PlannedHeadingOverride` of the heading model, which are plumbing rather than corrections) over the
 pure schedule queries and edits of `ContactScheduleAdaptation.{h,cpp}`, written for any number of feet,
 and driven from `ContactPlanningReferenceManager` through the pipeline of `ScheduleAdaptationPipeline.h`.
@@ -607,7 +606,7 @@ applied so far).
 
 In the MuJoCo simulation `contact_estimator: "cheater_sim"` (the default when the field is absent) selects the
 `CheaterSimContactEstimator` (`mujoco_sim_interface/CheaterSimContactEstimator.h`), which reports a contact point as
-touching when the physics carries more than `sim_min_force_mjcontact_ewrt_mjcontact_x` newtons of normal force between it and anything
+touching when the physics reports more than `sim_min_force_mjcontact_ewrt_mjcontact_x` newtons of normal force between it and anything
 outside the robot (a contact point without a resolvable MuJoCo body keeps reading as touching). With
 `always_in_contact` every swing reads as an early touch-down at its scuffing window, so phase resetting must not be
 enabled in simulation with it (the simulator logs a warning), and every planned contact wrench reaches the inverse
@@ -676,7 +675,7 @@ is younger than its start time; the planner snapshot is taken after the referenc
 
 Between plans the landing target of every swing foot is corrected with the capture point. The reference the correction
 is measured against is the whole-body NMPC's **own predicted trajectory**: after every solve `ContactPlannerModule`
-hands the primal solution to the reference manager, which interpolates it at the start of the next solve and evaluates
+passes the primal solution to the reference manager, which interpolates it at the start of the next solve and evaluates
 the predicted CoM position and velocity there. With $\boldsymbol{\xi} = \mathbf{c} + \dot{\mathbf{c}}/\omega$ the DCM of the
 measured state and $\boldsymbol{\xi}^{\mathrm{pred}}(t)$ that of the prediction, the error
 $\Delta\boldsymbol{\xi}(t) = \boldsymbol{\xi}(t) - \boldsymbol{\xi}^{\mathrm{pred}}(t)$ is zero while the robot does what the controller
@@ -721,7 +720,7 @@ its horizon; without it this is the plan's yaw), relative to the planned ZMP,
 
 $$E = \tfrac{1}{2} m \big(\dot{x}^2 - \omega^2 x^2\big), \qquad x = \mathbf{e}_x^\top(\mathbf{c} - \mathbf{z}),$$
 
-is conserved between contact switches. A CoM that carries more energy than the plan passes over the support earlier and
+is conserved between contact switches. A CoM that has more energy than the plan passes over the support earlier and
 should step earlier; less energy should delay the step. The touch-down of the swing in flight is moved by
 $\Delta t_{\mathrm{TD}} = -K_E\,(E - E^{\mathrm{ref}})$ relative to its *nominal* touch-down (not cumulatively), clipped to
 `[shared.gait_limits.min_swing_duration, shared.gait_limits.max_swing_duration]` after lift-off. A request earlier than what is still feasible brings the
@@ -784,7 +783,7 @@ of mass over the whole-body yaw inertia (taken from the model at every plan; no 
 network is installed whenever the configuration uses the heading model (at start-up, and on a hot reload that switches
 it on via `ContactPlanningReferenceManager::loadHeadingModelEvaluator`), so a reload gives the same heading as a start
 with the same file. A robot without a network keeps the base yaw, with a warning; a network trained on a joint vector
-other than the MPC model's refuses the start, or the reload, with a `Status` naming the mismatched joints.
+other than the MPC model's refuses the start, or the reload, with a `Status` listing the mismatched joints.
 
 Per node, appended to the LIP block so that the contact binaries keep their place:
 
@@ -813,17 +812,17 @@ heading (the linearization point, which is the plan's own heading under the succ
 stance foot's yaw against the heading *state* was a penalty on the heading alone and pulled it back towards the stance
 feet), and regularize the torques and the foot yaw displacements.
 
-The commanded yaw rate is read off the momentum channel of the MPC's target trajectory, where the command is carried
+The commanded yaw rate is read off the momentum channel of the MPC's target trajectory, where the command is represented
 as the angular momentum of a rigid turn about the vertical, `h_z = I_zz omega / m`, with the same locked inertia the
 planner uses. The target's base yaw is not used: its first stretch integrates the average of the measured and the
 commanded yaw rate, so differentiating it commanded half the rate at the start of a turn and fed the measured rate back
-in, and once the override below has rewritten it, it carries the previous plan's rate.
+in, and once the override below has rewritten it, it contains the previous plan's rate.
 
 The constraint frame of node k is the planned heading of node k. That makes the step-width, reach and foot-separation
 rows bilinear in the heading and the footholds, which the mixed-integer solver cannot take. They are linearized to
 first order around a nominal heading trajectory, the previous plan shifted to the current time or, without one, the
 commanded yaw integrated from the current heading, so that the relaxations stay convex and the branch-and-bound is
-unchanged. The measured heading arrives wrapped to $[-\pi, \pi]$ while the previous plan's heading lives on whatever
+unchanged. The measured heading arrives wrapped to $[-\pi, \pi]$ while the previous plan's heading lies on whatever
 branch that plan started on; the nominal is moved onto the measurement's branch by one $2\pi$ offset before use (across
 a crossing of $\pm\pi$ the unshifted nominal made every first-order frame term worth $2\pi g$, over a meter on the step
 width, and aimed the foot yaw tracking a full turn away). After the search the frame is re-linearized at the incumbent's own heading and footholds and the QP is
@@ -831,7 +830,7 @@ re-solved with the contacts fixed (the `heading_relinearization` search stage, `
 successive linearization), so that the frame the constraints were written in is the frame the plan actually turns
 through.
 
-Downstream, the plan carries the heading and the foot yaws per node. The swing-foot reference turns each foot from
+Downstream, the plan stores the heading and the foot yaws per node. The swing-foot reference turns each foot from
 its lift-off yaw to the planned landing yaw with the same profile as the position, and the foot cost tracks that yaw
 through `task_space_foot_cost.weights.rotvec_z` (0 by default: not tracked). With the `planned_heading_override`
 execution rule listed the plan's heading replaces the commanded yaw in the MPC's target trajectory, so that the whole-body controller is
@@ -850,13 +849,13 @@ admits in every direction, `mu cos(pi/N)`, times half the weight times `step_wid
 foot yaw bounds of `hip_yaw_range` (the hip yaw joint limits of every leg, found by walking the kinematic tree up from
 the joint that carries the contact frame to the first revolute joint whose axis is vertical in the world frame at the
 neutral configuration, and mirrored when that axis points down, since the foot yaw is then minus the joint angle; per
-foot and asymmetric, which matters because a hip yaw range is typically much wider outward than inward;
+foot and asymmetric, since a hip yaw range is typically much wider outward than inward;
 `deriveHipYawRange`). They are derived once by the interface and applied to every
 planner configuration, including the hot reloads of `contact_planning.textproto`, and logged at start-up. `shared.nom_pos_com_rt_feetmean_ewrt_world_z` and the ZMP
 box stay tunable, a `shared.nom_pos_com_rt_feetmean_ewrt_world_z` left out and a ZMP half width of 0 meaning "from the model": the center of mass
 height above the feet at `initial_state` (`computeProxyPosComRtFeetmeanEwrtWorldZ`, the same pendulum a `dcm_terminal_cost` without
 `nom_pos_com_rt_feetmean_ewrt_world_z` resolves to; both shipped robots leave it out, which the conversion marks with the library default of 0 -
-a configuration with no model to fill it in must set a positive height, which validation otherwise refuses naming
+a configuration with no model to fill it in must set a positive height, which validation otherwise rejects while reporting
 `shared.nom_pos_com_rt_feetmean_ewrt_world_z`, and a file that gives 0 is refused as no height), and the sole's footprint from the wrench cone. The friction and footprint come from `contact_wrench_cone_soft_constraint`, so the
 planner cannot assume more yaw torque than the whole-body constraint would ever allow. That block is read through
 `contactWrenchConeConfigFromConfig`, which requires every one of its geometry fields, so a task file without it
@@ -865,7 +864,7 @@ planner cannot assume more yaw torque than the whole-body constraint would ever 
 
 ### 2.10 Assembling the planner from terms (`contact_planning.textproto`)
 
-The planner is assembled the way the whole-body NMPC is: `ContactPlanningProblem` holds named collections of terms
+The planner is assembled the way the whole-body NMPC is: `ContactPlanningProblem` stores named collections of terms
 (the analog of OCS2's `OptimalControlProblem`), `ContactPlanningTermFactory` fills them from the term lists of the
 configuration (the analog of `LeggedCostConstraintFactory` with the `costs` / `soft_constraints` /
 `hard_constraints` lists of the task file), and every term reads its own parameter block, which is the hot-reload path.
@@ -891,14 +890,14 @@ The file `contact_planning.textproto` mirrors that structure:
 
 A term listed without the block it needs (a heading cost without `heading_double_integrator`), an unknown name, a
 duplicate, or an execution order the rules cannot honor is rejected by `contactPlanningConfigFromConfig()` /
-`ContactPlanningConfig::validateStatus()` with an InvalidArgument whose message names the list or field to change and
+`ContactPlanningConfig::validateStatus()` with an InvalidArgument whose message identifies the list or field to change and
 lists the supported names; combinations documented to fall or to block are reported by
 `ContactPlanningConfig::warnings()`. `hip_yaw_range` and `yaw_torque_budget` take their values from the robot model
 (`ContactPlanningModelParameters`), not from the file. The planner logs the assembled formulation (the planner settings,
 the variable layout, every term and search stage with a one-line description of its math and current values) at start-up
 and after every reload that changes that text or the formulation, grid or planner type
 (`ContactPlannerModule::reloadSummary`); `LipContactPlanner::formulationSummary()` returns the same text. The values are
-checked once, by `ContactPlanningConfig::validateStatus()`, whose messages name the field to change; a term's
+checked once, by `ContactPlanningConfig::validateStatus()`, whose messages identify the field to change; a term's
 `configure()` only reads its block, and `makeContactPlanner`, `ContactPlannerModule::Create()` and
 `ContactPlanningReferenceManager::Create()` return that Status for an invalid configuration instead of building from it,
 as `ContactPlannerModule::setConfig()` does on a reload, keeping the running configuration.

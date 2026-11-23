@@ -40,7 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The GL preflight of the web viewer on synthetic capabilities: every condition
  * under which MuJoCo would end the process while creating or resizing its
  * offscreen buffer or its shadow map is refused first, with a message that
- * names the limit and the fix. The live case (a real context asked for too many
+ * reports the limit and the fix. The live case (a real context asked for too many
  * samples) is testWebMujocoViewer.cpp's.
  */
 

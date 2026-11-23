@@ -350,9 +350,8 @@ absl::Status validatePlanner(const ContactPlanningConfig& config) {
   // ContactPlanningReferenceManager::setConfig delegate their rejection here,
   // and the parameter updater reports a reload that raised nothing as applied.
   // An unknown name used to be noticed only by the factory, one layer too late:
-  // by then ContactPlannerModule had already stored the whole new parameter
-  // set, rebuilt the execution rules and started or stopped the background
-  // worker. Rejecting the name here makes the reload fail atomically with the
+  // by then ContactPlannerModule had already stored the full new parameter set,
+  // rebuilt the execution rules and started or stopped the background worker. Rejecting the name here makes the reload fail atomically with the
   // previous configuration still in force, and the message lists the planners
   // that exist.
   if (canonicalPlannerName(p.type).empty()) {
@@ -522,7 +521,7 @@ absl::Status validateMixedIntegerGeometry(const ContactPlanningConfig& config) {
   // double support both contact binaries are one, so the +M c_i - M c_other
   // terms of a single-support ZMP box cancel and that box relaxes to only
   // |e_y'(zmp - p_i)| <= maxNormPosZmpRtFootEwrtFootY + M, while the
-  // double-support rows open the whole strip between the feet, e_y'p_R -
+  // double-support rows open the full strip between the feet, e_y'p_R -
   // maxNormPosZmpRtFootEwrtFootY <= e_y'zmp <= e_y'p_L +
   // maxNormPosZmpRtFootEwrtFootY (ZmpSupportRegionConstraint::addRows).
   // Intersecting the two, the opposite foot's relaxed row binds as soon as M is

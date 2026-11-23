@@ -75,12 +75,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * the test plays the laptop: an MpcServer around a scripted MPC, and an
  * operator, on a loopback network file of its own. The robot comes up in
  * ZERO_TORQUE on the gantry and streams observations; the operator takes it
- * through JOINT_PD into WB_MPC; the policy of the MPC - the robot held where it
- * is, with one joint offset so that its action can be told from JOINT_PD's -
+ * through JOINT_PD into WB_MPC; the policy of the MPC (the robot held where it
+ * is, with one joint offset so that its action can be told from JOINT_PD's)
  * reaches the joint targets; the loop holds its period; and when the MPC side
  * goes away the link is lost and the controller holds the robot with the
- * JOINT_PD action, while the mode stays WB_MPC. SIGTERM ends the process
- * cleanly.
+ * JOINT_PD action, while the mode stays WB_MPC. SIGTERM stops the process with
+ * zero exit status.
  */
 
 namespace ocs2::legged {
@@ -294,7 +294,7 @@ TEST(CentroidalMpcRobotEndToEnd,
       << "a policy of the MPC is in use";
 
   // The loop holds its period: a few overruns and skipped periods at most, over
-  // the whole run. A period lost to a late wake-up overruns nothing, so the
+  // the run. A period lost to a late wake-up overruns nothing, so the
   // skipped periods are checked on their own.
   ASSERT_TRUE(waitFor(
       [&]() {

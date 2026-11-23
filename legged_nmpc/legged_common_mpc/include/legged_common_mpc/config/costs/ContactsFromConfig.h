@@ -48,7 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The contact geometry and the contact constraints from the task file's
 // contacts block. Every value must be finite; each error is an InvalidArgument
-// naming the field of the block.
+// identifying the field of the block.
 
 namespace ocs2::legged {
 
@@ -71,8 +71,8 @@ struct BasisRegularizationSettings {
  * in the parent's orientation.
  *
  * @return InvalidArgument when `contactIndex` is not a contact of
- * `modelSettings`, or naming a pos_pad_rt_link_ewrt_link that is not finite or
- * a pad axis that is not unit or not orthogonal to the other.
+ * `modelSettings`, or identifying a pos_pad_rt_link_ewrt_link that is not
+ * finite or a pad axis that is not unit or not orthogonal to the other.
  */
 absl::StatusOr<ContactCenterPoint> contactCenterPointFromConfig(
     const mpc_config::ContactsConfig& contacts,
@@ -98,10 +98,11 @@ absl::StatusOr<ContactRectangle> contactRectangleFromConfig(
     int contactIndex);
 
 /**
- * Checks contacts.surface_pads against `modelSettings`: every entry names a
- * 6-DoF contact of model_settings.contact_names_6dof, once. InvalidArgument
- * naming the entry otherwise. The pads' axes and rectangles are checked where
- * they are read (contactCenterPointFromConfig(), contactRectangleFromConfig()).
+ * Checks contacts.surface_pads against `modelSettings`: every entry references
+ * a 6-DoF contact of model_settings.contact_names_6dof, once. InvalidArgument
+ * identifying the entry otherwise. The pads' axes and rectangles are checked
+ * where they are read (contactCenterPointFromConfig(),
+ * contactRectangleFromConfig()).
  */
 absl::Status validateSurfacePads(const mpc_config::ContactsConfig& contacts,
                                  const ModelSettings& modelSettings);
@@ -113,8 +114,9 @@ absl::Status validateSurfacePads(const mpc_config::ContactsConfig& contacts,
  * online contact planner, and none of them falls back to a library default: its
  * five geometry fields are required.
  *
- * @return InvalidArgument naming a field that is missing, a num_basis_vectors
- * below 3, or what ContactWrenchConeConstraint::validateConfig() refuses.
+ * @return InvalidArgument reporting a field that is missing, a
+ * num_basis_vectors below 3, or what ContactWrenchConeConstraint::validateConfig()
+ * refuses.
  */
 absl::StatusOr<ContactWrenchConeConstraint::Config>
 contactWrenchConeConfigFromConfig(const mpc_config::ContactsConfig& contacts);
@@ -124,7 +126,8 @@ contactWrenchConeConfigFromConfig(const mpc_config::ContactsConfig& contacts);
  * delta of contacts.contact_wrench_cone_soft_constraint,
  * RelaxedBarrierPenalty::Config's own for the ones the block leaves out.
  *
- * @return InvalidArgument naming a mu or delta that is not finite and positive.
+ * @return InvalidArgument reporting a mu or delta that is not finite and
+ * positive.
  */
 absl::StatusOr<RelaxedBarrierPenalty::Config>
 contactWrenchConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts);
@@ -144,7 +147,7 @@ absl::StatusOr<ContactWrenchConeBasisMatrix> contactWrenchConeBasisFromConfig(
  * own footprint (contactRectangleFromConfig()). Any number of 6-DoF contacts is
  * supported.
  *
- * @return InvalidArgument naming the contact and
+ * @return InvalidArgument identifying the contact and
  * contact_input_parameterization when the set has a 3-DoF (point) contact: the
  * generator sets span a 6-DoF contact's wrench cone, and no set for a point
  * contact's force cone exists yet. The errors of contactRectangleFromConfig()

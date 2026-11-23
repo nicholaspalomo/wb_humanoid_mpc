@@ -635,7 +635,7 @@ void MujocoSimInterface::setupGantry() {
 
 void MujocoSimInterface::setupRenderBuffer() {
   // Initialize lock-free triple buffer for sim→render state transfer.
-  // Each slot holds an MjState with its own mjData copy.
+  // Each slot stores an MjState with its own mjData copy.
   MjState initState(mujocoModel_.get());
   mj_copyData(initState.data, mujocoModel_.get(), mujocoData_.get());
   initState.timestamp = mujocoData_->time;
@@ -927,8 +927,8 @@ void MujocoSimInterface::updateThreadSafeRobotState() {
                                          mujocoData_->qvel[joint.dofAddress]);
   }
 
-  // The free joint's qpos holds the base quaternion w first; Eigen's
-  // constructor takes (w, x, y, z) as well. Its qvel holds the linear velocity
+  // The free joint's qpos stores the base quaternion w first; Eigen's
+  // constructor takes (w, x, y, z) as well. Its qvel stores the linear velocity
   // of the base frame's origin in the world frame, then the angular velocity in
   // the base frame (mujoco.readthedocs.io, "Floating objects").
   quaternion_t quat_base_rt_world =
@@ -941,7 +941,7 @@ void MujocoSimInterface::updateThreadSafeRobotState() {
       mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kYAxisIndex],
       mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kZAxisIndex]);
 
-  // Contact flags handed to the controller: the ground truth of the physics,
+  // Contact flags passed to the controller: the ground truth of the physics,
   // see updateGroundTruthContacts(). Without contact detection (no contact
   // frame names configured), and for a contact point whose MuJoCo body could
   // not be resolved, the point is reported as touching. Which contact state the
@@ -1068,7 +1068,7 @@ void MujocoSimInterface::simulationStep() {
       const std::optional<robot::model::JointAction>& jointAction =
           robotJointActionInternal_[idx];
       if (!jointAction.has_value()) {
-        // A RobotJointAction holds an action for every joint of its
+        // A RobotJointAction stores an action for every joint of its
         // description, but a controller can reset one. Its actuator is then
         // commanded nothing, as in zero-torque mode, rather than ending the
         // physics thread.
@@ -1368,7 +1368,7 @@ void MujocoSimInterface::applyGantryHold() {
     return;
   }
 
-  // Legacy kinematic teleport. Unphysical - see the GantryHold comment - and
+  // Legacy kinematic teleport. Unphysical (see the GantryHold comment) and
   // kept only to reproduce recorded runs.
   if (!locked) return;
   mujocoData_->qpos[kXAxisIndex] = 0.0;
@@ -1471,7 +1471,7 @@ void MujocoSimInterface::cancelDodgeball() {
 }
 
 void MujocoSimInterface::applyDodgeball() {
-  // Simulation thread only. mjData has no lock - this thread owns it - so
+  // Simulation thread only. mjData has no lock (this thread owns it), so
   // everything that touches qpos, qvel or xfrc_applied happens here rather than
   // in throwDodgeball(), which stages the command on its caller's thread.
 
@@ -1555,7 +1555,7 @@ bool MujocoSimInterface::throwStagedDodgeball(const DodgeballThrow& staged) {
   // matches (legged_common_mpc_app/robot testShippedRobotGravity).
   const double gravityMagnitude = -mujocoModel_->opt.gravity[kZAxisIndex];
 
-  // The GUI computed the whole throw in the robot's own yaw frame, so rotating
+  // The GUI computed the throw in the robot's own yaw frame, so rotating
   // it into the world is all that is left to do here - see
   // remote_control/tk_app/dodgeball.py, which owns the geometry.
   const std::array<double, kPositionDim> spawnPosBallRtBaseEwrtWorld{
@@ -1581,7 +1581,7 @@ bool MujocoSimInterface::throwStagedDodgeball(const DodgeballThrow& staged) {
     if (!retuned.ok()) {
       // The throw still happens, at whatever mass the ball already had. Saying
       // so is the point: a disturbance that silently weighed something other
-      // than what the slider said would invalidate the whole experiment.
+      // than what the slider said would invalidate the experiment.
       LOG(ERROR) << "Could not retune the dodgeball to " << mass << " kg ("
                  << retuned.message() << "); throwing it at "
                  << mujocoModel_->body_mass[dodgeballBodyId_] << " kg instead.";
@@ -1793,7 +1793,7 @@ void MujocoSimInterface::parkProjectile() {
 }
 
 int MujocoSimInterface::robotRootBodyId() const {
-  // The FIRST body carrying a free joint, which is the convention
+  // The FIRST body with a free joint, which is the convention
   // MujocoContactUtils::robotCentroidalState already relies on for the center
   // of mass and the viewer's camera.
   for (int body = 1; body < mujocoModel_->nbody; ++body) {

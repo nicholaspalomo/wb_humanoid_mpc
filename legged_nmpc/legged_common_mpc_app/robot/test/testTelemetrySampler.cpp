@@ -51,9 +51,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * The telemetry of the realtime loop: one sample every decimation-th cycle,
- * carrying the robot state, the joint action, the measured contacts and forces
- * and every joint's name, which survives the conversion to robot/state and
- * back; a ring that the communication thread does not drain drops and counts.
+ * containing the robot state, the joint action, the measured contacts and
+ * forces and every joint's name, which survives the conversion to robot/state
+ * and back; a ring that the communication thread does not drain drops and
+ * counts.
  */
 
 namespace ocs2::legged {

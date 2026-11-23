@@ -93,26 +93,26 @@ inline constexpr scalar_t kOtherJointDefaultGainScale = 0.3;
 inline constexpr int kNumMrtJointGroups = 2;
 
 /**
- * The gains of a document that names no joint: `defaults` for every MPC joint,
- * and for every other joint kOtherJointDefaultGainScale times the default kp
- * and kd with the default torque limit; the controller constants at the
- * schema's defaults (JointPdGainsFile::kDefault...).
+ * The gains of a document that specifies no joint: `defaults` for every MPC
+ * joint, and for every other joint kOtherJointDefaultGainScale times the
+ * default kp and kd with the default torque limit; the controller constants at
+ * the schema's defaults (JointPdGainsFile::kDefault...).
  */
 JointPdGains defaultJointPdGains(const JointPdGainsDefaults& defaults,
                                  absl::Span<const std::string> mpcJointNames,
                                  absl::Span<const std::string> otherJointNames);
 
 /**
- * The joint PD gains of the gains file `file` - a robot's
+ * The joint PD gains of the gains file `file` (a robot's
  * config/controller/joint_pd_gains.textproto, a
- * legged_mpc_config.JointPdGainsFile read strictly - as
- * jointPdGainsFromConfig() resolves them; nullopt when `file` is empty or names
- * no file (for a watcher, whose editor may save by renaming; a controller
+ * legged_mpc_config.JointPdGainsFile read strictly) as
+ * jointPdGainsFromConfig() resolves them; nullopt when `file` is empty or does
+ * not exist (for a watcher, whose editor may save by renaming; a controller
  * refuses to start on it). Reads the file and allocates: for a thread other
  * than the realtime one.
  *
- * @return The error of reading or parsing the file, which names it, the line
- * and the column, and InvalidArgument naming the file when
+ * @return The error of reading or parsing the file, which includes the file
+ * path, line, and column, and InvalidArgument identifying the file when
  * jointPdGainsFromConfig() refuses its gains.
  */
 absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(
@@ -122,11 +122,11 @@ absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(
 
 /**
  * The gains a controller starts on: those of `file` (loadJointPdGains()).
- * InvalidArgument when `file` is empty and NotFound when it names no file - the
- * controllers have no gains of their own, and the hard-coded ones they used to
- * fall back to (500 N*m on every joint) were nobody's choice for any robot -
- * and loadJointPdGains()'s errors, each naming the file and prefixed with
- * `controller`.
+ * InvalidArgument when `file` is empty and NotFound when it does not exist
+ * (the controllers have no gains of their own, and the hard-coded ones they
+ * used to fall back to, 500 N*m on every joint, were nobody's choice for any
+ * robot) and loadJointPdGains()'s errors, each including the file path and
+ * prefixed with `controller`.
  */
 absl::StatusOr<JointPdGains> loadRequiredJointPdGains(
     absl::string_view file,
@@ -136,7 +136,7 @@ absl::StatusOr<JointPdGains> loadRequiredJointPdGains(
 
 /**
  * The modification time of the gains file `file`, for a watcher to compare
- * with later: the epoch when `file` is empty or names no file,
+ * with later: the epoch when `file` is empty or does not exist,
  * file_time_type::min() when it exists but cannot be stat'ed. A watcher records
  * it BEFORE it reads the file, so that a save landing between the two is seen
  * as a change by its next check rather than taken as read.

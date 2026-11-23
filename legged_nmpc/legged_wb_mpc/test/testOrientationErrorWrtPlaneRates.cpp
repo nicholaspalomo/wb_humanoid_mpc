@@ -125,7 +125,7 @@ constexpr size_t kCasesPerRegime = 40;
  * The difference allowed between the tape and the plain double instantiation of
  * the same formulas, relative to the scale: -ffast-math reassociation and
  * CppAD's optimizer change only the order of the operations, a few units of
- * 1e-16 per operation, and 1 + v.n near the anti-parallel normal carries an
+ * 1e-16 per operation, and 1 + v.n near the anti-parallel normal propagates an
  * absolute error of 1e-16 into 1 / s^5 (relative 1e-11 at 1 + v.n = 1e-5).
  * Below kOracleSmallestOnePlusCosine that error grows as 1 / (1 + v.n), and so
  * does the tolerance (tapeAgreementTolerance()).

@@ -61,7 +61,7 @@ namespace ocs2::legged {
 enum class ContactInputParameterization { kWrench, kBasisVectors };
 
 // LINT.IfChange(contact_input_parameterization_names)
-/** The top-level task-file field that names the parameterization. */
+/** The top-level task-file field that specifies the parameterization. */
 inline constexpr absl::string_view kContactInputParameterizationKey =
     "contact_input_parameterization";
 inline constexpr absl::string_view kWrenchContactInputParameterizationName =

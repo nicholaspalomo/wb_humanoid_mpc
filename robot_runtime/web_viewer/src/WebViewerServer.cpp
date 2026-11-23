@@ -278,12 +278,12 @@ absl::Status notAnAllowedHost(absl::string_view entry) {
                    entry, "'"));
 }
 
-// The host name an allowed-host entry names, lower case, in the form
+// The host name an allowed-host entry specifies, lower case, in the form
 // hostnameOf() reads from a Host header: "Robot.LAN" is "robot.lan", and
 // "[FE80:0::1]" and "fe80::1" are "fe80::1". InvalidArgument for an entry with
 // a port
 // ("robot.lan:6090", "[fe80::1]:6090"), which no request's host name equals,
-// and for one that is empty, holds a '/' or a space, or brackets anything but
+// and for one that is empty, contains a '/' or a space, or brackets anything but
 // an IPv6 address.
 absl::StatusOr<std::string> allowedHostnameOf(absl::string_view entry) {
   if (entry.empty() || absl::StrContains(entry, '/') ||
@@ -493,7 +493,7 @@ class WebViewerServer::Core {
   const BindAddress address_;
   ViewerFrameMailbox* absl_nonnull const mailbox_;
   ViewerInputQueue* absl_nonnull const inputs_;
-  // The host names a request's Host header may carry: the loopback names, a
+  // The host names a request's Host header may contain: the loopback names, a
   // non-wildcard bind address and options_.allowedHosts, lower case.
   absl::flat_hash_set<std::string> allowedHostnames_;
   httplib::Server server_;

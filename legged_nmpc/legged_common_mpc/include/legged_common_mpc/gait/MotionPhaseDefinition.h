@@ -106,9 +106,9 @@ inline size_t numModeNumbersOf(size_t numContacts) {
 /******************************************************************************************************/
 
 // The spellings of the gait files' mode names (parseModeNumber()). FLY and
-// STANCE name a mode on every contact set, LF and RF on a set whose stance is
-// the biped's; leg names are joined by the leg separator and contact names by
-// the contact separator.
+// STANCE specify a mode on every contact set, LF and RF on a set whose stance
+// is the biped's; leg names are joined by the leg separator and contact names
+// by the contact separator.
 // LINT.IfChange(mode_names)
 inline constexpr char kModeNameFly[] = "FLY";
 inline constexpr char kModeNameStance[] = "STANCE";
@@ -191,9 +191,9 @@ std::string modeNumber2String(size_t modeNumber,
  *  - a string of layout.numContacts digits '0' and '1', the bitmask of the
  *    active contacts in contact order (contact 0 first, the most significant
  *    bit), on any set: "1001" is contacts 0 and 3 of a set of four.
- * A string of leg or contact names that repeats one is refused naming it.
- * InvalidArgument naming the valid forms, the contact count and the legs
- * otherwise.
+ * A string of leg or contact names that repeats one is refused with the
+ * repeated name. InvalidArgument listing the valid forms, the contact count
+ * and the legs otherwise.
  */
 absl::StatusOr<size_t> parseModeNumber(absl::string_view modeString,
                                        const GaitModeLayout& layout);

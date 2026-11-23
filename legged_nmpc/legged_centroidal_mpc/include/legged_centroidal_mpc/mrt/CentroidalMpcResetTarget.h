@@ -50,15 +50,16 @@ namespace ocs2::legged {
  *    verticalTwistFromQuaternion()), so the yaw is the observation's
  * getYawBaseRtWorld(), wrapped into (-pi, pi], and the pitch and roll are zero;
  * the joint positions are the observed ones (the nominal ones would make a
- * kinematically inconsistent target - the current base height with the nominal
- * joint angles - that the MPC tries to "correct" by shooting the base upward);
+ * kinematically inconsistent target, combining the current base height with
+ * the nominal joint angles, that the MPC tries to "correct" by shooting the
+ * base upward);
  *  - the input carries the robot's weight evenly on both feet in the effective
  * model's input parameterization at that state (weightCompensatingInput());
  *  - two nodes, at the observation time and 2 s later, so that the target holds
  * over the horizon.
  *
  * The one definition of the reset target for every path that serves a reset:
- * CentroidalMpcMrtJointController hands it to its MPC link (InProcessMpcLink
+ * CentroidalMpcMrtJointController passes it to its MPC link (InProcessMpcLink
  * serves its resets from it), and the MPC node's MpcServer resets from it.
  * Pure: it reads `pinocchioInterface` (the robot's mass) and the models, and
  * may be called on any thread.

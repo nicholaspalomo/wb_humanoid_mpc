@@ -80,9 +80,9 @@ FootCollisionConstraint::FootCollisionConstraint(
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-// isActive_ is copied deliberately: the SQP solver clones the whole problem
-// once per worker thread, and a copy constructor that dropped this flag
-// silently reverted a deactivated term to active.
+// isActive_ is copied deliberately: the SQP solver clones the problem once per
+// worker thread, and a copy constructor that dropped this flag silently
+// reverted a deactivated term to active.
 FootCollisionConstraint::FootCollisionConstraint(
     const FootCollisionConstraint& other) = default;
 

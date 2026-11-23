@@ -28,7 +28,7 @@
 
 """config_schema: the parameters of a file from its schema, headless, on a test schema and on the shipped files.
 
-The test schema (tuning_test_file.proto) holds a field of every kind with the tuning options on it; the shipped files
+The test schema (tuning_test_file.proto) contains a field of every kind with the tuning options on it; the shipped files
 (as the build has them) are walked with the real schemas, and every parameter's path edits exactly its value.
 """
 
@@ -102,7 +102,7 @@ def _parse(
 
 
 def _task(centroidal: bool) -> task_file_pb2.TaskFile:
-    """A task file of the centroidal formulation (it names a centroidal_model) or of the whole-body one."""
+    """A task file of the centroidal formulation (it defines a centroidal_model) or of the whole-body one."""
     task = task_file_pb2.TaskFile()
     if centroidal:
         task.centroidal_model = "full_centroidal_dynamics"
@@ -285,7 +285,7 @@ class WalkTest(unittest.TestCase):
         self.assertEqual(
             (weight.unit, weight.reload), ("kg", config_schema.RELOAD_HOT)
         )
-        # The formulations are inherited like the reload class, and a field that names its own replaces the block's.
+        # The formulations are inherited like the reload class, and a field that specifies its own replaces the block's.
         inherited = self.specs["formulation_block.weight"].tuning
         self.assertEqual(
             (inherited.formulations, inherited.reload),
@@ -337,7 +337,7 @@ class WalkTest(unittest.TestCase):
                     parent, task.fields_by_name[name]
                 )
                 self.assertEqual(inherited.base_controller_label, "")
-        # Only choices carry one in the shipped task schema, so that the Base Controller tab can offer each as a
+        # Only choices have one in the shipped task schema, so that the Base Controller tab can offer each as a
         # drop-down.
         for field in config_schema.schema_fields(task):
             if field.tuning.base_controller_label:

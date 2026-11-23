@@ -58,7 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * checkRobotConfiguration(), the checks start-up and a save share: a
- * configuration that passes, and each check refusing on its own, naming the
+ * configuration that passes, and each check refusing on its own, identifying the
  * file and the field; checkConfigFileCandidate() checks a saved file in place
  * of its stored copy.
  */

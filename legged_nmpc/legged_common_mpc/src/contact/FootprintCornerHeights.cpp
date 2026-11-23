@@ -62,7 +62,7 @@ namespace ocs2::legged {
 namespace {
 
 /** [1/m], [1/rad]: the geometry is fingerprinted to a nanometer and a
- * nanoradian, far below any edit that matters. */
+ * nanoradian, well below any meaningful edit. */
 constexpr double kFingerprintResolution = 1.0e9;
 
 /** FNV-1a, 64 bit. Deterministic across processes and builds, which absl::Hash

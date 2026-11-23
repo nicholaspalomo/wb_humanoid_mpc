@@ -62,7 +62,7 @@ std::vector<std::string> makeContinuousJointsUnboundedRevolute(
  * makeContinuousJointsUnboundedRevolute() to it: the tree to build a Pinocchio
  * model from (pinocchio::urdf::buildModel()).
  *
- * @return InvalidArgument naming the file when it cannot be read or parsed.
+ * @return InvalidArgument identifying the file when it cannot be read or parsed.
  */
 absl::StatusOr<urdf::ModelInterfaceSharedPtr> parseUrdfFileForPinocchio(
     absl::string_view urdfPath);

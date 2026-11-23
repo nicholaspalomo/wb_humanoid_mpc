@@ -64,7 +64,7 @@ bool isKnownViewer(absl::string_view name) {
 }
 
 /** OK when `value` of the web viewer option `field` lies in [minimum, maximum],
- * else InvalidArgument naming both. */
+ * else InvalidArgument identifying both. */
 absl::Status checkRange(absl::string_view field,
                         int value,
                         int minimum,

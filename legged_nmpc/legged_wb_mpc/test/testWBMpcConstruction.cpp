@@ -129,7 +129,7 @@ std::unique_ptr<WBMpcInterface> createShippedG1WholeBodyMpc() {
 }
 
 /**
- * The MPC of createShippedG1WholeBodyMpc(), built once for the whole test
+ * The MPC of createShippedG1WholeBodyMpc(), built once for all tests in the
  * program, since building it compiles every library. Each test sets the
  * references it needs. Never destroyed.
  */
@@ -163,7 +163,7 @@ TEST(WBMpcConstructionTest,
 
   // What the MPC node does on its reset - a target at the initial state - and
   // the solver before every solve: the references of this horizon, then the
-  // problem pointed at them.
+  // problem directed to them.
   ReferenceManagerInterface& referenceManager =
       *interface->getReferenceManagerPtr();
   const vector_t zeroInput =

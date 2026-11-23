@@ -97,7 +97,7 @@ constexpr int kSlotRefYawHeadingRtWorld =
 static_assert(static_cast<size_t>(kSlotRefYawHeadingRtWorld + 1) ==
               kNumParameters);
 
-// Below this total support weight no foot carries the support (a flight phase,
+// Below this total support weight no foot provides support (a flight phase,
 // or both feet at a transition).
 constexpr scalar_t kMinTotalSupportWeight = 1.0e-6;
 
@@ -294,13 +294,13 @@ DcmTerminalCost::DcmTerminalCost(
         config_.nomPosComRtFeetmeanEwrtWorldZ.has_value())
       << "[DcmTerminalCost] build it with DcmTerminalCost::Create()";
   omega_ = config_.omega().value_or(0.0);  // resolved, as checked above
-  // The function holds what it reads and never this cost: every copy of the
-  // library holds a copy of the function and may tape it after the cost it was
-  // made of is gone (CppAdInterface::getTapeOperationCount()). What it reads is
-  // shared, read-only, by the functions of this cost and of its copies - a
-  // std::shared_ptr, because OCS2's CppAdInterface keeps and copies the
-  // function as a std::function, which must be copyable - and each evaluation
-  // computes in a copy of the Pinocchio interface.
+  // The function stores what it reads and never references this cost: every
+  // copy of the library keeps a copy of the function and may tape it after the
+  // cost it was made of is gone (CppAdInterface::getTapeOperationCount()). What
+  // it reads is shared, read-only, by the functions of this cost and of its
+  // copies (a std::shared_ptr, because OCS2's CppAdInterface keeps and copies
+  // the function as a std::function, which must be copyable), and each
+  // evaluation computes in a copy of the Pinocchio interface.
   const std::shared_ptr<const PinocchioInterfaceCppAd> pinocchioInterfaceCppAd =
       std::make_shared<const PinocchioInterfaceCppAd>(
           pinocchioInterface.toCppAd());
@@ -414,9 +414,9 @@ vector2_t DcmTerminalCost::computeSupportWeights(scalar_t time) const {
 vector_t DcmTerminalCost::getParameters(
     scalar_t time, const TargetTrajectories& targetTrajectories) const {
   const vector2_t supportWeights = computeSupportWeights(time);
-  // Off the target that was handed in, so that the parameters stay a function
+  // Off the target that was passed in, so that the parameters stay a function
   // of this term's arguments. Under online contact planning that channel
-  // carries the planned CoM velocity rather than the raw command
+  // contains the planned CoM velocity rather than the raw command
   // (planned_com_override), which is what the terminal DCM should be consistent
   // with: the reference then leads towards the planned foothold instead of
   // towards a straight line the gait is not following.

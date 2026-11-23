@@ -79,8 +79,8 @@ using FieldPath = std::vector<const FieldDescriptor* absl_nonnull>;
 using File = mpc_config::ContactPlanningFile;
 using FileProto = legged_mpc_config::ContactPlanningFile;
 
-// The blocks of the file that hold the planner and the shared parameters, not
-// the parameters of one term.
+// The blocks of the file that contain the planner and the shared parameters,
+// not the parameters of one term.
 constexpr std::array<absl::string_view, 3> kSettingsBlocks = {"planner",
                                                               "shared", "hlip"};
 

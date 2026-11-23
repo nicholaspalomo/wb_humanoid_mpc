@@ -48,7 +48,7 @@ def _is_factory_initializer(
 ) -> bool:
     """True for the `auto` of `[const] auto name = std::make_unique<T>(...);` (or make_shared).
 
-    The call is the whole initializer: `auto p = std::make_unique<T>().get();` deduces a raw `T*` (which dangles), and
+    The call is the full initializer: `auto p = std::make_unique<T>().get();` deduces a raw `T*` (which dangles), and
     `auto p = std::make_shared<T>(), q = 3;` declares a second variable whose type is not on the line.
 
     Args:

@@ -126,8 +126,8 @@ std::chrono::nanoseconds periodOf(scalar_t frequency) {
       static_cast<int64_t>(std::llround(kNanosecondsPerSecond / frequency)));
 }
 
-/** The flat ground of `config`'s task file when it names no source of the
- * contacts' surface heights; null when it names one. */
+/** The flat ground of `config`'s task file when it specifies no source of the
+ * contacts' surface heights; null when it specifies one. */
 std::unique_ptr<const ContactSurfaceHeightSource>
 defaultContactSurfaceHeightsOf(const RobotProcess::Config& config) {
   if (config.contactSurfaceHeights != nullptr) return nullptr;

@@ -354,9 +354,9 @@ TEST(SimDodgeball, AFinishedBallIsParkedAgain) {
 }
 
 // Without a ball, the push lasts one physics step in xfrc_applied, which a
-// snapshot holds only when that step is a publish step (about one throw in 33):
+// snapshot records only when that step is a publish step (about one throw in 33):
 // the external_forces marker showed nothing for the others. Every snapshot now
-// carries the last push, with its impulse, for the marker to hold.
+// includes the last push, with its impulse, for the marker to display.
 TEST(SimDodgeball, WithoutABallEverySnapshotCarriesThePush) {
   const std::unique_ptr<MujocoSimInterface> sim = makeSimWithoutABall();
   ASSERT_LT(sim->projectileBodyId(), 0);

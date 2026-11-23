@@ -69,13 +69,13 @@ namespace ocs2::legged {
  * module;
  *   - the MPC parameter updater (makeCentroidalMpcParameterUpdater(), the
  * live-tuning machinery both formulations share with the centroidal appliers;
- * makeCommandLimitsReloaders() hands the command limits of a reloaded reference
- * file to the target calculator and the motion manager), fed from
+ * makeCommandLimitsReloaders() passes the command limits of a reloaded
+ * reference file to the target calculator and the motion manager), fed from
  * operator/mpc_parameters;
  *   - resets to centroidalMpcResetTargetTrajectories(), the reset target the
- * MRT joint controller hands its in-process link, so that both paths restart
- * the MPC from the same target;
- *   - every policy carries the planner's target contact poses and the scaled
+ * MRT joint controller passes to its in-process link, so that both paths
+ * restart the MPC from the same target;
+ *   - every policy includes the planner's target contact poses and the scaled
  * velocity command (ViewerAnnotations);
  *   - the visualization publisher (legged_common_mpc_app/visualization),
  * always running: viz/scene and viz/telemetry for the Rerun bridge, from every

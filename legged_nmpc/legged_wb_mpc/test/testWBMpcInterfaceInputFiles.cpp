@@ -51,10 +51,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The path forms of WBMpcInterface::Create() and CreateControllerModels() on
  * input files that are missing, do not parse or do not convert. Both check the
  * three files for existence before anything reads them and return NotFound
- * naming the path; a task or reference file that does not parse is an
- * InvalidArgument naming its line and column; and an error of the typed files'
- * conversion is prefixed with the file it is about. None of these builds a
- * CppAD model: every case returns before the problem is set up.
+ * identifying the path; a task or reference file that does not parse is an
+ * InvalidArgument identifying its line and column; and an error of the typed
+ * files' conversion is prefixed with the file it is about. None of these builds
+ * a CppAD model: every case returns before the problem is set up.
  */
 namespace ocs2::legged {
 namespace {
@@ -122,8 +122,8 @@ class WBMpcInterfaceInputFilesTest : public ::testing::Test {
     ASSERT_FALSE(std::filesystem::exists(missing_));
   }
 
-  /** Create() must return, not throw, and return NotFound naming the missing
-   * path. */
+  /** Create() must return, not throw, and return NotFound identifying the
+   * missing path. */
   void expectNotFoundNamingTheMissingFile(
       const absl::StatusOr<std::unique_ptr<WBMpcInterface>>& created,
       absl::string_view what) const {
@@ -192,7 +192,7 @@ TEST_F(
     WBMpcInterfaceInputFilesTest,
     ModelSettingsThatDoNotConvertAreAnInvalidArgumentPrefixedWithTheTaskFile) {
   // A fixed joint cannot swing: the model settings refuse it by its field, and
-  // the path form names the file.
+  // the path form identifies the file.
   const std::string brokenTask =
       written("model_settings",
               replacedOnce(readFile(taskFile_),
@@ -213,7 +213,7 @@ TEST_F(
 
 TEST_F(WBMpcInterfaceInputFilesTest,
        ASolverSettingThatDoesNotParseIsAnInvalidArgumentNotAnException) {
-  // Both factories return the parser's error as a Status, naming the line of
+  // Both factories return the parser's error as a Status, reporting the line of
   // mpc.time_horizon; nothing is thrown.
   const std::string content = replacedOnce(
       readFile(taskFile_), "  time_horizon: 1.1", "  time_horizon: forever");
@@ -264,7 +264,7 @@ TEST_F(WBMpcInterfaceInputFilesTest,
 TEST_F(WBMpcInterfaceInputFilesTest,
        AModeScheduleThatDoesNotConvertIsPrefixedWithTheReferenceFile) {
   // Two modes take one event time between them; the reference file's error
-  // names the reference file, not the task file.
+  // reports the reference file, not the task file.
   const std::string brokenReference =
       written("reference",
               replacedOnce(readFile(referenceFile_), "  event_times: 0.5\n",

@@ -64,13 +64,13 @@ struct LocomotionHeuristicModelParameters;
  * no-op. That is deliberate: it lets the list be turned on first and the
  *    numbers found second.
  *
- * Every implementation is IMMUTABLE after configure() and holds no mutable
+ * Every implementation is IMMUTABLE after configure() and stores no mutable
  * state, because the base-pose and wrench evaluations run once per shooting
  * node per SQP iteration on every worker thread of the solver. Nothing here may
  * perform forward kinematics for the same reason: everything that needs the
  * model is derived once into LocomotionHeuristicModelParameters, and everything
  * that needs a measurement is latched once per solve by
- * SwitchedModelReferenceManager::captureMeasuredState() and handed over in the
+ * SwitchedModelReferenceManager::captureMeasuredState() and passed in the
  * per-call context.
  */
 // NOLINTEND(claudisms)
@@ -98,8 +98,8 @@ class LocomotionHeuristic {
       const LocomotionHeuristicModelParameters& model) = 0;
 
   /**
-   * One line naming the formula and the coefficients it is currently carrying,
-   * for the start-up banner.
+   * One line listing the formula and its current coefficients, for the start-up
+   * banner.
    *
    * It exists because a heuristic whose coefficients are all zero is
    * indistinguishable at run time from one that is not listed at all, and the

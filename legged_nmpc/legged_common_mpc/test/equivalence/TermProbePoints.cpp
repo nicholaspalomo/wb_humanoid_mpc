@@ -214,8 +214,8 @@ TermProbePoint probePoint(const MpcEquivalenceFixture& mpc,
   return point;
 }
 
-/** The initial point at rest - its momentum zero, its joint velocities set to
- * zero - level and at gimbal lock. */
+/** The initial point at rest (zero momentum, zero joint velocities), level
+ * and at gimbal lock. */
 void appendRestingPoints(const MpcEquivalenceFixture& mpc,
                          std::vector<TermProbePoint>& probes) {
   const scalar_t restTime = probes.front().time;
@@ -437,7 +437,7 @@ std::optional<TargetedProbePoint> footCollisionCbfBandPoint(
 
 /**
  * The findings of `exemptions` that no longer hold: one for every exemption
- * that names no label of `expected`, and one for every exemption whose term
+ * that matches no label of `expected`, and one for every exemption whose term
  * `met` lists, which `what` says of it.
  */
 std::vector<std::string> staleExemptionFindings(

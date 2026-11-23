@@ -95,16 +95,16 @@ std::string ContactPlan::describe() const {
       // 1, and not against the lift-off node k itself.
       //
       // This used to read desPosFeetRtWorldEwrtWorldXyTraj[k], and that printed
-      // a fabricated (0.000,0.000) for every stepping swing of an H-LIP plan -
-      // the default planner in both shipped robots - because the two planners
-      // do not agree about what the lift-off node holds. Under `lip_miqp` the
+      // a fabricated (0.000,0.000) for every stepping swing of an H-LIP plan
+      // (the default planner in both shipped robots) because the two planners
+      // do not agree about what the lift-off node stores. Under `lip_miqp` the
       // foothold state has not jumped yet at node k: FootholdIntegrator
       // integrates p_{k+1} = p_k + dp_k and FootMotionInSwingOnlyConstraint
-      // pins dp to zero on contact intervals, so node k still carries the
+      // pins dp to zero on contact intervals, so node k still stores the
       // stance the foot is about to leave and the old expression was right
       // there. Under `hlip` HlipContactPlanner computes the landing spot of a
       // swing BEFORE stamping plan.desPosFeetRtWorldEwrtWorldXyTraj over every
-      // node of that single-support phase, so node k already carries the
+      // node of that single-support phase, so node k already stores the
       // LANDING position - and so does node `end`, since the double support
       // that follows leaves the feet where the swing put them. The difference
       // was then identically zero and the log said nothing at all about the
@@ -114,11 +114,11 @@ std::string ContactPlan::describe() const {
       // off-by-one that getPrevDesPosFootRtWorldEwrtWorldXy() exists to keep
       // callers out of.
       //
-      // Node k - 1 is a contact node for this foot under BOTH conventions -
-      // under `lip_miqp` desPosFeetRtWorldEwrtWorldXyTraj[k-1] equals
+      // Node k - 1 is a contact node for this foot under BOTH conventions
+      // (under `lip_miqp`, desPosFeetRtWorldEwrtWorldXyTraj[k-1] equals
       // desPosFeetRtWorldEwrtWorldXyTraj[k] because the foot was in contact
-      // through interval k - 1 - so the one expression serves both planners and
-      // the existing expectation on a hand-built mixed-integer plan is
+      // through interval k - 1), so the single expression serves both planners
+      // and the existing expectation on a hand-built mixed-integer plan is
       // unchanged. A plan that already begins mid-swing has no pre-lift-off
       // node to measure against; that swing prints its duration and no
       // displacement, because printing a zero there would be exactly the silent

@@ -31,7 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // keeps one message object, as the MPC node keeps its outgoing policy,
 // allocates only while the message grows - for a feedforward, a linear and a
 // manifold-linear policy. A test binary of its own, because the allocation
-// counter replaces malloc for the whole process.
+// counter replaces malloc for the process.
 
 #include <array>
 #include <cstddef>

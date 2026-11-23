@@ -127,13 +127,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * centroidal formulation applies (centroidalHotFieldNames()) is perturbed, by a
  * deterministic step that keeps the file valid (a nonzero value times 1.05
  * to 1.10, an integer plus one), into the file E; an MPC started from the
- * shipped file and handed E through its parameter updater, before any solve,
+ * shipped file and passed E through its parameter updater, before any solve,
  * then solves exactly as an MPC started from E does: the same policies, solve
  * for solve, standing and then walking (expected bit for bit; the check allows
  * 1e-12 relative), after the reload has written the running weights the fresh
  * start builds, bit for bit. On the DRC Atlas as it ships (basis-vector contact
  * inputs, the CoM + ACoM cost, the DCM terminal cost) and on the variants whose
- * problems carry the terms it does not: the contact-implicit formulation, and
+ * problems include the terms it does not: the contact-implicit formulation, and
  * the quadratic terminal cost with a soft zero_velocity, the state-input
  * quadratic cost and listed locomotion heuristics. Since that step keeps a zero
  * a zero, two more cases pin the orientation rows: every base-orientation row
@@ -144,7 +144,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * live ground change lifts the target in use once, a fresh start on the new
  * ground does not); its live semantics are pinned on their own (L4t). Every
  * perturbed field is also shown to change what it writes, one field at a time,
- * on the variant whose problem carries its term (the liveness of the design);
+ * on the variant whose problem includes its term (the liveness of the design);
  * and an updater fed nothing changes no solve at all (L5).
  *
  * Every case runs on the quaternion layout of the base orientation, which every
@@ -382,7 +382,7 @@ void perturbNumber(const NumberField& number, scalar_t factor, Step step) {
   }
 }
 
-/** Whether `field` holds a number this test perturbs. */
+/** Whether `field` stores a number this test perturbs. */
 bool isNumber(const FieldDescriptor& field) {
   return field.cpp_type() == FieldDescriptor::CPPTYPE_DOUBLE ||
          field.cpp_type() == FieldDescriptor::CPPTYPE_FLOAT ||
@@ -577,8 +577,8 @@ class Stack {
   }
   scalar_t time() const { return observation_.time; }
 
-  /** Hands the updater `task` as the tuning GUI does, and runs its pre-solve
-   * hook once, before the next solve. */
+  /** Passes `task` to the updater as the tuning GUI does, and runs its
+   * pre-solve hook once, before the next solve. */
   void applyNow(const mpc_config::TaskFile& task) {
     mpc_config::MpcParameterUpdate update;
     update.task = task;
@@ -589,8 +589,8 @@ class Stack {
         observation_.state, *interface_->getReferenceManagerPtr());
   }
 
-  /** Hands the updater `task` as the tuning GUI does; the next solve applies
-   * it. */
+  /** Passes `task` to the updater as the tuning GUI does; the next solve
+   * applies it. */
   void enqueue(const mpc_config::TaskFile& task) {
     mpc_config::MpcParameterUpdate update;
     update.task = task;

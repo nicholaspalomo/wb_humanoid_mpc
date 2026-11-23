@@ -98,7 +98,7 @@ struct DriverSolveOutcome {
                             ///< MPC_MRT_Interface::advanceMpc()
   double retryDelay = 0.0;  ///< [s] MpcResetSupervisor::onSolveResult(): wait
                             ///< this long before the next attempt
-  double wallTimeMs = 0.0;  ///< [ms] the whole iteration: a reset served, the
+  double wallTimeMs = 0.0;  ///< [ms] the full iteration: a reset served, the
                             ///< synchronized modules and the SQP
   double lqApproximationMs =
       0.0;  ///< SqpSolver::getBenchmarks() of the iteration's solve
@@ -117,7 +117,7 @@ struct DriverSolveOutcome {
  */
 struct InitialStateGap {
   double angle = 0.0;  ///< [rad] of its base orientation part
-  double norm = 0.0;   ///< of the whole state difference
+  double norm = 0.0;   ///< of the full state difference
 };
 
 /**
@@ -125,7 +125,7 @@ struct InitialStateGap {
  * tangent vector of the problem's state on `stateManifold`): its rotation part
  * is the largest rotation angle the manifold's rotation blocks describe
  * (StateManifold::getMaximumTangentAngle(), 0 without a rotation block), its
- * norm the whole step's. `stateManifold` is not retained; `delta` has its
+ * norm the full step's. `stateManifold` is not retained; `delta` has its
  * tangent size.
  */
 InitialStateGap initialStateGapOf(const vector_t& delta,
@@ -169,9 +169,9 @@ std::optional<double> maxUnitQuaternionNormDeviationOf(
  * recovery (the runner drives the modes and the gantry itself), the
  * visualization, telemetry, the operator's parameter and PD-gain messages. The
  * robot process's state estimator is the runner's (LockstepClosedLoop,
- * createRobotProcessStateEstimator()), which hands the controller its estimate.
+ * createRobotProcessStateEstimator()), which passes the controller its estimate.
  *
- * This base class holds what both formulations share;
+ * This base class stores what both formulations share;
  * CentroidalClosedLoopDriver and WholeBodyClosedLoopDriver add their
  * controller.
  */
@@ -233,7 +233,7 @@ class ClosedLoopDriver {
    * cmd_linvel_base_rt_world_ewrt_heading_y,
    * cmd_pos_base_rt_surface_ewrt_world_z,
    * cmd_angvel_base_rt_world_ewrt_world_z): the MPC node's
-   * node::applyWalkingVelocityCommand() hands it to the motion manager, clamped
+   * node::applyWalkingVelocityCommand() passes it to the motion manager, clamped
    * and scaled, and the next solve reads it. A message the node refuses (a
    * value that is not finite) is logged and changes nothing.
    */
@@ -423,7 +423,7 @@ class ClosedLoopDriver {
    * The procedural motion manager behind the velocity command, with
    * `calculator` building its targets, and the GUI's command scaling
    * (commandLimits(), defaultPelvisHeight()) of the reference file:
-   * InvalidArgument naming the file for a scaling guiCommandScalingFromConfig()
+   * InvalidArgument identifying the file for a scaling guiCommandScalingFromConfig()
    * refuses.
    */
   absl::Status initializeCommandPath(

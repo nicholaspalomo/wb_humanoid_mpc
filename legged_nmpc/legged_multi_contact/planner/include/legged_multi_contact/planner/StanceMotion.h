@@ -236,7 +236,7 @@ struct SegmentContacts {
   // broken.
   std::optional<Eigen::Vector2d> desPosComRtWorldEwrtWorldXy;
   // Whether a sole that swings to its touchdown is held level with its target
-  // surface the whole way (the free leg of a climb folds far, and a free sole
+  // surface all the way (the free leg of a climb folds far, and a free sole
   // flips its ankle on the way); otherwise it turns freely until it lands.
   bool levelTouchdownSole = false;
 };

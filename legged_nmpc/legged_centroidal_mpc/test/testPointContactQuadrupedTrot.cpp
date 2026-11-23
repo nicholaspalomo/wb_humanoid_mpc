@@ -238,7 +238,7 @@ std::vector<SwingWindow> swingsOf(const ModeSchedule& schedule,
 
 /**
  * The plan of one SQP solve of the trot from the standing state, and the
- * interface it was solved on, built once for the whole suite: the interface
+ * interface it was solved on, built once for the suite: the interface
  * generates the CppAD libraries of the dynamics, the contact frames, the four
  * foot costs and the four normal-velocity servos.
  */

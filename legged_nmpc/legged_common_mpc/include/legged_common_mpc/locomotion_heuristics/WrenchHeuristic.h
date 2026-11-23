@@ -66,9 +66,9 @@ struct WrenchHeuristicContext {
  * A heuristic that shapes the CONTACT FORCE REFERENCE: Bledt's H_f (Appendix C,
  * the f rows of Table C.1).
  *
- * The reference being shaped is weight compensation and nothing else today -
- * the robot's weight divided evenly over the feet the mode schedule calls
- * stance feet, purely vertical - and it reaches the solver through
+ * The reference being shaped is weight compensation and nothing else today
+ * (the robot's weight divided evenly over the feet the mode schedule calls
+ * stance feet, purely vertical), and it reaches the solver through
  * InputQuadraticCost and StateInputQuadraticCost, which both build it with
  * weightCompensatingInput() and therefore both ignore the input channel of the
  * target trajectory entirely. The layer is inserted by routing those two costs
@@ -83,7 +83,7 @@ struct WrenchHeuristicContext {
  * the direct-wrench parameterization and a thread-safe forward-kinematics
  * rotation for the basis-vector one.
  *
- * WHY producesForceFootEwrtWorldXy() EXISTS. Both cost terms carry a comment
+ * WHY producesForceFootEwrtWorldXy() EXISTS. Both cost terms have a comment
  * explaining that they deliberately use the cheap input-only
  * weightCompensatingInput() overload "because the nominal contact force is
  * purely vertical and a stance foot is flat, so it is identical in the world

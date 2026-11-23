@@ -73,8 +73,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * The procedural arm swing (SwitchedModelReferenceManager::getDesiredState(),
- * ArmSwing.h) on every shipped robot that names its arm joints, built on the
- * robot's own URDF and task file without CppAD:
+ * ArmSwing.h) on every shipped robot that specifies its arm joints, built on
+ * the robot's own URDF and task file without CppAD:
  *
  *  - the direction each arm joint turns in is the one that swings its arm
  * forward (a shoulder) or flexes it (an elbow), against a central difference of
@@ -409,7 +409,7 @@ vector_t walkingState(const LoadedRobot& robot,
 TEST(ArmSwing, InLeftStanceTheLeftArmSwingsForwardAndFlexesAndTheRightOneBack) {
   // phase 0.4 at t = 1.42 (LF from 1.1 to 1.5, phase 0.5 (t - 1.1) / 0.4): the
   // peak of sin(2 pi (phase - 0.15)) and the middle of the right leg's swing,
-  // when the left arm - opposite the swinging leg - is farthest forward.
+  // when the left arm (opposite the swinging leg) is farthest forward.
   const scalar_t time = 1.42;
   for (const ShippedRobot& shipped : shippedRobotsWithArms()) {
     SCOPED_TRACE(shipped.name);

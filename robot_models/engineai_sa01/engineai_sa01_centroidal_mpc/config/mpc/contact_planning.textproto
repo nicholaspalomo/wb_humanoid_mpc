@@ -79,7 +79,7 @@ shared {  # parameters read by more than one term
   # initial_state (computeProxyPosComRtFeetmeanEwrtWorldZ), 0.6124 m for this URDF - the height this file used to write out by
   # hand, measured with MuJoCo on zq_sa01.xml - so omega = 4.00 rad/s; the planner logs both at start-up.
   # task.textproto dcm_terminal_cost resolves its own absent nom_pos_com_rt_feetmean_ewrt_world_z with the same function, so the two pendulums
-  # agree by construction, and a plan carries the omega it was made on. A positive nom_pos_com_rt_feetmean_ewrt_world_z is an explicit override;
+  # agree by construction, and a plan records the omega it was made on. A positive nom_pos_com_rt_feetmean_ewrt_world_z is an explicit override;
   # give dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z the same value then. gravity is the robot model's in both.
   # LINT.IfChange(sa01_pendulum)
   # nom_pos_com_rt_feetmean_ewrt_world_z [m], the LIP height: left out, the model's center of mass above its feet at initial_state (0.6124 m).
@@ -95,10 +95,10 @@ shared {  # parameters read by more than one term
     min_swing_duration: 0.22  # [s] equal to task.textproto swing_trajectory_config.swing_time_scale.
                                       #     With planner.type: hlip nothing below reads these limits: the cadence is
                                       #     hlip.ssp_duration exactly. They shape the plan only under lip_miqp.
-    # A long swing at speed is dead time, and with min_double_support_duration 0 the whole of it is single support:
+    # A long swing at speed is dead time, and with min_double_support_duration 0 all of it is single support:
     # the lateral LIP diverges as cosh(omega t), so a 0.30 s single support multiplies a lateral offset by
     # cosh(1.20) = 1.81 with no double support in which to walk the ZMP across. On SA01, whose hips are only
-    # 0.150 m apart, that matters more than on any other robot here.
+    # 0.150 m apart, that is more critical than on any other robot here.
     max_swing_duration: 0.30
     min_contact_duration: 0.26  # [s]
     max_contact_duration: 0  # [s] <= 0: no limit (standing allowed)
@@ -147,7 +147,7 @@ hlip {
   nom_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.19
   max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x: 0.40  # [m] clip on the step along the heading. This and the two below are the only bounds
                                       #     the planner applies to the deadbeat step: a foothold outside the leg's reach is
-                                      #     clipped rather than handed to the MPC. They are safety limits, not tuning.
+                                      #     clipped rather than passed to the MPC. They are safety limits, not tuning.
   max_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.34  # [m] largest lateral distance between the feet after a step. Sized to clear the
                                       #     first-step demand described under ssp_duration (0.325 m at nom_pos_lfoot_rt_rfoot_ewrt_heading_y 0.19),
                                       #     not scaled blindly from Atlas.

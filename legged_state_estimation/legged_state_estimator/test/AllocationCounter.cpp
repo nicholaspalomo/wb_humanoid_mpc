@@ -45,7 +45,7 @@ constinit std::atomic<size_t> allocations_since_start{0};
 
 // glibc's own entry points. Defining malloc, calloc and realloc in the binary
 // interposes them on every caller in the process; free needs no counting and
-// stays glibc's. The parameters carry the C library's names (nmemb, ptr):
+// stays glibc's. The parameters use the C library's names (nmemb, ptr):
 // glibc declares them as __nmemb and __ptr, and a definition must not name them
 // differently (readability-inconsistent-declaration-parameter-name).
 extern "C" {

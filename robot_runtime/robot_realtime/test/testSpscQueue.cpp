@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::realtime {
 namespace {
 
-// The indices sit on cache lines of their own, and the queue occupies whole
+// The indices are on cache lines of their own, and the queue occupies full
 // lines.
 static_assert(alignof(SpscQueue<int>) == kCacheLineSize);
 static_assert(sizeof(SpscQueue<int>) % kCacheLineSize == 0);

@@ -95,7 +95,7 @@ absl::StatusOr<matrix_t> inputWeights(const HotUpdateTarget& target) {
 }
 
 /**
- * Hands the term `name` of `collection`, when the problem carries it, to `set`,
+ * Passes the term `name` of `collection`, when the problem has it, to `set`,
  * and reports a refusal of its setter as the failed update of the term
  * (reportFailedTermUpdate()): the setter compares the weights with the running
  * term's own dimensions. A term of another type is reported by
@@ -122,7 +122,7 @@ void QuadraticCostWeightsApplier::apply(HotUpdateTarget& target) {
   const mpc_config::TaskFile& task = target.task();
   const OptimalControlProblem& running = target.runningProblem();
   // The factory zeroes the base-pose block of both the running and the terminal
-  // state cost when the problem carries the CoM + ACoM cost, so a reload must
+  // state cost when the problem includes the CoM + ACoM cost, so a reload must
   // do the same or a slider drag silently re-introduces base-pose tracking.
   // Read off the running problem, never the reloaded file.
   const BasePoseWeights basePoseWeights =
@@ -134,7 +134,7 @@ void QuadraticCostWeightsApplier::apply(HotUpdateTarget& target) {
       carriesTerm(*running.finalCostPtr, kTerminalCostTerm);
 
   // The conversions of the start-up factory (LeggedCostConstraintFactory), so
-  // that a reload and a fresh start hand the costs' TuningLayoutDeviation the
+  // that a reload and a fresh start pass the costs' TuningLayoutDeviation the
   // same Euler-written rows.
   const std::optional<matrix_t> Q = convertedOrReported(
       checkedTuningWeights(

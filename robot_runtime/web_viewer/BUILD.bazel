@@ -6,7 +6,7 @@ load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # web_viewer - the HTTP side of the MuJoCo web viewer (README.md): the server that serves the page and the frames and
 # queues the browsers' input, the frame and input hand-over to the render thread, the JPEG codec and the thread
-# placement. MuJoCo-free and EGL-free: the render thread lives in //robot_runtime/mujoco_sim_interface.
+# placement. MuJoCo-free and EGL-free: the render thread is in //robot_runtime/mujoco_sim_interface.
 
 package(default_visibility = ["//visibility:public"])
 

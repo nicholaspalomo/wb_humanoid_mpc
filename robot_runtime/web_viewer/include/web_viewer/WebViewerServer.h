@@ -43,7 +43,7 @@ namespace robot::web_viewer {
 
 /**
  * The HTTP server of the MuJoCo web viewer (README.md): it serves the page,
- * hands the frames of a ViewerFrameMailbox to browsers that pull them (GET
+ * serves the frames of a ViewerFrameMailbox to browsers that pull them (GET
  * /frame.jpg?after=<sequence>) or stream them (GET /stream.mjpg), answers the
  * viewer's status (GET /state), and queues the browsers' camera input (POST
  * /input, POST /settings) for the render thread. It never touches the

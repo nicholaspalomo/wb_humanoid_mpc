@@ -68,12 +68,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The whole-body MRT joint controller under the double cover of the unit
  * quaternion (design decision D12: no sign alignment is needed), on the G1
  * around a scripted solver whose plan turns the base and moves the joints. A
- * robot measured at -xi is the robot measured at xi: the observation handed to
+ * robot measured at -xi is the robot measured at xi: the observation passed to
  * the solver is the same but for the sign of its quaternion, and the policy
  * input and every joint command are the same bit for bit, in the passive modes,
  * in WB_MPC before the first policy and in WB_MPC with one. And a measured
- * stream that an estimator canonicalizes to w >= 0 - its quaternion flips sign
- * where the base turns through a heading of +-pi - commands, cycle by cycle,
+ * stream that an estimator canonicalizes to w >= 0 (its quaternion flips sign
+ * where the base turns through a heading of +-pi) commands, cycle by cycle,
  * what the continuous stream commands, its heading continuous. The solver
  * iterations run on the test's thread (InProcessMpcLink:: Execution::kCaller),
  * so that two controllers see the same sequence.
@@ -198,7 +198,7 @@ class WholeBodyController {
 
   /**
    * Measures the robot at the base orientation `quatBaseRtWorldXyzw` (x, y, z,
-   * w, as the estimator hands it), standing at a fixed position, turning at
+   * w, as the estimator provides it), standing at a fixed position, turning at
    * kRateYawBaseRtWorld about the world z axis and moving every joint, both
    * feet on the ground.
    */

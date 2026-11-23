@@ -37,8 +37,8 @@ bridge collects rows for a flush period (50 ms by default) and then sends them t
   chunk per entity, with the same columns and metadata as send_columns writes (test_scalar_batcher checks it), for
   less than half the cost of one send_columns call per entity.
 
-Every row carries the robot's clock and the bridge's wall clock; a row without a robot time (a status message that
-arrived before any robot time was known) carries the wall clock only and is sent in a batch of its own.
+Every row includes the robot's clock and the bridge's wall clock; a row without a robot time (a status message that
+arrived before any robot time was known) includes the wall clock only and is sent in a batch of its own.
 """
 
 from collections.abc import Iterable, Sequence
@@ -83,7 +83,7 @@ class ScalarBatcher:
             raise ValueError("max_pending_rows must be positive")
         self._recording = recording
         self._max_pending_rows = max_pending_rows
-        # Keyed by (entity path, whether the rows carry a robot time).
+        # Keyed by (entity path, whether the rows include a robot time).
         self._batches: dict[tuple[str, bool], _Batch] = {}
         self.pending_rows = 0
         self.rows_sent = 0

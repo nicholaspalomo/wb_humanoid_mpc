@@ -380,7 +380,7 @@ cc_library(
         "src/mrt/JointPdGainsMailbox.cpp",
         "src/mrt/MpcLink.cpp",
         # The one evaluation of the tuning layout's rows (orientation/TuningLayoutDeviation.h): here, not in :orientation,
-        # because it reads the robot model, and the quadratic state costs of this library hold one.
+        # because it reads the robot model, and the quadratic state costs of this library store one.
         "src/orientation/TuningLayoutDeviation.cpp",
         "src/LeggedCostConstraintFactory.cpp",
         "src/LeggedPreComputation.cpp",
@@ -723,9 +723,9 @@ cc_test(
     ],
 )
 
-# The procedural arm swing on every shipped robot that names its arm joints, on the robots' own URDFs without CppAD: the
-# derived joint senses against a finite difference of the forward kinematics, the swing it produces, its independence of
-# the node's state, and the arm_swing block's conversion.
+# The procedural arm swing on every shipped robot that specifies its arm joints, on the robots' own URDFs without CppAD:
+# the derived joint senses against a finite difference of the forward kinematics, the swing it produces, its
+# independence of the node's state, and the arm_swing block's conversion.
 cc_test(
     name = "testArmSwing",
     size = "small",
@@ -1078,8 +1078,8 @@ cc_test(
     ],
 )
 
-# The hand-over of joint PD gains to the control thread: newest wins, never torn, no allocation and no wait on the
-# control thread. A target of its own, because the allocation counter replaces malloc for the whole binary.
+# Passing joint PD gains to the control thread: newest wins, never torn, no allocation and no wait on the control
+# thread. A target of its own, because the allocation counter replaces malloc across the binary.
 cc_test(
     name = "testJointPdGainsMailbox",
     size = "small",
@@ -1190,7 +1190,7 @@ cc_test(
     ],
 )
 
-# The MRT joint controllers' reports: every code formats to a line naming its controller, and an event is plain data.
+# The MRT joint controllers' reports: every code formats to a line identifying its controller, and an event is plain data.
 cc_test(
     name = "testControllerEvent",
     size = "small",
@@ -1683,7 +1683,7 @@ cc_test(
 )
 
 # The gait switching table: the default one is the manager's former table row for row, a gait file's own table is read
-# in order and refused naming the row and the field, and a table naming a gait the file lacks is refused.
+# in order and refused, reporting the row and the field, and a table referencing a gait the file lacks is refused.
 cc_test(
     name = "testGaitSwitchingTable",
     size = "small",

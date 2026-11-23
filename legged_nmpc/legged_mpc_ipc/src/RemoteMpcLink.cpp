@@ -202,8 +202,8 @@ absl::Status RemoteMpcLink::registerOnBus() {
         absl::MutexLock lock(guard->mutex);
         if (guard->link != nullptr) guard->link->onPolicy(message);
       }));
-  // After mpc/policy: the bus hands the newest message of each topic of one
-  // drain over in the order of the subscriptions, so a status is handled after
+  // After mpc/policy: the bus delivers the newest message of each topic of one
+  // drain in the order of the subscriptions, so a status is handled after
   // a policy of the same drain, which an earlier or the same attempt solved.
   RETURN_IF_ERROR(bus_->subscribe<legged_mpc_msgs::MpcStatus>(
       topics::kMpcStatus, robot::ipc::Delivery::kLatest,

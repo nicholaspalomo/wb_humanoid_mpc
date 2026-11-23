@@ -71,10 +71,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * A live update of the whole-body MPC is a fresh start on the edited file: the
- * MPC of a task file, handed an edit of the file's RELOAD_HOT fields through
+ * MPC of a task file, given an edit of the file's RELOAD_HOT fields through
  * its parameter updater before its first solve, solves exactly as the MPC built
  * from the edited file, block by block, on the shipped G1 file and on a variant
- * whose problem carries the terms the shipped one does not (variantTaskFile()),
+ * whose problem includes the terms the shipped one does not (variantTaskFile()),
  * and on the shipped file with every orientation row weighted, the yaw
  * included, which the block cases leave at the shipped 0 (LeafStep::kScaled
  * keeps a zero a zero). Every field the updater applies changes what the

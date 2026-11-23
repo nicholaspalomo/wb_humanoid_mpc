@@ -68,7 +68,7 @@ class CheaterSimContactEstimator final : public robot::model::ContactEstimator {
       const MujocoSimInterface* absl_nonnull sim);
 
   /** Reads the simulator's masks (atomics); allocates nothing once `flags`
-   * holds the contact points. */
+   * stores the contact points. */
   void estimateContactFlags(const robot::model::RobotState& robotState,
                             std::vector<bool>& flags) override;
 

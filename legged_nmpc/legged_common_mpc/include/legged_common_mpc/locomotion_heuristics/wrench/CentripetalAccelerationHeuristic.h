@@ -64,7 +64,7 @@ namespace ocs2::legged {
  * First, it is the only heuristic of the ten whose force is horizontal, so it
  * is the only one whose expression depends on the foot's orientation. Under
  * `contactInputParameterization: basis_vectors` the input is parameterized in
- * the local contact frame, so the layer has to route the whole reference
+ * the local contact frame, so the layer has to route the full reference
  * through the state-aware setForceContactEwrtWorld() and pay a
  * forward-kinematics pass per shooting node. The layer switches paths by itself
  * when this is listed; the cost is real and is the reason the other nine do not
@@ -75,9 +75,10 @@ namespace ocs2::legged {
  * horizon, and its force reference is the only thing telling the QP how hard to
  * push. The dynamics here are full centroidal and the state cost already tracks
  * the commanded linear and angular momentum, so m omega x v is the derivative
- * of a momentum the problem is already regulating - an output the optimizer has
- * to produce, not information the reference lacks. Supplying it again at lower
- * fidelity can only help where the optimizer would have been slow to find it,
+ * of a momentum the problem is already regulating (an output the optimizer
+ * already produces rather than missing reference information). Supplying it
+ * again at lower fidelity can only help where the optimizer would have been
+ * slow to find it,
  * and can fight the momentum cost wherever the two disagree, which they do in
  * double support and wherever the friction cone binds. It is implemented
  * because it is one of Bledt's ten and the seam for it is clean; whether it

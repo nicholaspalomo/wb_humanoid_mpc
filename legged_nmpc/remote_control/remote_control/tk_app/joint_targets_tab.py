@@ -52,8 +52,8 @@ class JointTargetsTab(ttk.Frame):
 
     Args:
         parent: the notebook the tab is added to.
-        pd_gains_file: the joint PD gains file whose joint_gains name the joints; None: no joints.
-        reference_file: the reference file whose default_joint_state holds the defaults; None: every default is 0.
+        pd_gains_file: the joint PD gains file whose joint_gains list the joints; None: no joints.
+        reference_file: the reference file whose default_joint_state stores the defaults; None: every default is 0.
         fsm_mode_var: the GUI's FSM mode; the sliders are enabled while it is JOINT_PD. None: never.
         param_publisher: the publisher of operator/joint_targets; None: nothing is published.
         **kwargs: the options of the tab's ttk.Frame.

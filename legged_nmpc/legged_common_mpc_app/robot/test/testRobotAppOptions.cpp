@@ -57,10 +57,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 
 /*
- * The command line of the robot binaries (the core lists, the viewer by name -
- * from --viewer, the plot configuration's mujoco_viewer or the default - and
+ * The command line of the robot binaries (the core lists, the viewer by name
+ * from --viewer, the plot configuration's mujoco_viewer or the default, and
  * the web viewer's flags) and the MpcLink over the remote link: created on a
- * bus that is not running yet, handed to the controller's factory exactly once,
+ * bus that is not running yet, passed to the controller's factory exactly once,
  * its first observation sent.
  */
 

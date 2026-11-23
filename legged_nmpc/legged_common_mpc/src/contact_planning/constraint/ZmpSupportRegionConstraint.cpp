@@ -162,7 +162,7 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx,
   // from the right foot.
   //
   // Both are relaxed by BOTH binaries, exactly like the heading row above, so
-  // that they bind only in double support. They used to carry one big-M each,
+  // that they bind only in double support. They used to have one big-M each,
   // which left one of the two active throughout single support: standing on the
   // left foot, `e_y'(zmp - p_L) <= r_y` is not relaxed by c_L = 1 and states
   // precisely what that foot's own single-support box already states. The bound

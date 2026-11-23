@@ -49,7 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_mpc_msgs/target_trajectories.pb.h"
 
 /**
- * Lossless conversions between the OCS2 types the MPC link carries and their
+ * Lossless conversions between the OCS2 types sent over the MPC link and their
  * legged_mpc_msgs messages.
  *
  * Every double travels as a double, and every mode and post-event index as a
@@ -64,11 +64,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * message grows, which is the first call and any call with longer trajectories
  * or larger vectors than before.
  *
- * The fromProto() functions validate the whole message before they write
+ * The fromProto() functions validate the full message before they write
  * anything, so the output is unchanged when they return an error: every double
  * is finite, the times are sorted, the array lengths agree, and the controller
- * data match the dimensions of the nodes. An InvalidArgument error names the
- * offending field with its path in the message, e.g.
+ * data match the dimensions of the nodes. An InvalidArgument error identifies
+ * the offending field by its path in the message, e.g.
  * "MpcPolicy.state_trajectory[3].data[2]". Whether the dimensions are those of
  * the robot model is a separate question the conversions cannot answer;
  * checkDimensions() answers it for the caller that knows the model.

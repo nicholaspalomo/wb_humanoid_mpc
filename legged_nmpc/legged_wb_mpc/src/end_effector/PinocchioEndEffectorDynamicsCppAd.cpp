@@ -359,8 +359,8 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
     bool verbose)
     : endEffectorIds_(std::move(endEffectorIds)) {
   // What the functions read, each capturing its own copy (the class comment).
-  // Every copy of a CppAdInterface holds a copy of its function, so the
-  // Pinocchio interface the functions overwrite is held by a std::shared_ptr:
+  // Every copy of a CppAdInterface stores a copy of its function, so the
+  // Pinocchio interface the functions overwrite is owned by a std::shared_ptr:
   // shared by the functions of this object and of every copy, and alive as long
   // as any of them is. The robot model is the caller's (the constructor's
   // contract).

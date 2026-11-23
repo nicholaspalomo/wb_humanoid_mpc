@@ -276,8 +276,8 @@ TEST(OcpQpHpipmTest, InputBoxConstraintIsRespected) {
 
 TEST(OcpQpHpipmTest, GeneralStateInputConstraintIsRespected) {
   OcpQpProblem problem = makeDoubleIntegratorProblem(0.0, 0.0);
-  // Ask the terminal state to sit at p = 1 while keeping v + 0.5 u <= 0.3 along
-  // the way.
+  // Target a terminal state of p = 1 while keeping v + 0.5 u <= 0.3 along the
+  // way.
   problem.stages[kNumStages].q = (vector_t(2) << -20.0, 0.0).finished();
   for (int k = 0; k < kNumStages; ++k) {
     OcpQpStage& s = problem.stages[k];
@@ -356,8 +356,8 @@ TEST(OcpQpHpipmTest, RepeatedSolvesWithChangedBoundsReuseMemory) {
 }
 
 /**
- * Which general rows are soft must be decided by the problem handed to solve(),
- * never by the problem handed to the previous solve() on the same solver
+ * Which general rows are soft must be decided by the problem passed to solve(),
+ * never by the problem passed to the previous solve() on the same solver
  * instance.
  *
  * HPIPM keeps the row-to-slack mapping in qp.idxs_rev, which is initialized to
@@ -433,8 +433,8 @@ TEST(OcpQpHpipmTest, SoftRowSelectionIsNotInheritedFromThePreviousSolve) {
  * HPIPM objects and create new ones, in both directions (small after large and
  * large after small, the former being the case in which the memory blocks are
  * larger than the problem needs). This path was correct before the idxs_rev fix
- * as well - creation reinitializes the whole QP - but nothing exercised it, so
- * a future change to allocate() could have broken it unnoticed.
+ * as well (creation reinitializes the QP), but nothing exercised it, so a
+ * future change to allocate() could have broken it unnoticed.
  */
 TEST(OcpQpHpipmTest, ConsecutiveSolvesWithDifferentDimensionsReallocate) {
   const OcpQpProblem small = makeSoftRowSelectionProblem(1);

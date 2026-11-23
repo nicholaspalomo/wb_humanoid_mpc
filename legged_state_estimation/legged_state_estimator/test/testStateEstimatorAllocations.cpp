@@ -30,7 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // The realtime property of the state estimators: once built, the kalman
 // estimator's estimate() and reset() make no heap allocation, through stance
 // changes, with the contact-trust ramp off and on. A target of its own, because
-// the allocation counter replaces malloc for the whole binary.
+// the allocation counter replaces malloc process-wide.
 
 #include <cstddef>
 #include <memory>

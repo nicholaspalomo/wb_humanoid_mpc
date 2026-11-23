@@ -96,7 +96,7 @@ struct ControllerSettingsUpdate {
  *
  *   operator/fsm_command             FsmCommand      -> parseFsmCommand() ->
  * SpscQueue<FsmCommandEvent>, in order operator/joint_targets JointTargets ->
- * merged into the posture   -> TripleBuffer of the whole posture
+ * merged into the posture   -> TripleBuffer of the full posture
  *   operator/dodgeball_throw         DodgeballThrow  ->
  * dodgeballThrowFromMessage() -> SpscQueue<DodgeballThrow>
  *   operator/walking_velocity_command  cmd_pos_base_rt_surface_ewrt_world_z,
@@ -105,12 +105,12 @@ struct ControllerSettingsUpdate {
  * estimator built -> SpscQueue<ControllerSettingsUpdate> operator/pd_gains
  * JointPdGainsUpdate (legged_mpc_config) -> the controller's setPdGains() (it
  *                                                       resolves the gains on
- * this thread and hands them to the control thread in its own mailbox)
+ * this thread and passes them to the control thread in its own mailbox)
  *
  * The same handlers are public methods, for the tests and for the task-file
  * watcher (postControllerSettings()).
  *
- * FSM commands carry a sequence number (FsmCommand.sequence); a message with
+ * FSM commands include a sequence number (FsmCommand.sequence); a message with
  * the sequence of the command accepted last is a repeat and is dropped. A
  * command name parseFsmCommand() does not know is logged and dropped, as are
  * joint targets that are not finite, a throw dodgeballThrowFromMessage()
@@ -122,7 +122,7 @@ struct ControllerSettingsUpdate {
  * MpcParameterUpdate or JointPdGainsUpdate of another schema fingerprint, an
  * MpcParameterUpdate whose task file is another robot's (Config::robotName) and
  * one of another configuration (Config::taskFileIdentity,
- * Config::pdGainsFileIdentity) are refused whole, logged and counted: a GUI
+ * Config::pdGainsFileIdentity) are refused completely, logged and counted: a GUI
  * built from another version, or pointed at another robot or configuration,
  * applies nothing.
  */
@@ -220,7 +220,7 @@ class OperatorCommandMailbox {
 
   /**
    * `contactEstimators` resolves the names of the controller-side settings; it
-   * must outlive the mailbox and already hold every estimator (the backend's
+   * must outlive the mailbox and already contain every estimator (the backend's
    * included). InvalidArgument when the initial posture does not match the
    * joints.
    */
@@ -274,15 +274,15 @@ class OperatorCommandMailbox {
   /**
    * Resolves the estimator `settings` names and queues the update for the
    * realtime thread (the task-file watcher and onMpcParameters()), treating the
-   * settings as those of a whole task file
+   * settings as those of a complete task file
    * (legged_nmpc/legged_mpc_config/README.md, "Live updates"): the file's
-   * contact estimator - the schema's default when the file names none - and its
+   * contact estimator (the schema's default when the file specifies none) and its
    * contact wrench gate, the instantaneous gate (ContactWrenchGate::Config{})
    * when the file has no contact_wrench_gate block. An unknown estimator name
    * is logged with the available ones and leaves the estimator as it is; the
    * gate still goes through. A gate controllerSideSettingsFromConfig() refused
    * (one of `settings.problems`) is logged and leaves the gate as it is.
-   * `source` names the file or the topic for the log.
+   * `source` identifies the file or the topic for the log.
    */
   void postControllerSettings(const ControllerSideConfig& settings,
                               absl::string_view source);

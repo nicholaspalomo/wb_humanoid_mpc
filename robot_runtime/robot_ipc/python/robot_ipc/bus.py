@@ -137,11 +137,11 @@ class TopicStatistics:
     account, refreshed by the receive thread at most every io_poll_period.
 
     Attributes:
-        written: samples handed to the topic's DDS writer, not delivered ones.
+        written: samples passed to the topic's DDS writer, not delivered ones.
         send_dropped: publish() calls refused because the queue to the receive thread was full, writes DDS refused,
             and queued samples close() discarded because the bus was not running to send them.
         received: samples taken from the topic's DDS reader.
-        delivered: samples handed to the callback (including those whose callback then raised).
+        delivered: samples passed to the callback (including those whose callback then raised).
         superseded: LATEST only: samples replaced by a newer one of the same drain before they were parsed.
         rejected: samples of another wire protocol version, another type than the subscription's, or that did not
             parse.
@@ -838,7 +838,7 @@ class Bus:
                 return False
             was_empty = not self._queue
             self._queue.append((topic, type_name, bytes(payload)))
-        # The receive thread empties the whole queue on one wake-up, so only the first message needs to wake it.
+        # The receive thread empties the queue on one wake-up, so only the first message needs to wake it.
         if was_empty:
             self._wake()
         return True
@@ -1078,7 +1078,7 @@ class Bus:
         samples = reader.take(budget)
         for sample in samples:
             if not isinstance(sample, envelope.Envelope):
-                # A writer's disposal or unregistration carries no sample.
+                # A writer's disposal or unregistration has no sample.
                 continue
             if subscription is None:
                 if sample.protocol_version == envelope.WIRE_PROTOCOL_VERSION:
@@ -1215,7 +1215,7 @@ class Bus:
     def _dispatch(
         self, subscription: _Subscription, sample: envelope.Envelope
     ) -> None:
-        """Parses one sample of `subscription` and hands it to its callback, counting a rejection or a raise."""
+        """Parses one sample of `subscription` and passes it to its callback, counting a rejection or a raise."""
         statistics = subscription.statistics
         payload = bytes(sample.payload)
         arguments: tuple[Any, ...]

@@ -1081,7 +1081,7 @@ TEST(CommittedContacts, StraddlingNodeTakesTheStateHandedOverAtTheBoundary) {
   }
   // Node 4 straddles the touch-down at 0.47: sampled at its midpoint 0.45 it
   // would read "swinging" and let the plan keep the foot in the air until 0.5;
-  // sampled at the boundary it reads the landed state the schedule hands over.
+  // sampled at the boundary it reads the landed state the schedule provides.
   EXPECT_TRUE(committed[4][1]);
   for (const BipedFeetArray<bool>& c : committed) EXPECT_TRUE(c[0]);
 

@@ -88,7 +88,7 @@ struct SearchRun {
   const Layout* absl_nullable layout = nullptr;
   const std::vector<MiqpBinaryVariable>* absl_nullable binaries = nullptr;
   const MiqpAssignment* absl_nullable initialAssignment =
-      nullptr;  // fixings that hold for the whole search (the committed
+      nullptr;  // fixings that hold for the full search (the committed
                 // schedule)
   const MiqpPropagateFn* absl_nullable propagate = nullptr;
   const MiqpAssignmentCostFn* absl_nullable assignmentCost = nullptr;
@@ -110,7 +110,7 @@ struct SearchRun {
   Clock::time_point start;  // start of the plan, for the time budgets
   bool verbose = false;
   // Output of a stage that re-timed the grid: the node duration the plan is to
-  // be emitted with. 0 leaves it at planner.dt. ContactPlan carries its own dt,
+  // be emitted with. 0 leaves it at planner.dt. ContactPlan stores its own dt,
   // so a re-timed plan needs no other change.
   scalar_t chosenDt = 0.0;
 

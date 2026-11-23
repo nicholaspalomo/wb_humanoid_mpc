@@ -62,7 +62,7 @@ namespace ocs2::legged {
  * is set, the other two are not. */
 struct ConfigFileCandidate {
   msgs::ConfigFileKind kind = msgs::ConfigFileKind::kUnspecified;
-  /** Names the text in errors: "<config_path> (operator/config_save)". */
+  /** Identifies the text in errors: "<config_path> (operator/config_save)". */
   std::string source;
   std::optional<mpc_config::TaskFile> task;
   std::optional<mpc_config::ReferenceFile> reference;
@@ -84,20 +84,20 @@ struct ConfigFileCandidate {
  * fingerprint of the kind's file message, or a text over Config::maxTextBytes
  * is refused at once; a repeat of a save already answered gets that answer
  * again, and one still queued is dropped (its answer comes). Without a store
- * every other save is answered NOT_STORED, naming the file the robot reads in
- * place (which the save did not change), and with a store that cannot be
+ * every other save is answered NOT_STORED, reporting the file the robot reads
+ * in place (which the save did not change), and with a store that cannot be
  * written FAILED. The rest is queued for the writer thread; a full queue
  * answers REFUSED ("busy").
  *
  * THE WRITER THREAD (start() to stop()) parses the text strictly
- * (parseTaskFile() and its siblings), runs Hooks::validateConfigFile - the
- * checks start-up runs (checkConfigFileCandidate()) - and then answers
- * UNCHANGED when the stored copy holds the text already, or keeps the stored
+ * (parseTaskFile() and its siblings), runs Hooks::validateConfigFile (the
+ * checks start-up runs, checkConfigFileCandidate()), and then answers
+ * UNCHANGED when the stored copy already contains the text, or keeps the stored
  * copy as `<file>.bak` and writes the text atomically (writeFileAtomically()),
- * answering SAVED with the stored path - saying so when the file was replaced
- * but its directory could not be synced (a power loss may undo it) - or FAILED
- * with the copy untouched. The robot process's watchers then see the new file,
- * as they see an edit. The realtime thread never sees the store.
+ * answering SAVED with the stored path (noting when the file was replaced
+ * but its directory could not be synced, since a power loss may undo it) or
+ * FAILED with the copy untouched. The robot process's watchers then see the new
+ * file, as they see an edit. The realtime thread never sees the store.
  *
  * Thread-safe as described; statistics() from any thread.
  */
@@ -238,7 +238,7 @@ class ConfigFileStore {
   /** The writer's answer to `save`. */
   legged_mpc_msgs::ConfigFileSaveStatus write(const PendingSave& save) const;
   absl::StatusOr<ConfigFileCandidate> parse(const PendingSave& save) const;
-  /** Counts `status`, publishes it and hands it to the observer. */
+  /** Counts `status`, publishes it and passes it to the observer. */
   void answer(const legged_mpc_msgs::ConfigFileSaveStatus& status);
 
   const Config config_;

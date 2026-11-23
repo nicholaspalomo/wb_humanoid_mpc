@@ -77,7 +77,8 @@ vector2_t HighSpeedTurningHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
   //     0).
   //
   // Evaluated in the heading frame, so that "forward" and "lateral" below mean
-  // the robot's own, and the whole offset is rotated into the world afterwards.
+  // the robot's own, and the resulting offset is rotated into the world
+  // afterwards.
   // This is the term that vanishes at zero speed however fast the robot spins,
   // which is what distinguishes it from in_place_turning.
   const vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy = rotateAboutVertical(

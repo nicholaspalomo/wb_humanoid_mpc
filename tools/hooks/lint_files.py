@@ -33,9 +33,9 @@ everywhere or nowhere:
 - `repository_files()` lists what git tracks or would track (ignored files and Bazel's output trees are never ours);
 - `VENDORED_DIRS` is third-party code, left as it comes (AGENTS.md);
 - `GENERATED_FILES` are generated sources that live in the tree; their generator is held to the rules instead;
-- `FIXTURE_DIRS` hold deliberately bad code for the tools' own tests: skipped by every style check, not by the spelling
+- `FIXTURE_DIRS` contain deliberately bad code for the tools' own tests: skipped by every style check, not by the spelling
   check;
-- the scopes (`in_scope()`) name the file sets a check covers, `FIRST_PARTY` being the usual one.
+- the scopes (`in_scope()`) specify the file sets a check covers, `FIRST_PARTY` being the usual one.
 
 It also derives what the Python tools need from the BUILD files: the Bazel import roots (`python_import_roots()`) that
 pylint and mypy resolve first-party modules against, and the first-party top-level packages isort groups.
@@ -104,7 +104,7 @@ class Scope(enum.Enum):
     # Every file except vendored code: the spelling and inclusive-language checks, which read fixtures and generated
     # files too.
     TEXT = "text"
-    # The whole repository except lib/ocs2/thirdparty and tools/ifttt-lint: the Boost check, which also reads the BUILD
+    # All of the repository except lib/ocs2/thirdparty and tools/ifttt-lint: the Boost check, which also reads the BUILD
     # files of lib/.
     NOT_THIRDPARTY = "not_thirdparty"
 
@@ -253,7 +253,7 @@ def staged_files(repository: str) -> list[str]:
 
 
 def staged_source(repository: str, path: str) -> str:
-    """The STAGED content of `path` - the index, not the working tree - which is what a commit records."""
+    """The STAGED content of `path` (the index, not the working tree), which is what a commit records."""
     return _git(repository, "show", f":{path}")
 
 

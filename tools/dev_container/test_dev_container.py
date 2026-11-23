@@ -421,7 +421,7 @@ def _published_ports(compose: str) -> dict[int, int]:
     """Container port -> host port of every `ports:` entry of a compose file, ranges expanded.
 
     Args:
-        compose: The compose file's text. An entry may name the host address it is published on
+        compose: The compose file's text. An entry may specify the host address it is published on
             ("127.0.0.1:6090:6090/tcp"), which _published_addresses returns.
 
     Returns:

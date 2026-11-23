@@ -74,8 +74,8 @@ std::vector<std::string> footCostPhasesNames();
  * @param name The name.
  * @param path The field's path in the task file, for the error (e.g.
  * "task_space_foot_cost.active_phases").
- * @return InvalidArgument naming `path` and listing the names, for any other
- * name.
+ * @return InvalidArgument identifying `path` and listing the names, for any
+ * other name.
  */
 absl::StatusOr<bool> footCostActiveInStanceFromName(absl::string_view name,
                                                     absl::string_view path);
@@ -110,9 +110,9 @@ struct TaskSpaceLinkCostSettings {
  * @param weights The weights block.
  * @param path The block's path in the task file, for the errors (e.g.
  * "task_space_foot_cost.weights").
- * @return The weights; InvalidArgument naming the field when a weight is not
- * finite or is below 0, or when an acceleration weight is not 0: the kinematics
- * costs have no acceleration term, so the weight would do nothing.
+ * @return The weights; InvalidArgument identifying the field when a weight is
+ * not finite or is below 0, or when an acceleration weight is not 0: the
+ * kinematics costs have no acceleration term, so the weight would do nothing.
  */
 absl::StatusOr<EndEffectorKinematicsWeights>
 endEffectorKinematicsWeightsFromConfig(
@@ -137,7 +137,7 @@ absl::StatusOr<TaskSpaceFootCostSettings> taskSpaceFootCostFromConfig(
  * The named link costs from the task file's task_space_costs, in file order, as
  * CentroidalMpcInterface read the map of the same name.
  *
- * @return The costs; InvalidArgument naming the entry when its name or
+ * @return The costs; InvalidArgument identifying the entry when its name or
  * link_name is empty, when a name is given twice, when it sets an active_phases
  * other than "swing" or any swing_velocity_reference_weight (the foot cost's
  *         alone), and for the weights' errors.

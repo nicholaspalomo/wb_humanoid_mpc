@@ -70,7 +70,7 @@ def visual_color(
         style: the robot instance it is drawn for.
 
     Returns:
-        The instance's tint, else the URDF material's color, else white for a mesh that carries its own colors, else
+        The instance's tint, else the URDF material's color, else white for a mesh that has its own colors, else
         the default mesh color.
     """
     if style.tint is not None:
@@ -117,7 +117,7 @@ class RobotMeshes:
 
         Args:
             recording: where the visuals go.
-            style: the robot instance, which names the entities and colors the visuals.
+            style: the robot instance, which specifies the entities and colors the visuals.
 
         Returns:
             How many meshes and primitives it logged.

@@ -177,8 +177,8 @@ TEST_F(FootCollisionCbfConstraintTest,
 }
 
 TEST_F(FootCollisionCbfConstraintTest, ATurnOfTheBaseDoesNotChangeTheRate) {
-  // The row takes the base at rest; turning the whole robot while its joints
-  // move changes no relative distance faster.
+  // The row takes the base at rest; turning the robot while its joints move
+  // changes no relative distance faster.
   const CentroidalMpcRobotModel<scalar_t>& model = atlas_.wrenchModel();
   vector_t atRest = input_;
   atRest.tail(model.getJointDim()).setZero();
@@ -208,7 +208,7 @@ TEST_F(FootCollisionCbfConstraintTest, GammaScalesTheSquaredMargin) {
   for (Eigen::Index row = 0; row < after.size(); ++row) {
     EXPECT_NEAR(after[row], expected[row], 1.0e-9) << "row " << row;
   }
-  // A clone carries the rate it was cloned with.
+  // A clone keeps the rate it was cloned with.
   const std::unique_ptr<FootCollisionCbfConstraint> clone(cbf_->clone());
   EXPECT_DOUBLE_EQ(clone->getGamma(), 2.0 * gamma_);
 }

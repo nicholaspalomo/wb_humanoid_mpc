@@ -901,7 +901,7 @@ TEST_F(BasisInputsFormulationTest,
  * formulation enforces        */
 /******************************************************************************************************/
 // Soundness only. The shipped conservative_inner_approximation set does not
-// span the whole of that cone (it is a strict inner approximation); what it
+// span all of that cone (it is a strict inner approximation); what it
 // covers, and the exact_wrench_cone set that covers all of it, are tested in
 // legged_common_mpc:testContactWrenchConeBasisMatrix.
 TEST_F(BasisInputsFormulationTest, BasisGeneratorsStayInsideTheWrenchCone) {
@@ -953,7 +953,7 @@ TEST_F(BasisInputsFormulationTest, BasisGeneratorsStayInsideTheWrenchCone) {
 /* (5c) Every CppAD library is keyed by the contact input parameterization and
  * by the basis           */
 /******************************************************************************************************/
-// Findings A73/A81. Only the dynamics library used to carry the basis; every
+// Findings A73/A81. Only the dynamics library used to include the basis; every
 // other taped term (end-effector kinematics, the external-torque cost, ...)
 // kept one name for both input dimensions in one folder, so a library built for
 // one parameterization was loaded for the other and the process exited on the
@@ -1007,8 +1007,8 @@ TEST_F(BasisInputsFormulationTest,
  * soft-constraint lists          */
 /******************************************************************************************************/
 // Findings A76/A84. The barrier used to be built only when
-// `contact_wrench_cone` was listed, so a basis-mode task file without it -
-// legitimate in wrench mode - loaded with no bound on the scalings at all:
+// `contact_wrench_cone` was listed, so a basis-mode task file without it
+// (legitimate in wrench mode) loaded with no bound on the scalings at all:
 // adhesion, a center of pressure outside the sole, unbounded torsion.
 TEST_F(BasisInputsFormulationTest,
        TheNonNegativityBarrierIsBuiltWithoutContactWrenchCone) {
@@ -1030,7 +1030,7 @@ TEST_F(BasisInputsFormulationTest,
         absl::StrCat(footName, "_contactWrenchCone"), index))
         << footName;
   }
-  // Positive control: the shipped basis-mode problem carries the same barrier,
+  // Positive control: the shipped basis-mode problem includes the same barrier,
   // gated as zero_wrench is.
   InterfaceHolder& basis = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(basis.interface);

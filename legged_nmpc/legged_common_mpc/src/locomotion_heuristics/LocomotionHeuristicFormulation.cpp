@@ -189,12 +189,12 @@ absl::Status LocomotionHeuristicFormulation::validate() const {
     for (const std::string& entry : list(kind)) {
       const std::string canonical = canonicalHeuristicName(kind, entry);
       if (canonical.empty()) {
-        // A name that IS a heuristic but sits in the wrong list gets told where
-        // it belongs. The three kinds shape three different reference channels
-        // and are evaluated at three different seams, so this is a genuine
-        // mistake rather than a spelling one, and "unknown foothold heuristic
-        // 'periodic_orientation'" would send the operator looking for a typo
-        // that is not there.
+        // A name that IS a heuristic but appears in the wrong list gets told
+        // where it belongs. The three kinds shape three different reference
+        // channels and are evaluated at three different seams, so this is a
+        // genuine mistake rather than a spelling one, and "unknown foothold
+        // heuristic 'periodic_orientation'" would send the operator looking for
+        // a typo that is not there.
         const std::optional<HeuristicKind> actualKind = heuristicKindOf(entry);
         if (actualKind.has_value()) {
           return absl::InvalidArgumentError(absl::StrCat(

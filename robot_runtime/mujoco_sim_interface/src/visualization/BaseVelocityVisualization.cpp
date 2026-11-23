@@ -49,7 +49,7 @@ using ::ocs2::kYAxisIndex;
 using ::ocs2::kZAxisIndex;
 
 namespace {
-// The base is body kBaseBodyId, on a free joint whose qpos holds its position
+// The base is body kBaseBodyId, on a free joint whose qpos stores its position
 // (3), then its quaternion (4).
 constexpr int kMinBodies = 2;  // the world and the base
 constexpr int kBaseBodyId = 1;
@@ -171,7 +171,7 @@ void BaseVelocityVisualization::addArrows(const mjModel* absl_nonnull model,
   if (model->nq < kMjFreeJointQposSize || model->nbody < kMinBodies) return;
 
   // Center of mass of the robot: its root's subtree, NOT body 0's. The world's
-  // subtree also holds the thrown ball, which would drag the arrows away from
+  // subtree also includes the thrown ball, which would drag the arrows away from
   // the robot - by meters, for a 5 kg ball parked out of play.
   const RobotCentroidalState robot = robotCentroidalState(model, data);
   if (!robot.valid) return;

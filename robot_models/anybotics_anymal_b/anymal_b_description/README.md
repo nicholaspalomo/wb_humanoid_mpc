@@ -80,7 +80,7 @@ chain, all with identity rotation:
 
 ## Meshes
 
-The upstream meshes are COLLADA files of 300,000 triangles and 29 MB (57 MB as Menagerie's OBJ files). `meshes/` holds
+The upstream meshes are COLLADA files of 300,000 triangles and 29 MB (57 MB as Menagerie's OBJ files). `meshes/` contains
 one binary STL per upstream file, in the upstream millimeters (both models scale them by 0.001), 3.2 MB in all. A
 one-off script, outside the repository, flattened each COLLADA scene with trimesh 5.2.0 and pycollada 0.9.3 and
 decimated every sub-mesh by quadric edge collapse (fast-simplification 0.2.0) to its share of the file's target:

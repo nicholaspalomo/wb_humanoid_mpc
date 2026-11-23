@@ -115,7 +115,7 @@ pinocchio::Model freeFlyerTwinOf(const pinocchio::Model& model) {
   }
   for (pinocchio::FrameIndex frame = 1;
        frame < static_cast<pinocchio::FrameIndex>(model.nframes); ++frame) {
-    // The joints' inertias already hold every body's: the frames add none.
+    // The joints' inertias already include every body's: the frames add none.
     twin.addFrame(model.frames[frame], /*append_inertia=*/false);
   }
   twin.armature = model.armature;
@@ -328,7 +328,7 @@ TEST_P(
 
     // A_b = [[m I, -m [c - p_W]x R], [0, I_G R]]: linear momentum m c_dot = m
     // (pd_W + R w_B x (c - p_W)), and the angular momentum about c of a turn of
-    // the whole robot, I_G w_W = I_G R w_B. I_G from ccrba, the centroidal
+    // the full robot, I_G w_W = I_G R w_B. I_G from ccrba, the centroidal
     // composite inertia (world-aligned, about c).
     pinocchio::ccrba(model, data, motion.q, motion.v);
     const matrix_t baseBlock = data.Ag.leftCols<6>();

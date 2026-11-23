@@ -170,14 +170,14 @@ class LeggedCostConstraintFactory {
       size_t contactPointIndex) const;
 
   // The terms of the task file. Each fails with the InvalidArgument of its
-  // conversion (which names the field) for a block that does not convert, or
+  // conversion (which identifies the field) for a block that does not convert, or
   // whose size is not the model's.
 
   /**
    * The state-input quadratic cost (StateInputQuadraticCost): state_weights as
    * Q (stateWeights()), whose base-pose block is zeroed under
    * setComAndAcomTrackingCostListed, and input_weights as R (inputWeights()),
-   * both handed to the cost's setters as the live parameter updater hands them.
+   * both passed to the cost's setters as the live parameter updater passes them.
    */
   absl::StatusOr<std::unique_ptr<StateInputCost>> makeStateInputQuadraticCost()
       const;
@@ -199,7 +199,7 @@ class LeggedCostConstraintFactory {
    * factory was constructed with. Passed in rather than reconstructed here,
    * because CentroidalModelInfo has no default member initializers and a
    * hand-built one leaves the contact and nominal-inertia fields indeterminate.
-   * @return InvalidArgument naming the block when com_and_acom_tracking_cost is
+   * @return InvalidArgument identifying the block when com_and_acom_tracking_cost is
    * listed but the file's weights do not convert, or
    * ComAndAcomTrackingCost::Create()'s error.
    */

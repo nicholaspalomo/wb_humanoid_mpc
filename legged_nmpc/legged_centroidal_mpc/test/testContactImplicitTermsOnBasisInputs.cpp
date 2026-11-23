@@ -118,16 +118,16 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   // Every generator of ContactWrenchConeBasisMatrix is built with a local
   // normal force of exactly 1, so the row is all ones over this foot's block.
   // That makes the indicator the SUM of the foot's scalings, which is zero if
-  // and only if every one of them is - i.e. if and only if the whole wrench is
-  // zero. This is an exact "does this foot carry load" test, which is precisely
-  // what the complementarity and slip products need.
+  // and only if every one of them is - i.e. if and only if the wrench is zero.
+  // This is an exact "does this foot carry load" test, which is precisely what
+  // the complementarity and slip products need.
   const size_t start = model_->basisModel().getContactWrenchStartIndices(kFoot);
   const size_t numBasis = model_->numBasisPerFoot();
   for (size_t index = 0; index < numBasis; ++index) {
     EXPECT_NEAR(row(static_cast<Eigen::Index>(start + index)), 1.0, 1.0e-12)
         << "basis " << index;
   }
-  // Everything else - the joint velocities and the other foot - contributes
+  // Everything else (the joint velocities and the other foot) contributes
   // nothing.
   EXPECT_NEAR(row.sum(), static_cast<scalar_t>(numBasis), 1.0e-12);
   EXPECT_TRUE((row.array() >= -1.0e-12).all())

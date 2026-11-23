@@ -76,7 +76,7 @@ struct BusOptions {
   /**
    * The KEEP_LAST depth of the DDS reader of a Delivery::kLatest subscription.
    * More than one, so that a sample of the wrong type does not displace a valid
-   * one before the drain sees both; the drain then hands over only the newest
+   * one before the drain sees both; the drain then returns only the newest
    * (the others are superseded, unparsed), and what the reader replaced before
    * the drain is counted as missed.
    */

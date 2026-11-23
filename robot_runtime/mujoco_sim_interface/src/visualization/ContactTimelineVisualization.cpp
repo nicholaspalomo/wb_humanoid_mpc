@@ -128,7 +128,7 @@ void fillRect(int left, int bottom, int width, int height, const Rgba& color) {
 
 /// Width in pixels of `text` in the normal font of `con`. A label box narrower
 /// or shorter than its text leaves the string's raster position outside the
-/// box, and OpenGL then drops the whole string, so boxes are sized from this.
+/// box, and OpenGL then drops the string, so boxes are sized from this.
 int textWidth(const char* absl_nonnull text,
               const mjrContext* absl_nonnull con) {
   int width = 0;

@@ -28,8 +28,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // The network file: what it accepts, that a malformed textproto is an error
-// naming its line and column, that every invalid node, topic or field is an
-// error naming it, that formatNetworkConfig() and parseNetworkConfig()
+// reporting its line and column, that every invalid node, topic or field is an
+// error identifying it, that formatNetworkConfig() and parseNetworkConfig()
 // round-trip, that the shipped file is the network localhostNetworkConfig()
 // builds, and the Cyclone DDS configuration and ports DomainConfig.h derives
 // from a network.

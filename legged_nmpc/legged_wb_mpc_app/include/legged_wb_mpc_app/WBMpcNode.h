@@ -63,7 +63,7 @@ namespace ocs2::legged {
  * operator/walking_velocity_command; a reset of the MPC resets it and, through
  * its reset hook, the target calculator;
  *   - resets to wbMpcResetTargetTrajectories(), the reset target the MRT joint
- * controller hands its in-process link;
+ * controller passes to its in-process link;
  *   - the MPC parameter updater (makeWholeBodyMpcParameterUpdater()),
  * registered after the motion manager: the RELOAD_HOT fields of an update on
  * operator/mpc_parameters (checked against the robot and this task file's
@@ -72,12 +72,12 @@ namespace ocs2::legged {
  * ones that differ logged as taking effect at the next start; a saved reference
  * file's command limits reach the calculator and the motion manager
  * (makeCommandLimitsReloaders());
- *   - every policy carries the scaled velocity command (ViewerAnnotations);
+ *   - every policy includes the scaled velocity command (ViewerAnnotations);
  *   - the visualization publisher (legged_common_mpc_app/visualization),
  * always running: viz/scene and viz/telemetry for the Rerun bridge, from every
  * published policy and every robot/state sample, on a thread of its own.
  *
- * The whole-body MPC has no contact planner, and the policies carry no target
+ * The whole-body MPC has no contact planner, and the policies include no target
  * contact patch.
  */
 class WBMpcNode {
@@ -129,7 +129,7 @@ class WBMpcNode {
   ipc::ModelDimensions dimensions() const;
 
   WBMpcInterface& interface() { return *interface_; }
-  /** The MPC, whose solver holds the per-worker copies of the problem the
+  /** The MPC, whose solver stores the per-worker copies of the problem the
    * parameter updater writes. */
   SqpMpc& mpc() { return *mpc_; }
   ProceduralMpcMotionManager& motionManager() { return *motionManager_; }

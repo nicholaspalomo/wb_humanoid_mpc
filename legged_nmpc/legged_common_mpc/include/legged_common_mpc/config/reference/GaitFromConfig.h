@@ -85,12 +85,12 @@ absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
 
 /**
  * Every gait of the gait file by name, as the procedural motion manager selects
- * them. gait_list names each gait of gaits exactly once: a name it lists twice,
+ * them. gait_list lists each gait of gaits exactly once: a name it lists twice,
  * a name no gait has, a gait it does not list, a gait without a name and two
  * gaits of one name are refused, as is a gait that
  * modeSequenceTemplateFromConfig() refuses.
  *
- * @return The gaits; InvalidArgument naming the gait and what is wrong.
+ * @return The gaits; InvalidArgument identifying the gait and what is wrong.
  */
 absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
 gaitMapFromConfig(const mpc_config::GaitFile& file,

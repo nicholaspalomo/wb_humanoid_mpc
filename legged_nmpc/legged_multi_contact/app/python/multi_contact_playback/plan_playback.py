@@ -36,7 +36,7 @@ It draws, on the timeline `plan_time`:
 - the robot at every knot (world/robots/plan/<link>), from the URDF's forward kinematics and the knot's base pose;
 - the active pads (world/plan/active_pads) and the planned contact forces as arrows (world/plan/contact_forces);
 - the CoM and its ground projection, and the static equilibrium polygon (world/plan/com, world/plan/support_polygon)
-  and the margins (margins/...), from the certifier's report when the plan carries one (certify_plan writes it);
+  and the margins (margins/...), from the certifier's report when the plan includes one (certify_plan writes it);
 - the certifier's failures as text (plan/failures).
 
 The plan's hashes are not checked here: certify_plan refuses a plan of another contact set or scene. Exit status: 0, or
@@ -152,7 +152,7 @@ def load_inputs(scenario_path: str, plan_path: str) -> PlaybackInputs:
 
     Raises:
         OSError: a file cannot be read.
-        ValueError: a file does not parse, or the plan names a contact the set does not have.
+        ValueError: a file does not parse, or the plan specifies a contact the set does not have.
     """
     scenario = nproto_textproto.load_textproto(
         cli.resolve_input_path(scenario_path), scenario_pb2.Scenario
@@ -422,7 +422,7 @@ def log_playback(recording: rr.RecordingStream, inputs: PlaybackInputs) -> int:
 
     Raises:
         OSError: a mesh file can no longer be read.
-        ValueError: a contact candidate names an unknown joint.
+        ValueError: a contact candidate specifies an unknown joint.
     """
     log_terrain(recording, inputs.scenario.terrain_scene)
     robot_meshes.RobotMeshes(inputs.model).log_instance(recording, _ROBOT_STYLE)

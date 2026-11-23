@@ -124,13 +124,13 @@ struct HipYawRange {
  * first revolute joint whose axis is vertical IN THE WORLD FRAME at the neutral
  * configuration, and reads its position limits as a range of foot yaw.
  *
- * The world frame matters for the sign as well as for the test. The foot yaw is
- * +q when the axis points up and -q when it points down, so an axis along -z -
- * which pinocchio's URDF parser turns into an unaligned revolute joint - or a
- * +z axis under a parent frame that is flipped upside down maps the joint
- * limits [lower, upper] to the foot yaw range [-upper, -lower]. Copying them
- * unmirrored planned yaws the leg cannot reach on one side and forbade the ones
- * it can on the other. A joint about a non-vertical axis is not a hip yaw,
+ * The world frame determines the sign as well as the verticality test. The foot
+ * yaw is +q when the axis points up and -q when it points down, so an axis
+ * along -z (which pinocchio's URDF parser turns into an unaligned revolute
+ * joint) or a +z axis under a parent frame that is flipped upside down maps the
+ * joint limits [lower, upper] to the foot yaw range [-upper, -lower]. Copying
+ * them unmirrored planned yaws the leg cannot reach on one side and forbade the
+ * ones it can on the other. A joint about a non-vertical axis is not a hip yaw,
  * whatever its local axis is.
  *
  * A joint that stores an angle (nq == 1) contributes its limits clamped to

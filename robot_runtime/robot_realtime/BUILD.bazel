@@ -104,7 +104,7 @@ cc_test(
 )
 
 # The realtime property: once constructed, the queue, the timer and the statistics make no heap allocation. A target
-# of its own, because the allocation counter replaces malloc for the whole binary.
+# of its own, because the allocation counter replaces malloc for the binary.
 cc_test(
     name = "test_realtime_allocations",
     size = "small",

@@ -3,7 +3,7 @@
 #
 # The shared gait file of the quadrupeds. It is read against a contact set ordered LF, RF, LH, RH (left front, right
 # front, left hind, right hind) with one leg of the same name per contact, so the mode bits are LF = 8, RF = 4, LH = 2
-# and RH = 1 and a trot is LF_RH (9) then RF_LH (6). A mode names the legs in stance, joined by '_'
+# and RH = 1 and a trot is LF_RH (9) then RF_LH (6). A mode lists the legs in stance, joined by '_'
 # (mode_sequence_template_config.proto).
 #
 # The gaits, their modes and their switching times follow the gait file of the OCS2 legged_robot ANYmal example
@@ -109,7 +109,7 @@ gaits {
 # - flying_trot takes every faster command.
 # static_walk is not a row. With it between stance and trot, the trot waited for a stride-mean speed of 0.15 m/s
 # reached in static_walk, and a 0.5 m/s command walked about 2.4 s in static_walk before it trotted, averaging
-# 0.38 m/s. Each row's lower bounds sit below the upper bounds of the row before, so that a command near one bound
+# 0.38 m/s. Each row's lower bounds are below the upper bounds of the row before, so that a command near one bound
 # does not switch back and forth.
 gait_switching {
   rows {

@@ -288,7 +288,7 @@ TEST_F(DcmTerminalCostTest, SingleSupportUsesStanceFoot) {
 TEST_F(DcmTerminalCostTest, SupportWeightsBlendThroughTransitions) {
   // Right-foot single support on [1.0, 1.5): the left foot's weight ramps out
   // before 1.0 and back in after 1.5, the right foot keeps weight 1 (its
-  // contact phase spans the whole interval).
+  // contact phase spans the full interval).
   EXPECT_NEAR(cost_->computeSupportWeights(0.5)(0), 1.0, 1.0e-12);
   EXPECT_NEAR(cost_->computeSupportWeights(0.95)(0), 0.5, 1.0e-9);
   EXPECT_NEAR(cost_->computeSupportWeights(1.25)(0), 0.0, 1.0e-12);
@@ -399,7 +399,7 @@ TEST_F(DcmTerminalCostTest,
 
   // Positive control: an explicit height is used as given, and the model's is
   // still what a later unset one means - a hot reload
-  // (MpcParameterUpdaterModule) hands the block to setConfig() exactly as the
+  // (MpcParameterUpdaterModule) passes the block to setConfig() exactly as the
   // file writes it.
   DcmTerminalCost::Config explicitHeight = derived;
   explicitHeight.nomPosComRtFeetmeanEwrtWorldZ = 0.9;

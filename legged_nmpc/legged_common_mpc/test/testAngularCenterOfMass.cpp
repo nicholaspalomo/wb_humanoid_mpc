@@ -201,7 +201,7 @@ TEST_F(AngularCenterOfMassTest,
 }
 
 /**
- * A rotation of the whole robot rotates the ACoM one for one, whatever the
+ * A rigid rotation of the robot rotates the ACoM one for one, whatever the
  * joints: xi_a(q (x) xi) = q (x) xi_a(xi). This is the floating-base
  * equivariance the additive Euler rule only had to first order away from a
  * level base.

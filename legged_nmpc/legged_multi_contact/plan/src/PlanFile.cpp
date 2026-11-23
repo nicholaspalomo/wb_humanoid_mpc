@@ -206,7 +206,7 @@ absl::Status savePlanFile(const config::MultiContactPlan& plan,
   ToProto(plan, &message);
   RETURN_IF_ERROR(writeFile(binaryPath, deterministicBytes(message)));
   message.clear_knots();
-  // The summary names its schema as every textproto of the repository does.
+  // The summary specifies its schema as every textproto of the repository does.
   return writeFile(planSummaryPath(binaryPath),
                    absl::StrCat("# proto-file: ", kPlanProtoFile, "\n",
                                 nproto::WriteTextprotoFile(message)));

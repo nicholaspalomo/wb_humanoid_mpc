@@ -28,7 +28,7 @@
 """Pins what keeps the editor's view of the build current (tools/ide/README.md).
 
 compile_commands.json is refreshed by every Makefile target that builds, by the launch and deployment builds and by the
-dev container's start, and left alone in CI; pyrightconfig.json names the Bazel import roots of the BUILD files. A new
+dev container's start, and left alone in CI; pyrightconfig.json lists the Bazel import roots of the BUILD files. A new
 target that calls Bazel directly, or a new `imports`, fails here instead of leaving the editor stale.
 """
 

@@ -38,7 +38,7 @@ namespace robot::realtime {
  * How well the realtime loop held its period: what LoopTimingStats reports at
  * the end of each reporting window.
  *
- * Plain data and trivially copyable, so that the realtime thread can hand it to
+ * Plain data and trivially copyable, so that the realtime thread can pass it to
  * the communication thread through a robot::TripleBuffer<LoopTimingSnapshot>
  * without allocating. Times are in seconds, as in the message.
  *

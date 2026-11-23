@@ -99,7 +99,7 @@ class CentroidalMpcEndEffectorFootCost final
  public:
   /**
    * The cost name the interface builds the cost of the contact `footName` with,
-   * which names its CppAD library
+   * which forms its CppAD library name
    * ("<it>" kLibraryVersionSuffix). The same string as its collection name
    * (taskSpaceKinematicsCostName(footName), CostTermNames.h) today, defined
    * apart on purpose: a rename of the term must not rename, and regenerate, the
@@ -110,10 +110,10 @@ class CentroidalMpcEndEffectorFootCost final
   }
 
   /**
-   * Appended to the cost name to name the CppAD library: the version of the
-   * residual, changed with every change of it, so that a library taped from an
-   * earlier residual is never loaded in its place. "_yawRefHalfAngle" was the
-   * wrapped yaw residual with the half-angle tilt -sin(theta / 2) u;
+   * Appended to the cost name to form the CppAD library name: the version of
+   * the residual, changed with every change of it, so that a library taped from
+   * an earlier residual is never loaded in its place. "_yawRefHalfAngle" was
+   * the wrapped yaw residual with the half-angle tilt -sin(theta / 2) u;
    * "_tiltAngle" is the tilt angle theta u (tiltAngleToPlane()).
    */
   static constexpr char kLibraryVersionSuffix[] = "_tiltAngle";
@@ -214,9 +214,9 @@ class CentroidalMpcEndEffectorFootCost final
    * reference. It is the half-angle form of atan2(s, c), the same number for
    * every error short of pi. It replaces atan2(sin(yaw - ref), cos(yaw - ref))
    * with yaw = atan2(R10, R00). CppAD evaluates both branches of an atan2, one
-   * of which divides by its first argument, so at a foot yaw of exactly zero -
-   * the simulator's reset pose, MuJoCo's own reset pose, any pose built from a
-   * zero base yaw - the derivative of the error was 0 * inf = NaN. Multiplying
+   * of which divides by its first argument, so at a foot yaw of exactly zero
+   * (the simulator's reset pose, MuJoCo's own reset pose, any pose built from a
+   * zero base yaw), the derivative of the error was 0 * inf = NaN. Multiplying
    * the term by a zero hasYawReference did not help, 0 * NaN being NaN, and
    * every QP of a swing of that foot failed.
    *

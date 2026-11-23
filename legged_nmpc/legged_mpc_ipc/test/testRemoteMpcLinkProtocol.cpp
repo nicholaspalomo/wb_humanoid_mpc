@@ -231,7 +231,7 @@ TEST_F(RemoteMpcLinkProtocolTest,
   EXPECT_EQ(second.resets().full_requested(), 1u);
   EXPECT_GT(second.sequence(), first.sequence());
 
-  // Counters only grow, so any later observation still carries every request.
+  // Counters only grow, so any later observation still includes every request.
   sendObservation(/*time=*/1.2);
   EXPECT_EQ(mpc_.latest().resets().requested(), 2u);
   EXPECT_EQ(mpc_.latest().resets().full_requested(), 1u);

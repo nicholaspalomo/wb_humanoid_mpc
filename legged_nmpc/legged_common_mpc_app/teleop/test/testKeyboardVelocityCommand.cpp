@@ -76,7 +76,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged::teleop {
 namespace {
 
-// The header of a reference file, which names its schema.
+// The header of a reference file, which specifies its schema.
 constexpr char kReferenceHeader[] =
     "# proto-message: legged_mpc_config.ReferenceFile\n";
 

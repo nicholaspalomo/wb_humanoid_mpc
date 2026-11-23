@@ -148,7 +148,7 @@ WBMpcInterface* absl_nullable shippedG1WholeBodyMpc() {
   return kInterface;
 }
 
-/** The collection a registered term lives in. */
+/** The collection a registered term belongs to. */
 enum class TermCollection {
   kCost,
   kSoftConstraint,

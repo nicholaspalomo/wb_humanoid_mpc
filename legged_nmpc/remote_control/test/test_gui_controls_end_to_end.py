@@ -35,8 +35,8 @@ legged_centroidal_mpc_robot on the DRC Atlas files with the MuJoCo backend and n
 docker-compose.robot.sim.yaml runs it. Both share the shipped network file's topics and QoS profiles
 (config/ipc/network.textproto) on a DDS domain of this test's own (robot_ipc.isolated_test_network()).
 
-Each control is held to its effect on the robot, as the robot reports it - robot/fsm_state, and robot/state, which
-carries the control mode the controller runs, the joint action it applies and the base pose - never to the message the
+Each control is held to its effect on the robot, as the robot reports it (robot/fsm_state, and robot/state, which
+includes the control mode the controller runs, the joint action it applies and the base pose), never to the message the
 GUI sent. No MPC node runs: WB_MPC is entered and held on the JOINT_PD action until a policy arrives, which none does;
 what the MPC node does with the walking command and the parameters is the MPC node's tests'.
 

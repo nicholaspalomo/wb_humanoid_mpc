@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Tests for magic_number.py: production C++ names its numeric literals."""
+"""Tests for magic_number.py: production C++ uses named constants for its numeric literals."""
 
 import ast
 import fractions

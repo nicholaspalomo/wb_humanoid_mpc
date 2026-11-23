@@ -38,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 
 /**
- * One JPEG frame of the viewer, as the render thread hands it to
+ * One JPEG frame of the viewer, as the render thread passes it to
  * ViewerFrameMailbox::publish() and the server sends it.
  *
  * Passive data. ViewerFrameMailbox::publish() stamps `sequence`, `publishTime`

@@ -11,10 +11,10 @@
 #              writers then exist from start-up:
 #                latest           BEST_EFFORT, KEEP_LAST 1: streams whose next sample replaces a lost one;
 #                reliable_latest  RELIABLE, KEEP_LAST 1: large or infrequent latest values (a policy is ~350 UDP
-#                                 fragments, and one lost fragment would lose the whole policy under BEST_EFFORT);
+#                                 fragments, and one lost fragment would drop the policy under BEST_EFFORT);
 #                reliable_events  RELIABLE, KEEP_LAST 64: events that must each arrive.
 #
-# The file is parsed strictly: an unknown field or a value of the wrong type is an error naming its line and column.
+# The file is parsed strictly: an unknown field or a value of the wrong type is an error reporting its line and column.
 # robot_ipc builds this file in as localhostNetworkConfig(), the network of a binary without --network_config.
 
 # LINT.IfChange(dds_ports)
@@ -48,5 +48,5 @@ topics { name: "operator/dodgeball_throw"          qos_profile: "reliable_events
 topics { name: "operator/config_save"              qos_profile: "reliable_events"  publishers: ["operator", "config_push"] }
 # LINT.ThenChange(//legged_nmpc/legged_mpc_ipc/include/legged_mpc_ipc/Topics.h:topics, //config/ipc/two_machine.example.textproto:two_machine_topics, //legged_nmpc/docs/distributed_runtime/README.md:topic_table)
 
-# Loopback carries a policy in a few datagrams; the receive buffer holds several of them.
+# Loopback sends a policy in a few datagrams; the receive buffer stores several of them.
 transport { max_message_size_bytes: 65500 socket_receive_buffer_bytes: 8388608 }

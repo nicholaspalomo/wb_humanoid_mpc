@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-"""Checks that every .textproto file names its schema in its leading comment block, and that the schema exists.
+"""Checks that every .textproto file specifies its schema in its leading comment block, and that the schema exists.
 
 A configuration file is a textproto of one message (tools/nproto/README.md, "Textproto configuration files"), and it
 says which in its first lines:
@@ -37,7 +37,7 @@ says which in its first lines:
 The check fails when the leading comment block (the comment lines before the first line that is neither blank nor a
 comment) lacks either line, when the proto-file is not a file of the repository (its path from the repository root),
 and when the message is not a top-level message of that file, written with the file's package. The parsers refuse a
-file whose header names another message than the one they parse into (nproto/Textproto.h, nproto_textproto.py),
+file whose header specifies another message than the one they parse into (nproto/Textproto.h, nproto_textproto.py),
 so the header is checked against the schema here and against the reader there.
 
     python3 -m tools.hooks.lint_code --only textproto-header

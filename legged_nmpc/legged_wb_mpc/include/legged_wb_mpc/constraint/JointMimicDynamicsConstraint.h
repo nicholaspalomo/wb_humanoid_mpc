@@ -48,7 +48,7 @@ namespace ocs2::legged {
  * The equality constraint that makes a child joint mimic a parent one at the
  * acceleration level, Kp (m q_parent - q_child) + Kd (m qd_parent - qd_child) +
  * (m qdd_parent - qdd_child) = 0, so that the joint error decays as a stable
- * second-order system (the knees of a robot with a four-bar linkage). Holds a
+ * second-order system (the knees of a robot with a four-bar linkage). Stores a
  * pointer to the robot model, which must outlive it and its clones. Not
  * thread-safe; the solver clones one per worker thread.
  */
@@ -70,7 +70,7 @@ class JointMimicDynamicsConstraint final : public StateInputConstraint {
    * The constraint q_child = multiplier * q_parent between two MPC joints of
    * `mpcRobotModel`, which must outlive it.
    *
-   * @return NotFound naming the joint when `parentJointName` or
+   * @return NotFound identifying the joint when `parentJointName` or
    * `childJointName` is not an active joint of the MPC model; InvalidArgument
    * unless positionGain and velocityGain are finite and positive, the condition
    *         for the error dynamics e'' + velocityGain e' + positionGain e = 0

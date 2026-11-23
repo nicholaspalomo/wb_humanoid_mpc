@@ -215,7 +215,7 @@ cc_test(
     ],
 )
 
-# Create() refuses every contact-input configuration error with a Status naming its key, before any CppAD model is built.
+# Create() refuses every contact-input configuration error with a Status reporting its key, before any CppAD model is built.
 cc_test(
     name = "testContactInputParameterizationWiring",
     size = "medium",
@@ -951,7 +951,7 @@ cc_test(
     ],
 )
 
-# CentroidalMpcInterface::Create() on a missing task, URDF or reference file: NotFound naming the path, before anything
+# CentroidalMpcInterface::Create() on a missing task, URDF or reference file: NotFound reporting the path, before anything
 # reads the files. Builds no CppAD model.
 cc_test(
     name = "testCentroidalMpcInterfaceInputFiles",
@@ -1287,7 +1287,7 @@ cc_test(
 # state manifold, the Euler boundary accessors' round trips (the pose modulo 2 pi, the attitude to round-off), the slerp
 # across +-pi, the twist heading, the tuning layout, the tangent maps, the base twist and a knot's command, and the
 # allocation-free measurement helpers, on the G1, the Atlas and the Atlas's basis-vector decorator. Builds no CppAD
-# library. Linked statically: the allocation counter replaces malloc for the whole binary.
+# library. Linked statically: the allocation counter replaces malloc process-wide.
 cc_test(
     name = "testCentroidalRobotModelBoundary",
     size = "small",
@@ -1447,7 +1447,7 @@ cc_test(
 
 # ProceduralMpcMotionManager::Create() and its command-limit reloads, refused by Status, on the DRC Atlas references;
 # its gait switches on the measured turn about the world z axis (design defect D2); and a gait file's own gait switching
-# table, which drives the selection or is refused naming the file.
+# table, which drives the selection or is refused with the file path.
 cc_test(
     name = "testProceduralMpcMotionManagerCreate",
     size = "small",
@@ -1549,7 +1549,7 @@ cc_test(
 
 # The joint PD gains of CentroidalMpcMrtJointController set from other threads: taken into use by the next control cycle
 # without an allocation of its own, a malformed document refused on the caller's thread, the gains file watched by
-# pollPdGainsFile(). A target of its own, because the allocation counter replaces malloc for the whole binary.
+# pollPdGainsFile(). A target of its own, because the allocation counter replaces malloc process-wide.
 cc_test(
     name = "testMrtJointControllerPdGains",
     size = "small",
@@ -2043,7 +2043,7 @@ cc_test(
 )
 
 # The double cover of the measured base orientation through the MRT joint controller: xi and -xi command the same
-# joints and hand the solver the same state up to the quaternion's sign, and a stream canonicalized to w >= 0 across pi
+# joints and pass the solver the same state up to the quaternion's sign, and a stream canonicalized to w >= 0 across pi
 # commands what the continuous one does. On the DRC Atlas references' scripted solver; builds no CppAD model.
 cc_test(
     name = "testMrtObservationDoubleCover",

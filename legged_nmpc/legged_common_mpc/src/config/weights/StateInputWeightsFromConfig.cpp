@@ -135,8 +135,8 @@ InThisMpc inThisMpcIf(bool present) {
 /**
  * One conversion of a block of the task file onto a StateInputLayout: builds
  * the vector of the state or the input the block gives, a component at a time,
- * and collects every problem with the block, each naming its field path, for
- * one error. Holds its own copy of the layout. Not thread-safe; used on one
+ * and collects every problem with the block, each reporting its field path, for
+ * one error. Stores its own copy of the layout. Not thread-safe; used on one
  * thread for one block.
  */
 class LayoutConversion {
@@ -276,7 +276,7 @@ class LayoutConversion {
 
   /**
    * The index of `joint` in the layout's joints, or nullopt after refusing it
-   * as a fixed joint or a name the MPC model does not have (the problem names
+   * as a fixed joint or a name the MPC model does not have (the problem reports
    * `listPath`).
    */
   std::optional<Eigen::Index> jointIndex(absl::string_view joint,

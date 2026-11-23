@@ -59,7 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * DummySimLoop, the dummy simulator's loop, against an MpcServer over loopback
  * buses. The MPC is OCS2's scripted MPC and the plant a linear system that
- * holds its state, so that the test sees the synchronization alone: in the
+ * keeps its state, so that the test sees the synchronization alone: in the
  * synchronized mode every MPC update takes the policy solved from the
  * observation sent for it, and the plant's clock advances by one step per step
  * whatever the solves cost.
@@ -97,7 +97,7 @@ class ThrowingRollout final : public RolloutBase {
  * robot's bus, connected. */
 class Harness {
  public:
-  /** The plant is `plant` (cloned), or with none a linear system that holds its
+  /** The plant is `plant` (cloned), or with none a linear system that keeps its
    * state. */
   explicit Harness(scalar_t mpcDesiredFrequency,
                    const RolloutBase* absl_nullable plant = nullptr)
@@ -199,7 +199,7 @@ TEST(DummySimLoop, SynchronizedWithTheMpcEveryUpdateTakesThePolicySolvedForIt) {
       latest.time,
       0.5 + static_cast<scalar_t>(statistics.steps) / kSimulationFrequency,
       1.0e-9);
-  // The plant holds its state under the scripted MPC's zero input.
+  // The plant keeps its state under the scripted MPC's zero input.
   EXPECT_TRUE(latest.state.isApproxToConstant(1.0));
   expectNoResetAfterTheFirst(harness.server().statistics(), statistics.link);
 }

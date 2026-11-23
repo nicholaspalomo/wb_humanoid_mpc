@@ -53,13 +53,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The Euler boundary of
  * legged_nmpc/docs/quaternion_base_orientation/README.md (section 2.9). Round
  * trips in both directions (the rotation at every attitude, gimbal lock
- * included), the clamped asin at +-90 degrees - for a sine of the pitch past
- * one by round-off and for a measured quaternion slightly longer than one -
+ * included), the clamped asin at +-90 degrees (for a sine of the pitch past
+ * one by round-off and for a measured quaternion slightly longer than one),
  * parity with an independent ZYX conversion with the same clamp
  * (legacyEulerZyxFromQuaternion()), T_B, its inverse and its derivative against
  * the rate of the rotation matrix, and the tuning layout: its placement on the
  * state, the lookup of its blocks, its conversion of task-file-shaped vectors
- * and the errors that name the expected layout.
+ * and the errors that report the expected layout.
  */
 
 namespace ocs2::legged {
@@ -547,7 +547,7 @@ TEST(EulerBoundaryTuningLayout, OnlyThePlacedLayoutIsConverted) {
                                        vector3_t(0.4, 0.1, -0.2));
 
   // The orientation placed by hand on the 3 rows of its Euler angles, the
-  // blocks after it moved up to follow on: the placement mismatch names the
+  // blocks after it moved up to follow on: the placement mismatch reports the
   // block and the quaternion's rows.
   TuningLayout threeRows = centroidalLayout();
   threeRows.segments[2].stateDim = 3;

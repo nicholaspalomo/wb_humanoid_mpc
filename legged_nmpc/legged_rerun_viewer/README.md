@@ -16,7 +16,7 @@ robot/loop_timing
 
 The bridge knows nothing about the robot beyond its URDF. Everything it draws is computed by the visualization
 publisher on the MPC machine. The paths below are the contract between the two: `scene_contract.py`,
-`telemetry_contract.py` and `status_contract.py` in `python/legged_rerun_viewer/` hold them, and the tables below
+`telemetry_contract.py` and `status_contract.py` in `python/legged_rerun_viewer/` define them, and the tables below
 list them.
 
 ## Running
@@ -28,14 +28,14 @@ bazel run //legged_nmpc/legged_rerun_viewer -- --urdf <urdf> --rerun_sink save -
 ```
 
 Relative paths are looked up in the directory the bridge was started from (`BUILD_WORKING_DIRECTORY` under
-`bazel run`), then in the repository root. Ctrl-C or SIGTERM stops it cleanly: the bus is closed, what is queued is
-drawn, the buffered plots are sent and the recording is flushed, within a bounded time even when the viewer takes no
+`bazel run`), then in the repository root. On Ctrl-C or SIGTERM, the bridge closes the bus, draws queued messages,
+sends buffered plots, and flushes the recording within a bounded time even when the viewer takes no
 data (a second Ctrl-C exits at once). The exit status is 0, or 2 for a usage or
 configuration error. The remote_control GUI starts the built binary
 (`.bazel/bin/legged_nmpc/legged_rerun_viewer/legged_rerun_viewer`) for its "Open Rerun viewer" button, with its
 own `--network_config`, `--rerun_sink=spawn --grpc_port=9877` and, when the GUI was given `--urdf_file` (every launch
 file gives it one), `--urdf`, so that viewer draws the robot, the markers and the plots (remote_control/README.md). Its
-port is not the default 9876, which the launch files' `serve_web` bridge holds: `spawn` takes whatever listens on its
+port is not the default 9876, which the launch files' `serve_web` bridge uses: `spawn` takes whatever listens on its
 port for a viewer, and would then open no window and stream into the web viewer instead.
 
 The sink is chosen by name with `--rerun_sink` (`rerun_sinks.SINKS`):
@@ -54,8 +54,8 @@ It is sent with `send_blueprint()` after the sink is set up, never as the sink's
 rerun-sdk 0.38's `serve_grpc()` failed to return in about one start in twelve, and `connect_grpc()` blocks for minutes
 when no viewer is up.
 `serve_web` refuses a `--grpc_port` or `--web_port` that another server listens on (another bridge, or a native
-viewer), and the bridge exits 2 naming the port: rerun-sdk 0.38's `serve_grpc()` would return as if it served, and
-every message would be dropped. A port that only holds closed connections in TIME_WAIT, as after a bridge that just
+viewer), and the bridge exits 2 reporting the port: rerun-sdk 0.38's `serve_grpc()` would return as if it served, and
+every message would be dropped. A port that only has closed connections in TIME_WAIT, as after a bridge that just
 stopped, is taken.
 <!-- LINT.IfChange(viewer_watch) -->
 rerun-sdk 0.38 buffers about 100 MiB for a viewer that is not there or stopped reading, then blocks every `log()`, and
@@ -100,7 +100,7 @@ exits without it (rerun-sdk 0.38 would wait without end).
 
 ## The plot configuration
 
-`--plot_config` names a textproto of `legged_rerun_viewer_proto.PlotConfig` (`proto/plot_config.proto`; the shipped,
+`--plot_config` specifies a textproto of `legged_rerun_viewer_proto.PlotConfig` (`proto/plot_config.proto`; the shipped,
 commented `config/plot_config.textproto`), or a plain list of signals, one per line. The launch files pass the shipped one to the bridge (`mpc.textproto`, `dummy_sim.textproto`,
 `sandbox.textproto`) and to the robot process (`robot.textproto`); `PLOT_CONFIG=<file>` on a launch target replaces it
 for the bridge and, in `make launch-<robot>-sim`, for the robot.
@@ -121,10 +121,10 @@ tab by default and `VIEWER=glfw` brings back the window (legged_nmpc/legged_comm
 `--plot_config`; robot_runtime/mujoco_sim_interface/README.md, "Viewers"). The bridge checks it as the robot does
 (`plot_config.check_mujoco_viewer()`: known names, none repeated, nothing after `none` or `glfw`) and refuses a file
 with a bad one, which the robot would refuse at start-up too. The robot reads textprotos only, strictly
-(`nproto::LoadTextprotoFile()`): it refuses a plain list of signals, unless `VIEWER=` names the viewer and it does not
+(`nproto::LoadTextprotoFile()`): it refuses a plain list of signals, unless `VIEWER=` specifies the viewer and it does not
 read the file at all. Without `VIEWER=`, `make launch-<robot>-sim` refuses a `PLOT_CONFIG` whose leading comment block
 does not declare `# proto-message: legged_rerun_viewer_proto.PlotConfig` (or, in a file saved before the package
-rename, `humanoid_rerun_viewer_proto.PlotConfig`) before it builds or stops anything (`tools/deploy/session.sh`), and names the file the robot then reads as `/etc/wb-humanoid-robot/plot_config.textproto`,
+rename, `humanoid_rerun_viewer_proto.PlotConfig`) before it builds or stops anything (`tools/deploy/session.sh`), and refers to the file the robot then reads as `/etc/wb-humanoid-robot/plot_config.textproto`,
 the path the robot's errors give.
 
 ## What it subscribes to
@@ -156,13 +156,13 @@ order.
 Every entity is logged on two timelines:
 
 - `robot_time`: the robot's clock, from the message (`VisualizationScene.time`, `TelemetrySeries.time`,
-  `MpcStatus.observation_time`). `FsmState` and `LoopTiming` carry no time, so they take the latest robot time the
+  `MpcStatus.observation_time`). `FsmState` and `LoopTiming` have no timestamp, so they take the latest robot time the
   bridge has seen. The time panel follows this timeline.
 - `wall_time`: the bridge's wall clock when the message arrived.
 
 Rerun's own `log_time` timeline is switched off, because `wall_time` replaces it everywhere, `send_columns` included.
 
-`MpcStatus.observation_time` moves the latest robot time forward only (it trails the scenes' by a solve), or back to a
+`MpcStatus.observation_time` only advances the latest robot time (it trails the scenes' by a solve), or resets it for a
 new run. A robot clock that goes back by more than 1 s (`bridge.NEW_RUN_REWIND_S`; a restarted robot process or
 simulation) is a new run: the bridge sends what the old run buffered, starts a recording of its own for the new run
 (same application id) with the robot, the layout and the plots' series logged again, and writes a WARN line to
@@ -205,7 +205,7 @@ The bridge logs the URDF's visuals once per instance, as static data under
 the mesh scale) and its geometry: `Asset3D` for a mesh, `Boxes3D`, `Cylinders3D` or `Ellipsoids3D` for a URDF
 primitive. Each `RobotModelInstance` of a scene then logs one `Transform3D` per link at
 `world/robots/<instance>/<link>`: the link's world pose, translation and quaternion. Links without visuals are skipped.
-A pose equal to the one logged last for the link is skipped too. A scene that names links the URDF does not have, which
+A pose equal to the one logged last for the link is skipped too. A scene that references links the URDF does not have, which
 a `--urdf` of another robot gives, is counted as malformed under `viz/scene` with a warning that lists them; the links
 the URDF has are still drawn. The URDF's links with visuals that an instance's first scene gives no pose for are
 listed in a warning too, once: they stay at the world origin.
@@ -241,7 +241,7 @@ exists (Atlas ships both), and is skipped with a warning otherwise. The shipped 
 The path of an `Arrows`, `Spheres` or `LineStrips` message is relative to `world`. A radius of 0 and an empty color
 list take the marker's defaults below: OCS2's MATLAB-like palette (`ocs2::Color`), arrows with a 0.01 m shaft and a
 0.02 m head, lines 0.01 m wide. Rerun draws an arrow's shaft with half its radius and the head with all of it, so the
-radius is 0.01. Colors are one for all or one per element. Every scene carries every path it draws: an empty message
+radius is 0.01. Colors are one for all or one per element. Every scene includes every path it draws: an empty message
 draws nothing, and a marker missing from a scene is cleared too.
 
 <!-- LINT.IfChange(markers) -->
@@ -268,7 +268,7 @@ Each `ScalarGroup` of a `TelemetrySeries` becomes the entity `telemetry/<path>` 
 and again when its number of values changes. The values of a group must match its names one to one; a group whose
 names and values differ in length is skipped and counted.
 
-The 7 panel tabs hold 45 panels; the "Base Pose & Euler" tab has a row of the Euler angle rates and a row of the body
+The 7 panel tabs contain 45 panels; the "Base Pose & Euler" tab has a row of the Euler angle rates and a row of the body
 angular velocity of the base below the Euler angles. The producer is the C++ visualization publisher of the MPC node
 ([`legged_common_mpc_app/visualization`](../legged_common_mpc_app/visualization/README.md)), one message per
 `robot/state` sample. The values are SI (m, rad, s, N, N m) in the world frame unless a row says otherwise, and every
@@ -279,7 +279,7 @@ the measured robot at rest, and the plan's wrenches are 0. Left and right are th
 of `ModelSettings::contactNames` when they are 6-DoF contacts (`TelemetryBuilder::contactSeriesNames()`); every other
 contact's groups are named by its contact name in their paths.
 
-The MPC's state holds the base orientation as a unit quaternion and its velocity as the body angular velocity w_B
+The MPC's state stores the base orientation as a unit quaternion and its velocity as the body angular velocity w_B
 (legged_nmpc/docs/quaternion_base_orientation/README.md, section 3.4). The plots show what a person reads: the ZYX
 Euler angles (roll, pitch, yaw) of the quaternion, their rates `T_B(Theta)^-1 w_B`, and w_B itself, so that the default
 plot configuration, which selects the "Base Pose & Euler" tab, shows all three. The Euler angles and rates are display values,
@@ -351,7 +351,7 @@ tabs plot the feet's groups; the others are in the entity tree.
 
 ### Complete groups
 
-These carry the rest of the telemetry, per joint, per degree of freedom, per contact and per tracked frame, the plan's
+These contain the rest of the telemetry, per joint, per degree of freedom, per contact and per tracked frame, the plan's
 included. The orientation quaternions are not plotted: the Euler angles next to them (and the 3D scene) show them. The blueprint plots them in the tabs "Joint Dynamics", "Generalized (all DOFs)", "Frames", "Contact
 Wrenches", "MPC Solution" and "MPC Observation".
 
@@ -409,7 +409,7 @@ one kind for every frame. The measured accelerations are differences of consecut
 plan's are central differences along their own trajectories.
 <!-- LINT.ThenChange(//legged_nmpc/legged_rerun_viewer/python/legged_rerun_viewer/telemetry_contract.py:complete_groups) -->
 
-A message carries 42 panel groups and 24 + 12 n complete groups: with the four of Atlas and the Unitree robots, 72 complete groups and 114 in all; with the three of SA01's, 60 and 102. `test/synthetic_messages.py` builds a full message (`full_telemetry()`), which can serve as a reference for a
+A message contains 42 panel groups and 24 + 12 n complete groups: with the four of Atlas and the Unitree robots, 72 complete groups and 114 in all; with the three of SA01's, 60 and 102. `test/synthetic_messages.py` builds a full message (`full_telemetry()`), which can serve as a reference for a
 producer.
 
 ## Status
@@ -465,7 +465,7 @@ then builds one chunk per link from it. `rerun_scene_frequency` in the task file
 
 ### What the viewer ingests
 
-The bridge's CPU is not what limits a session; the viewer is, above all the browser's: it ingests and keeps every
+Session throughput is limited by the viewer rather than the bridge's CPU, especially in the browser: it ingests and keeps every
 chunk it is sent, plotted or not, and its cost grows with the chunks more than with the rows. A 60 s synthetic stream at
 the live rates (an Atlas-sized `TelemetrySeries` of 114 groups at 100 Hz, a 32-link scene at 30 Hz, `MpcStatus` at
 50 Hz), saved with `serve_web`'s scene rate (12.5 Hz) and counted with `rerun rrd stats`:

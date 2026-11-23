@@ -41,8 +41,8 @@ namespace ocs2::legged {
  * under in the optimal control problem's collections, and that the hot-field
  * appliers of the parameter updater (parameter_update/) find them again by.
  *
- * An applier treats an absent term as the normal case - most terms are only
- * built for some task lists - so it could never tell a term that is not listed
+ * An applier treats an absent term as the normal case (most terms are only
+ * built for some task lists), so it could never tell a term that is not listed
  * from one whose name had drifted: a rename on one side turned every hot reload
  * of that term into a silent no-op. With one definition a rename is a rename on
  * both sides. The per-foot contact terms are in ContactTermNames.h.

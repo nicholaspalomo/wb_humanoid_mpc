@@ -530,7 +530,7 @@ TEST(ContactWrenchConeRowsTest, FourFacetsGiveCaronsClosedFormRows) {
       EXPECT_TRUE(containsDirection(ours, u))
           << describe(g) << ": Caron's row " << u.transpose() << " is missing";
     }
-    // The torsion rows carry a unit yaw coefficient, as Caron's do.
+    // The torsion rows have a unit yaw coefficient, as Caron's do.
     for (size_t row = rows.torsionRowStart(); row < rows.numRows(); ++row) {
       EXPECT_NEAR(
           std::abs(rows.A_tau(static_cast<Eigen::Index>(row), /*col=*/2)), 1.0,

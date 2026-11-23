@@ -81,7 +81,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * allocation of its own, refused gains refused without changing the gains, and
  * the gains file (a joint_pd_gains.textproto) watched by pollPdGainsFile()
  * rather than by every 500th control cycle. This binary links the allocation
- * counter, which interposes malloc for the whole process; the solver thread is
+ * counter, which interposes malloc for the process; the solver thread is
  * never started.
  */
 
@@ -118,7 +118,7 @@ class WholeBodyPdGainsHarness {
  public:
   explicit WholeBodyPdGainsHarness(
       absl::string_view pdGainsFile = shippedGainsFile())
-      // A file missing from the runfiles throws here, naming the data
+      // A file missing from the runfiles throws here, identifying the data
       // dependency to add (robot::resolveResourcePath).
       : task_(loadTaskFile(robot::resolveResourcePath(
                                "robot_models/unitree_g1/g1_wb_mpc/config/mpc/"
@@ -331,7 +331,7 @@ TEST(WBMpcMrtJointControllerPdGains,
   refused[1].default_gains.kp = std::numeric_limits<double>::quiet_NaN();
   refused[2].joint_gains.push_back(
       refused[2].joint_gains.front());           // the same joint twice
-  refused[3].joint_gains.front().joint.clear();  // an entry that names no joint
+  refused[3].joint_gains.front().joint.clear();  // an entry with no joint name
   // refused[4] sets nothing: the controller has no gains of its own to fill it
   // in with.
   refused[5].default_gains.max_joint_torque.reset();

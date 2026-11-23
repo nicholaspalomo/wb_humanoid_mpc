@@ -62,8 +62,8 @@ from legged_mpc_msgs import dodgeball_throw_pb2
 #: while a light one gives it all back and bounces away.
 #:
 #: This must stay equal to the mass the C++ registry gives the ball it compiles into the scene. It is the default
-#: rather than the only value - the slider overrides it per throw, and the simulator retunes the real ball's mass and
-#: inertia to match - but a default that disagreed with the registry would make an untouched slider change
+#: rather than the only value (the slider overrides it per throw, and the simulator retunes the real ball's mass and
+#: inertia to match), but a default that disagreed with the registry would make an untouched slider change
 #: the ball.
 # LINT.IfChange(dodgeball_mass)
 DEFAULT_BALL_MASS_KG = 0.45
@@ -330,7 +330,7 @@ def compute_impact_norm_linmom_ball_rt_world_ewrt_world(
 
     Not mass times the slider's speed: a ball thrown from above arrives faster than it left and one thrown upwards
     slower, by energy conservation, v_arrival^2 = v_launch^2 + 2 g (spawn height - base height). This is what the ball
-    brings to the collision. A ball that bounces off hands the robot more than this - up to (1 + e) times as much -
+    brings to the collision. A ball that bounces off transfers to the robot more than this (up to (1 + e) times as much),
     and a real ball compiled into the scene does exactly that; the simulator applies precisely this momentum only when
     no ball is compiled in and the throw falls back to an impulse on the base.
 
@@ -376,7 +376,7 @@ def throw_message(
 ) -> dodgeball_throw_pb2.DodgeballThrow:
     """The message the tab publishes on operator/dodgeball_throw (legged_mpc_msgs/dodgeball_throw.proto).
 
-    It carries BOTH the operator's five parameters and what was derived from them. The simulator acts on the mass, the
+    It includes BOTH the operator's five parameters and what was derived from them. The simulator acts on the mass, the
     spawn offset, the launch velocity and the flight time (legged_common_mpc_app/robot's dodgeballThrowFromMessage()); the
     rest is there so that someone watching the topic (`bazel run //tools/ipc:ipc_tool -- echo
     operator/dodgeball_throw`) sees what was asked for as well as what was computed - including

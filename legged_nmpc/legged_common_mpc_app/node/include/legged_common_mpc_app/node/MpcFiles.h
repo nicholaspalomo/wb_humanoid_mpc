@@ -45,8 +45,8 @@ struct MpcFiles {
   std::string gaitFile;
 };
 
-/** InvalidArgument naming `flag` when `path` is empty, NotFound naming the flag
- * and the path when it is not a file. */
+/** InvalidArgument identifying `flag` when `path` is empty, NotFound
+ * reporting the flag and the path when it is not a file. */
 absl::Status validateFileFlag(absl::string_view flag, absl::string_view path);
 
 /** validateFileFlag() of every file: the first error. */

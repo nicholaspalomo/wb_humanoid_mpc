@@ -122,7 +122,7 @@ double contactRestitutionForDampRatio(double dampRatio);
 /**
  * The damping ratio zeta whose contactRestitutionForDampRatio() is
  * `restitution`: the inverse of e(zeta), by bisection to round-off, so the task
- * file can name the number an engineer knows (a rubber ball comes back at about
+ * file can specify the number an engineer knows (a rubber ball comes back at about
  * 0.8 of the speed it arrived at; e = 0.8 gives zeta = 0.0744).
  *
  * A restitution of 1 is a contact that never loses energy and never settles,
@@ -149,7 +149,7 @@ inline constexpr double kMaxContactRestitution = 0.999;
  * [rad/s] The undamped natural frequency omega of a projectile's contact, the
  * same at every restitution: its solref is
  * (projectileContactTimeConstant(zeta), zeta), so that only the damping, and
- * not the stiffness, carries the restitution.
+ * not the stiffness, sets the restitution.
  *
  * A fixed time constant would not do: omega = 1 / (timeconst zeta) grows
  * without bound as the damping vanishes, and a contact the integrator cannot
@@ -177,7 +177,7 @@ double projectileContactTimeConstant(double dampRatio);
  * until thrown.
  *
  * APPENDED LAST. It must be the LAST body in the world, because
- * several things in this simulator take the FIRST body carrying a free joint to
+ * several things in this simulator take the FIRST body with a free joint to
  * be the robot: the center of mass, the ZMP and DCM markers
  * (MujocoContactUtils::robotCentroidalState), the viewer's tracking camera, and
  * every read of `qpos[3..6]` as the base quaternion. A ball inserted ahead of
@@ -190,7 +190,7 @@ double projectileContactTimeConstant(double dampRatio);
  * MuJoCo skips gravity compensation entirely when that count is zero, so a ball
  * compiled without it and given `body_gravcomp = 1` at runtime free-falls
  *   anyway - for hours, until its position overflows and MuJoCo resets the
- * whole simulation.
+ * simulation.
  * - `contype = conaffinity = 1`; see setProjectileCollisionEnabled for the
  * broadphase aggregates this feeds.
  * - `priority = 1`, so the BALL's solref, solimp, friction and condim govern
@@ -253,7 +253,7 @@ double clampProjectileMass(double mass);
  * `dof_invweight0`, `dof_M0` and `body_subtreemass` (the ball's own and the
  * world's).
  *
- * WHY THE DERIVED CONSTANTS MATTER. MuJoCo normalizes a contact's reference
+ * WHY THE DERIVED CONSTANTS ARE NEEDED. MuJoCo normalizes a contact's reference
  * acceleration by `body_invweight0`, an inverse mass the compiler computed
  * once. Leaving it stale does not make the ball behave like its old mass or its
  * new one: it changes the CONTACT, so the coefficient of restitution starts
@@ -264,7 +264,7 @@ double clampProjectileMass(double mass);
  * sphere that is its own kinematic tree, centered on its body frame, each
  * constant is a one-line function of m and I, and a direct store is what the
  * compiler would have produced (tested against a fresh compile). mj_setConst,
- * by contrast, (a) overwrites the qpos of the mjData it is handed as scratch,
+ * by contrast, (a) overwrites the qpos of the mjData it is given as scratch,
  * so it must never see the live state; (b) recomputes `mjModel::stat` from the
  * qpos0 bounding box, discarding the scene's own <statistic extent/center> and
  * moving the viewer's near clip plane from 1.5 cm to half a meter; and (c)
@@ -344,7 +344,7 @@ inline constexpr double kProjectileSpawnClearance = 0.02;
  * this writes the ball geom's position in `data->geom_xpos`; the caller places
  * the ball for real afterwards, and the next mj_step recomputes it either way.
  *
- * Returns FailedPreconditionError, naming the slider to change, when no point
+ * Returns FailedPreconditionError, identifying the slider to change, when no point
  * in that window clears, and InvalidArgumentError when `projectileBodyId` is
  * not a projectile.
  */

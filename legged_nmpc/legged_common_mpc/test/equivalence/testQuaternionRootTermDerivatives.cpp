@@ -79,12 +79,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * quaternion root joint, against double precision, on every shipped
  * configuration (MpcEquivalenceFixture: the MPC its shipped files build, under
  * the walking reference of walkingReference()): at points built from the task
- * file's initial state - level, single- and two-axis tilts, headings of 2.5 and
+ * file's initial state (level, single- and two-axis tilts, headings of 2.5 and
  * -3.0 rad with a tilt of 0.05 rad, a pitch of 80 degrees, a seeded random
- * state and the middle of both single supports of the walk - and at the initial
+ * state and the middle of both single supports of the walk) and at the initial
  * state at rest and at the two gimbal-lock attitudes the Euler coordinates
  * cannot represent (pitch +-90 degrees), every term of the optimal control
- * problem - each cost, soft constraint and constraint, intermediate and final -
+ * problem (each cost, soft constraint and constraint, intermediate and final)
  * and the flow map are differentiated by Richardson-extrapolated central
  * differences of their double-precision values, along the state manifold's
  * retraction x (+) dx in every tangent direction and along every input, and the
@@ -94,8 +94,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * constraints, all generated at first order
  * (CppAdInterface::ApproximationOrder::First everywhere in the MPCs; a
  * Gauss-Newton Hessian is the product J' W J of a first-order library). Where a
- * term does generate a second order - a constraint of
- * ConstraintOrder::Quadratic - its input Hessians d2c/du2 and d2c/dudx are held
+ * term does generate a second order (a constraint of
+ * ConstraintOrder::Quadratic), its input Hessians d2c/du2 and d2c/dudx are held
  * to differences of its input Jacobian. The piecewise polynomial barriers,
  * which those points leave in their zero region, are held at two more points
  * inside their bands (barrierBandPoints(): the joint limits and the basis
@@ -135,17 +135,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * StateInputSoftConstraint with a QuadraticPenalty of the foot constraint's
  * soft_constraint_weight, held as the hard one with D contracted with p'(f). On
  * the whole body the same wrapper of ZeroAccelerationConstraintCppAd is held as
- * every term. The test computes D independently of f - M differenced along the
+ * every term. The test computes D independently of f (M differenced along the
  * same retraction, contracted with w, the angular part of the foot's twist at
- * the point, its own value - and holds, at every point of the twist constraint:
+ * the point, its own value) and holds, at every point of the twist constraint:
  *   (a) J E + D to the differences of f (those of (b)) within
  * kDerivativeTolerance, as every term (at the points at rest, where w = 0 and
  * so D = 0 exactly, J E alone: the reported Jacobian is the derivative there);
  *   (b) J E + D to them entry by entry within the error bound of the two
- * differences - extrapolate() at h = kBoundedDifferenceStep, for f and for M
+ * differences (extrapolate() at h = kBoundedDifferenceStep, for f and for M
  * alike: each one's Richardson estimate |R(h/2) - R(h)| plus its round-off 6
  * delta / h, delta = kFunctionEvaluationRelativeError of each row's largest
- * magnitude, floor 1 - plus the reported Jacobian's round-off, kRoundOffFactor
+ * magnitude, floor 1) plus the reported Jacobian's round-off, kRoundOffFactor
  * of its row's largest magnitude, floor 1; and that comparison must reject D
  * with its largest entry moved by kDroppedTermMutation (1e-6) of max(1,
  * itself), which a bound at the level of kDerivativeTolerance could not - for
@@ -168,11 +168,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * turn at 0.05 to 0.26 rad/s, driven by the inputs' joint velocities (each
  * drawn within 0.1 rad/s), and D is at most 1 % of the scale. random_0 also
  * draws each normalized momentum within 0.2, and its angular part L / m (m^2 /
- * s) turns the whole robot at I_G^-1 L, fastest about the vertical, where a
+ * s) turns the robot at I_G^-1 L, fastest about the vertical, where a
  * humanoid's inertia per mass is smallest (I_zz / m about 0.0135 m^2 on the G1
  * at its neutral configuration, against about 0.1 m^2 about the horizontal
- * axes, which cannot give more than 2 rad/s): the G1's draw - each robot draws
- * its own, the generator's position depending on the robot's dimensions - spins
+ * axes, which cannot give more than 2 rad/s): the G1's draw (each robot draws
+ * its own, the generator's position depending on the robot's dimensions) spins
  * it at 13.5 rad/s about the vertical with both feet in stance, where D is 64 %
  * of the scale; the other robots' draws turn them at 0.7 to 2.3 rad/s. That is
  * a stress point for the derivatives, not a stance the MPC visits. At a
@@ -1148,7 +1148,7 @@ TEST_P(QuaternionRootTermDerivatives,
   const EquivalenceReference reference = mpc.walkingReference();
   const std::vector<TermProbePoint> points = termProbePoints(mpc, reference);
   const scalar_t finalTime = reference.initTime + mpc.timeHorizon();
-  // A copy of the problem, whose collections hand out mutable terms; its terms
+  // A copy of the problem, whose collections return mutable terms; its terms
   // share the interface's reference manager, on which the reference is
   // installed as an MPC solve installs it.
   OptimalControlProblem problem(mpc.problem());

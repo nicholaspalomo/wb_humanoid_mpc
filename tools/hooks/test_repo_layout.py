@@ -25,10 +25,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Checks that every repository path the checks and the build scope by names a directory or file that exists.
+"""Checks that every repository path the checks and the build scope by specifies a directory or file that exists.
 
 A moved directory leaves a stale prefix wherever a path is spelled out, and a stale prefix fails silently: a check whose
-scope names a directory that is gone reads nothing and reports nothing. This test reads, in the checkout:
+scope specifies a directory that is gone reads nothing and reports nothing. This test reads, in the checkout:
 
 - every path of repo_layout.all_scoped_paths();
 - every string constant of the non-test modules of tools/hooks that looks like a repository path (`_is_path_like()`),
@@ -75,7 +75,7 @@ WORKFLOWS = (
 CLANG_TIDY_BZL = "tools/clang_tidy/clang_tidy.bzl"
 # LINT.ThenChange(//tools/hooks/BUILD.bazel:repo_layout_data)
 
-# A Bazel target pattern below a package (`//pkg/...`, `-//pkg/...`); `//...` names the whole tree and no package.
+# A Bazel target pattern below a package (`//pkg/...`, `-//pkg/...`); `//...` matches the full tree and no package.
 _PACKAGE_PATTERN = re.compile(
     r"(?<!\S)-?//([A-Za-z0-9_][A-Za-z0-9_./-]*?)/\.\.\.(?!\S)"
 )

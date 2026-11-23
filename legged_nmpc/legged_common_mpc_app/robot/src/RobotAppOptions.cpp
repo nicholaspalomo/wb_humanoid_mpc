@@ -95,7 +95,7 @@ absl::StatusOr<std::vector<std::string>> viewerNamesFromPlotConfig(
 }
 
 /** The web viewer's address, port, allowed hosts, cores and EGL device from the
- * flags; InvalidArgument naming the flag. */
+ * flags; InvalidArgument identifying the flag. */
 absl::StatusOr<robot::mujoco_sim_interface::WebViewerOptions>
 webViewerOptionsFromFlags(const ViewerFlagValues& flags,
                           absl::Span<const int> defaultViewerCores) {

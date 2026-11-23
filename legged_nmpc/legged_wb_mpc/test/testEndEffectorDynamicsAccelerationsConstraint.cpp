@@ -319,7 +319,7 @@ TEST(EndEffectorDynamicsAccelerationsConstraint,
                 1.0e-6 * std::max(1.0, dx.cwiseAbs().maxCoeff()));
       EXPECT_LT((approximation.dfdu - du).cwiseAbs().maxCoeff(),
                 1.0e-6 * std::max(1.0, du.cwiseAbs().maxCoeff()));
-      // Positive control: the off-diagonal blocks of Ax carry a state
+      // Positive control: the off-diagonal blocks of Ax have a state
       // derivative of their own, which the former block-diagonal linearization
       // dropped.
       if (rows == 6) {

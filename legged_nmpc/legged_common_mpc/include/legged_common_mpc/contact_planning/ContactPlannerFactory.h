@@ -80,17 +80,18 @@ const std::vector<std::string>& knownPlannerNames();
 std::string canonicalPlannerName(absl::string_view name);
 
 /**
- * Builds the planner `config.planner.type` names for the contact set
+ * Builds the planner specified by `config.planner.type` for the contact set
  * `contactSet`. An unknown name is rejected with a message that lists the names
- * that exist, so a typo in the task file names the fix, and an invalid
- * configuration with the message of ContactPlanningConfig::validateStatus(),
- * which names the key to change. Both planners, the H-LIP stepper and the
- * mixed-integer LIP program, are written for a left and a right foot: their
- * layout (LipIndices, ContactPlannerInput, ContactLogicState::kNumFeet), their
- * step widths (hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y,
+ * that exist, so a typo in the task file shows the valid options, and an
+ * invalid configuration with the message of
+ * ContactPlanningConfig::validateStatus(), which identifies the key to change.
+ * Both planners, the H-LIP stepper and the mixed-integer LIP program, are
+ * written for a left and a right foot: their layout (LipIndices,
+ * ContactPlannerInput, ContactLogicState::kNumFeet), their step widths
+ * (hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y,
  * step_width.nom_pos_lfoot_rt_rfoot_ewrt_heading_y) and their two-foot terms
  * (FootSeparationConstraint, ZmpSupportRegionConstraint, the contact logic
- * rules), so any other contact set is an InvalidArgument naming planner.type
+ * rules), so any other contact set is an InvalidArgument reporting planner.type
  * and the contact count. Neither throws.
  */
 absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(

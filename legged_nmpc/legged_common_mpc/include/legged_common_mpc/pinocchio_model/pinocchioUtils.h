@@ -81,15 +81,15 @@ pinocchio::FrameIndex hipFrameIdOf(const pinocchio::Model& model,
 /// \brief Checks that the actuated joints of the Pinocchio model are
 /// ModelSettings::mpcModelJointNames, in that order.
 ///
-/// Every MPC quantity indexed by joint - the state, the joint limits, the joint
-/// weights - takes the model's joint order to be ModelSettings'. This check
-/// used to be an assert(), which the optimized build compiles out, so it never
-/// ran.
+/// Every MPC quantity indexed by joint (the state, the joint limits, and the
+/// joint weights) assumes the model's joint order matches ModelSettings'. This
+/// check used to be an assert(), which the optimized build compiles out, so it
+/// never ran.
 ///
 /// \param[in] pinocchioInterface: The Pinocchio interface of the MPC model.
 /// \param[in] modelSettings: The model settings whose mpcModelJointNames the
-/// model must match. \return InvalidArgument naming the first MPC joint that
-/// differs (or that has no counterpart), and the
+/// model must match. \return InvalidArgument identifying the first MPC joint
+/// that differs (or that has no counterpart), and the
 ///         model_settings.fixed_joint_names it is derived with; OkStatus
 ///         otherwise.
 ///

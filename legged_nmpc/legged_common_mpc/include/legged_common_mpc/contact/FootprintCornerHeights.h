@@ -53,9 +53,9 @@ namespace ocs2::legged {
  *
  *   - GroundPenetrationConstraint needs every point to stay above the ground,
  * so it reads all of them;
- *   - ContactComplementarityConstraint needs THE GAP - how far the foot is from
- * touching - which is the height of the LOWEST point, not the height of the
- * sole's center.
+ *   - ContactComplementarityConstraint needs THE GAP (how far the foot is from
+ * touching), which is the height of the LOWEST point rather than the sole's
+ * center.
  *
  * They used to disagree. Penetration was evaluated at the footprint corners
  * while complementarity used the contact frame, so a foot pitched onto its heel
@@ -68,10 +68,10 @@ namespace ocs2::legged {
  *
  * WHY THIS CLASS EXISTS AT ALL, rather than a
  * PinocchioEndEffectorKinematicsCppAd over the corner frames: that class
- * generates SIX code-generated models per frame set - position, velocity,
- * orientation, orientation with respect to a plane, angular velocity and twist
- * - and only the first is ever read here. Over a four-corner set that is five
- * large dead models per foot, which measurably slowed a clean build and pushed
+ * generates SIX code-generated models per frame set (position, velocity,
+ * orientation, orientation with respect to a plane, angular velocity, and
+ * twist), and only the first is ever read here. Over a four-corner set that is
+ * five large dead models per foot, which measurably slowed a clean build and
  * a test past its timeout. One tape of N heights replaces them.
  *
  * The terrain height is deliberately NOT subtracted inside the tape: it is a
@@ -153,10 +153,10 @@ class FootprintCornerHeights {
    *
    * Each instance builds its OWN CppAdInterface rather than copying the one it
    * was cloned from, because the taped function is a lambda over `this`:
-   * CppAdInterface's copy constructor carries that std::function across, so a
+   * CppAdInterface's copy constructor copies that std::function across, so a
    * clone that outlived its source and then had to regenerate would tape
-   * through a dangling pointer. The SQP solver clones the whole problem once
-   * per worker thread, so that is not a hypothetical lifetime.
+   * through a dangling pointer. The SQP solver clones the problem once per
+   * worker thread, so that is not a hypothetical lifetime.
    *
    * @param creation  kRegenerate to compile the library afresh;
    * kLoadIfAvailable to load it, compiling only if it is missing. A clone
@@ -208,7 +208,7 @@ struct SmoothMinimumHeight {
  *
  * WHY NOT THE PLAIN MINIMUM. The exact min is what the physics wants, but it is
  * non-smooth exactly where the foot is flat, which is where a walking robot
- * spends most of its stance. The complementarity residual is handed to a
+ * spends most of its stance. The complementarity residual is passed to a
  * quadratic penalty and then to an SQP solver that linearizes it; at a flat
  * foot the true min's gradient jumps between the four corners', so the
  * linearization would flip between corners from iteration to iteration.
@@ -227,8 +227,8 @@ struct SmoothMinimumHeight {
  * result never falls below the true minimum, and over-reporting the gap merely
  * asks the solver to take a little load off a foot that is up on an edge.
  *
- * HOW BIG THE BIAS IS. It is s * log(N / k), where k is how many corners sit at
- * the minimum - not a single number:
+ * HOW BIG THE BIAS IS. It is s * log(N / k), where k is how many corners are at
+ * the minimum, not a single number:
  *
  *   k = N, a flat foot exact k = 2, an EDGE down, the ordinary heel strike or
  * toe-off of a sole      s * log 2 = 0.693 mm k = 1, a single corner, which

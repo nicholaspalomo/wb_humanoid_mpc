@@ -112,8 +112,8 @@ size_t modeWithSwinging(size_t foot) {
  * `touchDown`, and the planner input the reference manager builds from it at
  * `time` (ContactPlanningReferenceManager::makePlannerInput, through the same
  * fillPlannerInputFromSchedule()): the commit boundary extended to the
- * touch-down, the committed nodes sampled with committedContactsForPlanner -
- * the last one AT the boundary, where the foot is already down - and their
+ * touch-down, the committed nodes sampled with committedContactsForPlanner
+ * (the last one AT the boundary, where the foot is already down) and their
  * event times with committedPhaseStartsForPlanner.
  */
 ContactPlannerInput makeInputWithLeftSwingInFlight(
@@ -437,7 +437,7 @@ TEST(HlipPlanConsistency,
       EXPECT_NEAR(gait[0].endTime, touchDown, 1.0e-12) << label;
       EXPECT_FALSE(gait[1].isSingleSupport()) << label;
       EXPECT_NEAR(gait[1].endTime, touchDown + kDspDuration, 1.0e-12) << label;
-      // The grid still carries the committed contacts exactly.
+      // The grid still preserves the committed contacts exactly.
       for (size_t interval = 0; interval < input.committedContacts.size();
            ++interval) {
         EXPECT_EQ(plan.contacts[interval], input.committedContacts[interval])
@@ -498,7 +498,7 @@ TEST(HlipPlanConsistency, thePublishedContactsAgreeWithTheGaitTheRollOutUsed) {
     const std::vector<GaitPhase> gait =
         planner->buildGait(input, HlipContactPlanner::GaitKind::kWalking);
 
-    // Every published interval must carry the contact state of the gait the
+    // Every published interval must have the contact state of the gait the
     // footholds were rolled out against: the committed ones exactly as
     // committed, every later one as the gait has it at the interval's midpoint,
     // which is where the nearest-node rounding puts the boundary.
@@ -734,7 +734,7 @@ TEST(HlipPlanConsistency,
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// B5 - the reference handed to the whole-body MPC starts where the robot
+// B5 - the reference passed to the whole-body MPC starts where the robot
 // actually is.
 // ---------------------------------------------------------------------------------------------------------------
 

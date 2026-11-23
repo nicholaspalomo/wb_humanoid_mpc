@@ -430,7 +430,7 @@ TEST_F(TwistConstraintTest, InputJacobianMatchesFiniteDifferences) {
 TEST_F(TwistConstraintTest,
        OffDiagonalGainsAreAppliedByBothValueAndLinearization) {
   // The two code paths used to disagree for non-diagonal gain matrices: the
-  // value applied the whole gain row while the linearization only used the
+  // value applied the full gain row while the linearization only used the
   // diagonal 3x3 blocks.
   EndEffectorKinematicsTwistConstraint::Config config = makeFootConfig();
   config.Ax(0, 4) =

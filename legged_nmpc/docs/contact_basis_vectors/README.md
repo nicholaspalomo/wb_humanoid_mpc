@@ -65,7 +65,7 @@ $[n_b i, n_b (i + 1))$ of the input, followed by the joint velocities. Every con
 generators (`BasisInputsModelDecorator::validateBasisMatrices`). A 3-DoF (point) contact has a force cone and no
 footprint, and no generator set for it exists yet, so a contact set with a point contact is refused under
 `basis_vectors`: by `checkCentroidalContactSet` before the interface builds anything, and by
-`contactWrenchConeBasesFromConfig` with a message naming the contact and `contact_input_parameterization`. For the
+`contactWrenchConeBasesFromConfig` with an error listing the contact and `contact_input_parameterization`. For the
 shipped bipeds the bases, the input layout and the library key (section 8) are what they were when the parameterization
 was written for two feet.
 
@@ -176,7 +176,7 @@ extreme ray has to be a generator. It costs input dimension: 16 scalings per foo
 normal force at the patch point, a normal force at each of the four footprint corners, and a normal force at the patch
 point with the upper and the lower torsion limit the cone allows there (`computeLimitsPerNewtonTorqueContactEwrtContactZ`). Every column
 has $F_z = 1$, so at $F_z = 1$ the scalings are convex weights, and each column spends its weight on **one** of the
-three limits: the friction edges carry all the tangential force, the corner rays all the center-of-pressure excursion
+three limits: the friction edges supply all the tangential force, the corner rays all the center-of-pressure excursion
 from $p$, the torsion rays all the torsion. The three therefore share one budget, while the cone lets them trade off
 against each other only through the torsion facets. The set is **sound** (every column is inside the cone) but
 strongly conservative:
@@ -220,8 +220,8 @@ $$G = \left(M\, R_{\text{basis}}^{-1} M^\top\right)^{-1}.$$
 **`full_diagonal`** ($S = I$, the default). Then, per foot, $G = R + \text{reg}\,(B B^\top)^{-1}$. The second term
 is not small: with the DRC Atlas values at the time of writing ($\text{reg} = 10^{-4}$ against contact weights of
 $10^{-5}$ to $2 \cdot 10^{-4}$) it is about 10x and 5x the tangential force weights and 100x to 400x the moment
-weights, so in basis mode the moment and tangential entries of $R$ barely matter. Lowering `reg` shrinks the
-distortion but not its shape.
+weights, so in basis mode the moment and tangential entries of $R$ have little effect. Lowering `reg` reduces the
+scale of the distortion without changing its structure.
 
 **`null_space`** ($S = \operatorname{blkdiag}(I - B_i^+ B_i)$, the orthogonal projector onto $\operatorname{null}(B_i)$).
 Split any $\lambda$ into $\lambda_r \in \operatorname{range}(B^\top)$ and $\lambda_n \in \operatorname{null}(B)$. Then
@@ -231,8 +231,8 @@ $$\lambda^\top R_{\text{basis}} \lambda = (B\lambda)^\top R\, (B\lambda) + \text
 the regularization vanishes on $\operatorname{range}(B^\top)$, the minimum over the scalings producing $W$ is reached
 at $\lambda_n = 0$, and $G = R$ **exactly**. $R_{\text{basis}}$ is still positive definite on the scalings as long as
 $\text{reg} > 0$ and $R$ gives every contact force and moment a positive weight: $B^\top R B$ is positive definite on
-$\operatorname{range}(B^\top)$ and the projector on $\operatorname{null}(B)$. `checkLambdaBlockPositiveDefinite` reports
-the case where it is not, naming the fields to change.
+$\operatorname{range}(B^\top)$ and the projector on $\operatorname{null}(B)$. `checkLambdaBlockPositiveDefinite` detects
+the case where it is not and reports which fields to change.
 
 <!-- LINT.IfChange(regularization_names) -->
 | Regularization | $S$ per foot | Metric on the wrench |
@@ -242,11 +242,11 @@ the case where it is not, naming the fields to change.
 <!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/BasisInputsCostTransform.h:basis_regularization_names) -->
 
 Both are built by `transformWrenchInputCostToBasisSpace(R, config)` from one `BasisInputsCostTransformConfig`
-(`CentroidalMpcInterface::getBasisInputsCostTransformConfig`), whose `regularization` names $S$ and which the OCP
+(`CentroidalMpcInterface::getBasisInputsCostTransformConfig`), whose `regularization` field selects $S$ and which the OCP
 factory (`LeggedCostConstraintFactory::setBasisInputsCostTransform`) and the online parameter updater (its centroidal
 `BasisInputsCostApplier`, `legged_centroidal_mpc/parameter_update/`) share, so a hot
-reload applies the same regularization as the start-up. Start-up refuses a configuration whose $\lambda$ block is not
-positive definite (a zero `reg`, or `null_space` with a contact wrench direction $R$ does not weigh), naming the field;
+reload applies the same regularization as the start-up. Start-up rejects a configuration whose $\lambda$ block is not
+positive definite (a zero `reg`, or `null_space` with a contact wrench direction that has zero weight in $R$) and reports the offending field;
 the updater refuses such a reload and keeps the running $R$.
 
 ## 6. Writing a wrench into the input
@@ -257,14 +257,14 @@ non-negative. When it is not, clamping it at zero (what the setter used to do) c
 exact non-negative solution exists: the weight of the robot seen from a stance foot pitched by 15 degrees came back
 7 % too large with a 6 % sideways force on Atlas. The setter now solves the non-negative least-squares problem
 (Lawson-Hanson, `solveNonNegativeLeastSquares`) instead, which reproduces every wrench inside the cone of $B$ exactly
-and returns the closest one inside for a wrench outside it. That matters for the weight-compensation warm start of
-every new horizon node and for the MRT's weight-compensation fallback torques. The AD instantiation of the decorator
+and returns the closest one inside for a wrench outside it. This affects the weight-compensation warm start of
+every new horizon node and the MRT's weight-compensation fallback torques. The AD instantiation of the decorator
 cannot tape an active-set solve and keeps the clamp; no taped path calls a setter.
 
 ## 7. Selecting each choice
 
-The registries are the single place a parameterization, a generator set or a regularization is added, and each rejects
-an unknown name with a message that names its field and lists the valid names:
+Each registry is where a parameterization, generator set, or regularization is registered, and rejects
+an unknown value with an error listing the field and valid options:
 
 * `contactInputParameterizationNames()` / `contactInputParameterizationFromName(name)` in
   `common/ContactInputParameterization.h`, read by `contactInputParameterizationFromConfig(task)`;
@@ -288,8 +288,8 @@ reload that changes the parameterization is reported by the parameter updater ra
 labels the `contacts` sliders to match: the geometry of the cone and of the footprint `(restart)`, and the barrier of a
 block the selected parameterization does not read (the soft wrench cone's under `basis_vectors`, the basis blocks
 under `wrench`) `(not applicable: ...)`. The `use_contact_basis_vector_inputs` boolean that used to select the
-parameterization is a retired field of the task file: a file that carries it is refused when it is read, whatever its
-value, with a message naming its replacement. The
+parameterization is a retired field of the task file: a file containing it is rejected on load regardless of its
+value, with an error specifying its replacement. The
 whole-body MPC implements the wrench parameterization only and refuses `basis_vectors`. A value of any of these fields
 that is out of range or an unknown name is refused by its field, at start-up before any CppAD model is built, and on a
 hot reload by keeping the running value.
@@ -311,14 +311,14 @@ Every CppAD tape built on the basis-vector input depends on the parameterization
 $n_b N_{\text{contacts}} + n_j$, and some tapes (the external-torque cost, the contact-moment constraint) embed $B$
 itself. `basisInputsLibraryKey(B_0, ..., B_{n-1})` returns `basis<n_b>_<16 hex digits>`, a content hash of the bases that is
 stable across processes and platforms, and `kWrenchInputsLibraryName` is its wrench-mode counterpart. The dynamics
-library carries the key in its name (`dynamics_basis11_...`), and `CentroidalMpcInterface` appends the key of the
+library includes the key in its name (`dynamics_basis11_...`), and `CentroidalMpcInterface` appends the key of the
 parameterization to the CppAD model folder before any term is built (below the folder's state-layout tag,
 `cppad_code_gen/cppad_centroidal_mpc_<robot>/translation_spherical_quaternion_v1/wrench_inputs` or
 `.../basis11_<hash>`, `kStateLayoutTag`, legged_nmpc/docs/quaternion_base_orientation/README.md, section 3.2), so
 every taped term is keyed by it. Every robot ships `model_settings.recompile_libraries_cpp_ad: false`, and OCS2 loads a
 cached library by name: before it checked the loaded library's domain and range, switching the parameterization or the
 basis without that key loaded a library built for another input dimension and the process exited on its first
-evaluation. The check now refuses such a library at start-up, naming its folder, but a library of the same dimensions
+evaluation. The check now rejects such a library at start-up and logs its folder, but a library of the same dimensions
 and another basis would still load, so the key stays. The first start of
 a centroidal robot with a parameterization or a basis it has not run before compiles every library once, into that
 key's folder.
@@ -335,5 +335,5 @@ key's folder.
 | `//legged_nmpc/legged_centroidal_mpc_test:test_basis_inputs_formulation` | the full Atlas interface in both modes: dimensions, dynamics, the input cost, and that the shipped defaults are unchanged; the CppAD folder keyed by the parameterization and the basis; the barrier built without `contact_wrench_cone`; `null_space` reaching the start-up input cost |
 | `//legged_nmpc/legged_common_mpc:testContactInputParameterization` | the parameterization registry, its conversion and the refusal of the retired boolean; the shipped robots select what they ran before; every field of the wrench-cone block required by name; the bases a task file's `basis_generator_set` builds, one per 6-DoF contact, and the refusal of a point contact by name |
 | `//legged_nmpc/legged_centroidal_mpc:testContactInputParameterizationWiring` | `CentroidalMpcInterface::Create` refuses, by field and before any CppAD model is built, the retired boolean, an unknown parameterization, generator set or regularization, a negative, zero or unparsable `basis_scaling_regularization`, an unparsable barrier `mu` or `delta`, and a wrench-cone block missing a field (for the basis and for the contact planner) |
-| `//legged_nmpc/legged_centroidal_mpc:testMpcParameterUpdaterModule` | on the shipped Atlas: a hot reload reproduces the factory's basis-space $R$, applies a named `basis_regularization`, refuses an unknown shape, an unparsable weight or an indefinite $\lambda$ block and keeps the running $R$, keeps the running barrier when its `mu` is not a number, reports a changed parameterization as structural, and logs no failure for cone terms the problem does not carry |
+| `//legged_nmpc/legged_centroidal_mpc:testMpcParameterUpdaterModule` | on the shipped Atlas: a hot reload reproduces the factory's basis-space $R$, applies a named `basis_regularization`, refuses an unknown shape, an unparsable weight or an indefinite $\lambda$ block and keeps the running $R$, keeps the running barrier when its `mu` is not a number, reports a changed parameterization as structural, and logs no failure for cone terms not present in the problem |
 | `//legged_nmpc/legged_wb_mpc:testWBMpcFormulation` | the whole-body MPC refuses `basis_vectors`, the retired boolean and the contact planner by name |

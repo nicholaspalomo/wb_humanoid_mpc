@@ -57,7 +57,7 @@ struct FeatureLibrarySettings {
  * Gauss-Newton approximations of the terms that read it.
  *
  * A value type (copies reload the library); not thread-safe, as CppAD's
- * evaluation of one library is not: the solver's workers each hold a copy.
+ * evaluation of one library is not: the solver's workers each keep a copy.
  */
 class ContactFeatureFunction {
  public:

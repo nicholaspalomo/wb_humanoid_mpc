@@ -40,7 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The base the reference manager predicts for a touch-down
  * (SwitchedModelReferenceManager::integratePlanarCommand(), which
- * predictedBaseAt() carries the measured base forward with): on the arc of a
+ * predictedBaseAt() propagates the measured base forward with): on the arc of a
  * constant body twist, against the closed form int_0^T R_z(omega s) ds v_0 =
  * [[sin, -(1 - cos)], [1 - cos, sin]] v_0 / omega in its half-angle form; the
  * trapezoid, bit for bit, where the command does not turn; and for a command

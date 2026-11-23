@@ -181,10 +181,10 @@ class VisualizationPublisher {
  public:
   /**
    * MpcServer::PostSolveObserver: called on the solver thread after every
-   * policy the MPC node publishes. The publisher's observer hands the policy to
-   * the visualization thread and, with the solver's problem, evaluates the
+   * policy the MPC node publishes. The publisher's observer passes the policy
+   * to the visualization thread and, with the solver's problem, evaluates the
    * solution's terms; it returns the error of that evaluation (MpcServer logs
-   * it), which leaves the policy handed over.
+   * it) after transferring the policy.
    */
   using PostSolveObserver = ipc::MpcServer::PostSolveObserver;
 

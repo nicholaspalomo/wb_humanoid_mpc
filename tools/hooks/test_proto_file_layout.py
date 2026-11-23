@@ -104,7 +104,7 @@ message MpcPolicy {{
             + "  A = 0;\n}\n"
         )
         self.assertEqual(lines(source, "controller_type.proto"), [])
-        # A service generates no struct, so it carries no nproto option.
+        # A service generates no struct, so it has no nproto option.
         self.assertEqual(
             lines(
                 "service Solver {\n  rpc Solve(A) returns (A) {}\n}\n",

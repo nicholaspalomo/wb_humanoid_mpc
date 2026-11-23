@@ -64,7 +64,7 @@ constexpr scalar_t kStretchTolerance = 1.0e-3;
  * The run that contains node 0 is reported separately and is NOT counted in the
  * two longest runs, because it is the only one whose real duration is not the
  * number of nodes it occupies: the phase was already in flight when the plan
- * was made, and the gait limits apply to the whole of it. Every other run
+ * was made, and the gait limits apply to its full duration. Every other run
  * starts inside the horizon, where the nodes are the phase.
  */
 struct FootPhaseRuns {
@@ -152,7 +152,7 @@ scalar_t CadenceStretchStage::admissibleStretch(
     // The phase that is already in flight gets the same limit, minus what it
     // has already spent: only the in-horizon remainder is stretched, and the
     // seconds behind the plan's start are not re-timed by anything. Without
-    // this the leading run was budgeted the whole maximum for its remainder
+    // this the leading run was budgeted the full maximum for its remainder
     // alone, which is the reading PhaseDurationsRule contradicts (it counts
     // initialPhaseNodes(foot, true) plus the in-horizon nodes against the same
     // limit), and the executed phase came out longer than the gait limit the
@@ -261,7 +261,7 @@ absl::Status CadenceStretchStage::afterSearch(SearchRun& run) const {
   *run.problem = std::move(bestProblem);
   result.solution = std::move(bestSolution);
   result.incumbentObjective = bestObjective;
-  // The plan is emitted on the stretched grid; ContactPlan carries its own node
+  // The plan is emitted on the stretched grid; ContactPlan stores its own node
   // duration.
   run.chosenDt = bestStretch * dt;
   if (run.verbose) {

@@ -72,7 +72,7 @@ def resolve_launch_file_path(path: str, environment: Mapping[str, str]) -> str:
 
     Returns:
         `path` when it is absolute, else the first candidate that exists, or the first candidate when none exists, so
-        that the error names the path the user meant.
+        that the error reports the path the user meant.
     """
     if os.path.isabs(path):
         return path

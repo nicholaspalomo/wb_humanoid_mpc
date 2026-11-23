@@ -30,7 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Strict textproto parsing for the repository's configuration files
 // (tools/nproto/README.md): every configuration file is a .textproto of a
 // message, and a file that does not match its schema exactly is an error that
-// names the file, the line and the column, never a silently ignored field.
+// identifies the file, the line and the column, never a silently ignored field.
 //
 //   absl::StatusOr<robot_ipc_proto::NetworkConfig> config =
 //       nproto::ParseTextprotoFile<robot_ipc_proto::NetworkConfig>("config/ipc/network.textproto");
@@ -80,8 +80,8 @@ absl::Status ParseTextprotoInto(
     google::protobuf::Message* absl_nonnull message);
 
 /**
- * Whether `headerName`, the full name a `# proto-message:` header gives, names
- * the message `descriptor`: its full name, or, when the message's file sets
+ * Whether `headerName`, the full name a `# proto-message:` header gives,
+ * identifies the message `descriptor`: its full name, or, when the message's file sets
  * (nproto.former_package), the full name it had in that package
  * (`humanoid_mpc_config.TaskFile` for `legged_mpc_config.TaskFile`), so that a
  * file saved before a package rename still loads (tools/nproto/README.md,
@@ -103,12 +103,12 @@ std::string CanonicalHeaderText(absl::string_view text,
                                 const google::protobuf::Descriptor& descriptor);
 
 /**
- * Checks that the textproto `text` of a configuration file names its schema:
+ * Checks that the textproto `text` of a configuration file specifies its schema:
  * InvalidArgument
  * "<sourceName>:1:1: <sourceName> names no schema: ..." when its leading
  * comment block has no `# proto-message:` line (tools/nproto/README.md,
  * "Textproto configuration files"); `descriptor` is the message the error
- * suggests. Whether the line names `descriptor` (HeaderNamesMessage()) is
+ * suggests. Whether the line matches `descriptor` (HeaderNamesMessage()) is
  * ParseTextprotoInto()'s check. For text that is, or becomes, a file: a file
  * without the header could be read as any message whose fields it happens to
  * match.
@@ -121,13 +121,13 @@ absl::Status CheckProtoMessageHeader(
 /**
  * Replaces the contents of `message` with the textproto file at `path`:
  * ReadTextFile(), CheckProtoMessageHeader() and ParseTextprotoInto(), every
- * error naming the path. On error the contents of `message` are unspecified.
+ * error including the path. On error the contents of `message` are unspecified.
  */
 absl::Status ParseTextprotoFileInto(
     absl::string_view path, google::protobuf::Message* absl_nonnull message);
 
 /** The contents of the file at `path`. NotFound (or the error the OS reports)
- * names the path. */
+ * includes the path. */
 absl::StatusOr<std::string> ReadTextFile(absl::string_view path);
 
 /** The textproto `text` as a `Message` (see ParseTextprotoInto); `sourceName`
@@ -144,7 +144,7 @@ absl::StatusOr<Message> ParseTextproto(absl::string_view text,
 }
 
 /** The textproto file at `path` as a `Message` (ParseTextprotoFileInto(): the
- * file must name its schema); errors name the path. */
+ * file must specify its schema); errors include the path. */
 template <typename Message>
 absl::StatusOr<Message> ParseTextprotoFile(absl::string_view path) {
   Message message;
@@ -186,7 +186,7 @@ std::string WriteTextproto(const google::protobuf::Message& message);
 
 /**
  * `message` as the text of a configuration file: the `# proto-message: <full
- * name>` line that names its schema (CheckProtoMessageHeader()), then
+ * name>` line that specifies its schema (CheckProtoMessageHeader()), then
  * WriteTextproto(). ParseTextprotoFile() reads a file of it back.
  */
 std::string WriteTextprotoFile(const google::protobuf::Message& message);

@@ -41,7 +41,7 @@ using Controller = CentroidalMpcMrtJointController;
 
 constexpr scalar_t kTimeConstant = 0.5;
 
-/// SAFETY hands out the full joint PD at the instant the mode is entered, so
+/// SAFETY outputs the full joint PD at the instant the mode is entered, so
 /// the torque does not jump on the switch.
 TEST(SafetyModeDecay, startsAtFullAuthority) {
   EXPECT_DOUBLE_EQ(

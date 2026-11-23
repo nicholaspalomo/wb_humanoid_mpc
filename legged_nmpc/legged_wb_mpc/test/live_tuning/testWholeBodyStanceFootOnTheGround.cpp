@@ -53,7 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * on (pos_surface_rt_world_ewrt_world_z), as its swing foot lands there: the
  * stance constraint of a robot raised with its ground is the one of the robot
  * on flat ground, from a fresh start on the raised file and one solve after a
- * live update to it alike. The constraint used to hold every stance foot at z =
+ * live update to it alike. The constraint used to keep every stance foot at z =
  * 0 whatever the ground.
  */
 namespace ocs2::legged::live_tuning_test {

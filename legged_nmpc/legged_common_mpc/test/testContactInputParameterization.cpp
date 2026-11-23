@@ -204,7 +204,7 @@ TEST(ContactInputParameterizationTest,
 TEST(ContactInputParameterizationTest,
      TheShippedRobotsSelectTheParameterizationTheyRanBefore) {
   // Atlas and SA01 shipped the boolean set true; G1 and R1 never set it. The
-  // rename must not move any of them, and no shipped file may still carry the
+  // rename must not move any of them, and no shipped file may still contain the
   // retired key (the parser would refuse it at start-up).
   const std::vector<std::pair<std::string, ContactInputParameterization>>
       shipped = {
@@ -280,7 +280,7 @@ TEST(ContactWrenchConeConfigTest, EveryMissingFieldIsRefusedByName) {
         contactWrenchConeConfigFromConfig(contacts).status(),
         {absl::StrCat(kConeBlock, ".", field.first), "missing"});
   }
-  // The whole block absent, as in the G1 and R1 task files: refused, not
+  // The block is absent, as in the G1 and R1 task files: refused rather than
   // defaulted to mu 0.7.
   expectInvalidArgumentNaming(
       contactWrenchConeConfigFromConfig(mpc_config::ContactsConfig{}).status(),
@@ -455,9 +455,9 @@ TEST_F(ContactWrenchConeBasesTest, APointContactIsRefusedByNameAndKey) {
 
 TEST_F(ContactWrenchConeBasesTest,
        TheCppAdFolderIsDerivedAndTheDeadFolderKeyIsRefused) {
-  // Finding A81: model_settings.modelFolderCppAd was carried by every task file
+  // Finding A81: model_settings.modelFolderCppAd was present in every task file
   // and read by nothing. The folder is derived from the MPC and robot names,
-  // and a file that still carries the key is refused, saying so.
+  // and a file that still contains the key is refused with an error.
   EXPECT_EQ(modelSettings_->modelFolderCppAd,
             absl::StrCat("cppad_code_gen/cppad_centroidal_mpc_atlas/",
                          kStateLayoutTag));

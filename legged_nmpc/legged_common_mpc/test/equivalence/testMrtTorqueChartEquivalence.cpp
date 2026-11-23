@@ -70,10 +70,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * balance the base acceleration, the joint rows give tau_j. Coordinate-free
  * physics: tau_e = tau_t at the same motion (q_e = Phi^-1(q), v_e = J_v^-1 v),
  * the same joint accelerations and the same world-frame wrenches. base held
- * computeBaseHeldJointTorques(): the base acceleration is zero - Theta_ddot = 0
+ * computeBaseHeldJointTorques(): the base acceleration is zero (Theta_ddot = 0
  * on the Euler root, the body rate's dw_B/dt = 0 on the quaternion root, which
  * differ by dw_B/dt = (dT_B/dt) dTheta = C(Theta, dTheta) dTheta when
- * Theta_ddot = 0 - so tau_e - tau_t = M_jw (dT_B/dt) dTheta, M_jw the joint
+ * Theta_ddot = 0), so tau_e - tau_t = M_jw (dT_B/dt) dTheta, M_jw the joint
  * rows of the quaternion root's mass matrix in its angular base columns (design
  * section 4.4's base-held row).
  *

@@ -32,7 +32,7 @@ The properties hold on every configuration file the test has as data and on rand
 nproto's test protos, written in random spellings and layouts with comments:
 
 - an edit of a value gives exactly the edited message, and changes the characters of that value only;
-- setting a value to what the file already holds changes nothing, byte for byte;
+- setting a value to what the file already contains changes nothing, byte for byte;
 - an insertion only adds characters and a removal only deletes them, and every other comment stays.
 """
 

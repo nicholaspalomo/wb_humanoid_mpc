@@ -39,7 +39,7 @@
 - `py-backslash` (3.2): no backslash line continuations; use parentheses.
 - `py-type-comment` (3.19): no `# type:` comments other than `# type: ignore[code]`; annotate.
 - `py-pragma-reason` (AGENTS.md): every `# pylint: disable=...` / `disable-next=...` and every `# type: ignore[code]`
-  says why after it, `  # <reason>` (a standalone pylint pragma may carry its reason on the comment line above it
+  says why after it, `  # <reason>` (a standalone pylint pragma may have its reason on the comment line above it
   instead), and `# pylint: skip-file` is not used.
 - `py-shebang` (3.7): a shebang if and only if the file is executable, and then exactly `#!/usr/bin/env python3`.
 - `py-main-guard` (3.17): the `__main__` guard calls `main()`, and nothing else runs at import time.

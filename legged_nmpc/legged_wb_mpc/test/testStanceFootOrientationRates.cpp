@@ -135,7 +135,7 @@ constexpr scalar_t kLibraryRoundOff = 1.0e-11;
  * rad/s
  * (|f^(k)| of the order of their k-th power). The round-off of the extrapolated
  * second difference, 23 delta / h^2 for a sample error delta, is 2.5e-9 for a
- * foot pose of order 1 that carries the unit round-off (5e-9 for machine
+ * foot pose of order 1 that has the unit round-off (5e-9 for machine
  * epsilon), more as the forward kinematics accumulates its error over the leg's
  * joints: kMotionTolerance leaves a margin of 20 to 40 to the scale max(1, |the
  * derivative|) before that accumulation, and the test prints the margin it
@@ -970,9 +970,9 @@ TEST(StanceFootOrientationRates,
 
     // The frozen-map linearization: the orientation rows' rate maps held at the
     // point, M (and 1/2 n v') applied to the Jacobians of w and of alpha, as
-    // the centroidal twist constraint holds its map. Its state Jacobian lacks
+    // the centroidal twist constraint keeps its map. Its state Jacobian lacks
     // the map's derivative. Its input Jacobian is the exact one: the state
-    // carries the velocities, so w reads no input and the rates read it through
+    // contains the velocities, so w reads no input and the rates read it through
     // alpha alone, d(d2e/dt2 + 1/2 n v.alpha)/du = (M + 1/2 n v') d(alpha)/du.
     const FootKinematics kinematics =
         footKinematicsAt(*models, point.state, point.input);

@@ -187,7 +187,7 @@ CentroidalMpcConfig loadAtlas() {
 }
 
 /**
- * The mixed contact set's interface, built once for the whole suite from the
+ * The mixed contact set's interface, built once for the test suite from the
  * task file written to and read back from the test's temporary directory: it
  * generates the CppAD libraries of the dynamics and of four contact frames.
  */

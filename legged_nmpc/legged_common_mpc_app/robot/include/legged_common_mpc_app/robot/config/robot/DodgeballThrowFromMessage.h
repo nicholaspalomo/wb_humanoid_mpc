@@ -49,9 +49,9 @@ namespace ocs2::legged {
  * nobody chose. A mass outside the slider's range is not refused here; the
  * simulator clamps it.
  *
- * @return InvalidArgument naming the field when a required one is absent or not
- * finite (a NaN launch velocity makes MuJoCo reset the whole simulation), when
- * the flight time is negative, or when the mass is not positive.
+ * @return InvalidArgument identifying the field when a required one is absent
+ * or not finite (a NaN launch velocity makes MuJoCo reset the simulation),
+ * when the flight time is negative, or when the mass is not positive.
  */
 absl::StatusOr<robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow>
 dodgeballThrowFromMessage(const msgs::DodgeballThrow& message);

@@ -51,7 +51,7 @@ namespace ocs2::legged {
  * estimator every control cycle (robot_model/ContactEstimator.h), shared by
  * CentroidalMpcMrtJointController and WBMpcMrtJointController.
  *
- * An estimate is taken when it carries one flag per contact of the controller's
+ * An estimate is taken when it has one flag per contact of the controller's
  * contact set (ModelSettings::contactNames, in its order). Any other estimate
  * is a configuration error of the estimator: it is refused, the measured flags
  * stay those of the cycle before, and the refusal is counted. The first refusal
@@ -69,8 +69,8 @@ namespace ocs2::legged {
 class ContactEstimateIntake {
  public:
   /** The intake of a controller with `numContacts` contacts. `controller`
-   * names the controller in the refusal report: a string literal, which must
-   * outlive the intake. */
+   * identifies the controller in the refusal report: a string literal, which
+   * must outlive the intake. */
   ContactEstimateIntake(const char* absl_nonnull controller,
                         size_t numContacts);
 

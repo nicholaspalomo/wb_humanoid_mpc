@@ -113,7 +113,7 @@ absl::StatusOr<pinocchio::Model> eulerRootTwinOf(
   for (pinocchio::FrameIndex frame = 1;
        frame < static_cast<pinocchio::FrameIndex>(quaternionRootModel.nframes);
        ++frame) {
-    // The joints' inertias already hold every body's: the frames add none.
+    // The joints' inertias already include every body's: the frames add none.
     twin.addFrame(quaternionRootModel.frames[frame], /*append_inertia=*/false);
   }
   if (twin.nv != quaternionRootModel.nv ||

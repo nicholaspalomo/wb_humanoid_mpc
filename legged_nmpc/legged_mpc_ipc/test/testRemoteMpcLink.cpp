@@ -365,7 +365,7 @@ TEST_F(
   EXPECT_FALSE(link_->isActivePolicyCurrent())
       << "the policy in use was solved before the reset";
 
-  // The next observation carries the request. The policy in flight arrives
+  // The next observation includes the request. The policy in flight arrives
   // first and is dropped; the post-reset one is solved and held.
   link_->setCurrentObservation(observationAt(1.02, 6.0));
   gate_.release(1);
@@ -465,7 +465,7 @@ TEST_F(RemoteMpcLinkTest, ObservationsLostInTransitDoNotLoseAResetRequest) {
   EXPECT_TRUE(robotSupervisor_.hasOutstandingReset());
   EXPECT_FALSE(postResetPolicyActive());
 
-  // The first observation that gets through carries the request all the same.
+  // The first observation that gets through includes the request all the same.
   relay_.setLosing(false);
   ASSERT_TRUE(runRobotUntil([&]() { return postResetPolicyActive(); }));
   EXPECT_EQ(robotSupervisor_.numFullResetsServed(), 1u);

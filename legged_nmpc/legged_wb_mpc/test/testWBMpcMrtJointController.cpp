@@ -226,7 +226,7 @@ class WholeBodyHarness {
   const PinocchioInterface& pinocchioInterface() const {
     return pinocchioInterface_;
   }
-  /** The robot state every cycle() hands the controller, for a test to measure
+  /** The robot state every cycle() passes the controller, for a test to measure
    * another robot than setState()'s. */
   robot::model::RobotState& robotState() { return robotState_; }
   scalar_t time() const { return time_; }
@@ -717,7 +717,7 @@ TEST(WBMpcMrtJointController, CreateRefusesALinkFactoryThatMakesNoLink) {
 }
 
 // Create() refuses a robot description that lacks a joint of the MPC model,
-// naming the joint: the control cycle indexes the joints without a check, so
+// identifying the joint: the control cycle indexes the joints without a check, so
 // the constructor's check would otherwise end the process on a mismatched URDF.
 TEST(WBMpcMrtJointController,
      CreateRefusesAModelJointTheRobotDescriptionDoesNotHave) {

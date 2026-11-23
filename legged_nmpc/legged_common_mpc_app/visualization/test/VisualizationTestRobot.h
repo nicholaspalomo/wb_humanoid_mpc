@@ -101,7 +101,7 @@ class TestRobot {
    * load() with `pointContacts` in place of the task file's 3-DoF contacts
    * (model_settings.contacts_3dof): the contact set is those contacts, then the
    * task file's 6-DoF contacts. taskFile() stays the shipped file's path, so
-   * every other key is the shipped one; task() and the models carry the
+   * every other key is the shipped one; task() and the models contain the
    * contacts, which it moves into task(). Formulation::kCentroidalBasisVectors
    * refuses a point contact.
    */
@@ -117,7 +117,7 @@ class TestRobot {
   }
   const MpcRobotModelBase<scalar_t>& robotModel() const { return *robotModel_; }
   /** The manifold of the robot model's state (stateManifoldOf(): the base
-   * quaternion on SO(3)), which model() hands over. */
+   * quaternion on SO(3)), which model() returns. */
   const StateManifold* absl_nullable stateManifold() const {
     return stateManifold_.get();
   }

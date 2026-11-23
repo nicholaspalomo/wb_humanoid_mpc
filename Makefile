@@ -185,7 +185,7 @@ echo-packages:
 clean:
 	bazel clean
 
-## Deep clean (remove the entire Bazel cache of this checkout)
+## Deep clean (remove the Bazel cache of this checkout)
 clean-all:
 	bazel clean --expunge
 
@@ -300,9 +300,9 @@ benchmark-mpc-solve:
 	echo "Benchmark in $(VALIDATION_PKG)/data/benchmark/$(LABEL)/."; exit $$status
 
 ## Two recorded labels compared offline: make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=<robot>]
-# Every run of data/closed_loop/$(CANDIDATE)/ that data/closed_loop/$(BASELINE)/ has too, held to it as closed-loop-metrics
-# with BASELINE holds a run (compareClosedLoopMetrics()), from the archived documents: no simulation. Prints each run's
-# violations and improvements; fails when a run has a violation.
+# Compares every run in data/closed_loop/$(CANDIDATE)/ that also exists in data/closed_loop/$(BASELINE)/ using
+# compareClosedLoopMetrics() on the archived documents (no simulation). Prints each run's violations and improvements;
+# fails when a run has a violation.
 compare-closed-loop:
 	@$(if $(and $(CANDIDATE),$(BASELINE)),,$(error Usage: make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|anymal_b|tron1|anymal_c_wheels|unitree_g1_wb|unitree_g1_kalman]))
 	@$(bazel_indexed) test //$(VALIDATION_PKG):compare_closed_loop_labels --test_arg=--candidate=$(CANDIDATE) --test_arg=--baseline=$(BASELINE) \
@@ -363,10 +363,10 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 ############################################################
 # Launch and deployment (legged_nmpc/docs/distributed_runtime/README.md, tools/deploy/README.md)
 ############################################################
-# Simulation runs the hardware topology. The robot side - the robot process, with MuJoCo as its backend - runs in the
+# Simulation runs the hardware topology. The robot side (the robot process, with MuJoCo as its backend) runs in the
 # robot-sim container: the robot's own image (robot-runtime) and compose file (docker-compose.robot.yaml), with its
-# realtime settings, plus only the viewer's GL. The laptop side - the MPC node, the remote-control GUI and the Rerun
-# bridge - runs in the dev container, over the remote MPC link on the bus. Nothing runs the MPC inside the robot
+# realtime settings, plus only the viewer's GL. The laptop side (the MPC node, the remote-control GUI and the Rerun
+# bridge) runs in the dev container, over the remote MPC link on the bus. Nothing runs the MPC inside the robot
 # process. The robot side needs the host's Docker, so `make launch-<robot>-sim` runs on the host (Linux), or in a dev
 # container that can reach Docker; the laptop side and the Bazel builds then run in the dev container DEV_CONTAINER.
 #
@@ -393,7 +393,7 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 #                                             at http://localhost:9090, or spawn, the native viewer; save: to RRD_PATH=<file>.rrd)
 #   NETEM="<netem parameters>"                -sim: tc netem on the bus's packets on lo (default: none)
 #   VIEWER=glfw|web|none                      -sim: the robot process's MuJoCo viewer by name (default: the view's when
-#                                             VIEWS= is named, or a -vnc target's glfw; otherwise the mujoco_viewer of
+#                                             VIEWS= is set, or a -vnc target's glfw; otherwise the mujoco_viewer of
 #                                             PLOT_CONFIG, the shipped one's web: a page at http://localhost:6090, whose
 #                                             address the target prints); glfw is the window on DISPLAY, and a list such
 #                                             as web,none falls back in order

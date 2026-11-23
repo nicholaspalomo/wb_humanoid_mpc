@@ -589,7 +589,7 @@ class MypyConfigTest(unittest.TestCase):
 
     def test_every_module_section_is_a_problem(self):
         # Every module is held to the global options: a section that relaxes them is a baseline by another name, and
-        # one that names no module is dead.
+        # one that specifies no module is dead.
         problems = self._problems(
             "[mypy]\nstrict_equality = True\n"
             "[mypy-known]\nignore_errors = True\n"

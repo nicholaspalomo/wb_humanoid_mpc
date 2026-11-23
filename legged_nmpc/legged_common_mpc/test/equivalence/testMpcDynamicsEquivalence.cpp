@@ -162,7 +162,7 @@ struct FlowRowBlock {
  * (the momenta, the base position and orientation, the joints, the velocities),
  * so that each block is held to its own scale: on the whole body the joint
  * accelerations reach 64 against 0.6 for the quaternion's rates, which one
- * scale over the whole vector would hold to 1e-7 relative. The momentum blocks
+ * scale over the full vector would hold to 1e-7 relative. The momentum blocks
  * (mnorm_linmom_com_rt_world_ewrt_world, mnorm_angmom_com_rt_world_ewrt_world)
  * take kCmomRateTolerance, the others kFlowMapTolerance.
  */

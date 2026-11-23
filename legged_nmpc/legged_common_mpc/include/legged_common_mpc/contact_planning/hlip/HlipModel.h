@@ -45,8 +45,8 @@ namespace ocs2::legged {
  * One planar pendulum of fixed height z0. The state is the horizontal position
  * and velocity of the point mass relative to the stance foot, x = [p, v]^T. A
  * step consists of a single support phase (SSP) of `sspDuration`, during which
- * the pendulum is unactuated, an instantaneous impact that hands the stance
- * over to the foot placed a step length ahead, and a double support phase (DSP)
+ * the pendulum is unactuated, an instantaneous impact that transfers stance
+ * to the foot placed a step length ahead, and a double support phase (DSP)
  * of `dspDuration`, during which the mass is assumed to drift at constant
  * velocity. Composing the three gives the step-to-step (S2S) dynamics on the
  * pre-impact state,
@@ -54,8 +54,8 @@ namespace ocs2::legged {
  *   x_{k+1} = A x_k + B u_k,   A = A_ssp A_dsp,   B = -A e_1,
  *
  * with A_ssp = [[cosh(w T_ssp), sinh(w T_ssp) / w], [w sinh(w T_ssp), cosh(w
- * T_ssp)]], A_dsp = [[1, T_dsp], [0, 1]] and w = sqrt(g / z0). The S2S map is
- * the whole planner: the step length is the only input, and the gain that
+ * T_ssp)]], A_dsp = [[1, T_dsp], [0, 1]] and w = sqrt(g / z0). The S2S map
+ * defines the planner: the step length is the only input, and the gain that
  * drives the error to zero in two steps is closed form,
  *
  *   K = [1, T_dsp + coth(w T_ssp) / w],   A + B K = [[0, -1 / (w sinh(w
@@ -66,7 +66,7 @@ namespace ocs2::legged {
  * period-one orbit along the heading and a period-two orbit laterally; both
  * orbits are solved here as linear systems rather than approximated.
  *
- * The model carries no state. It is a cheap value type: create it from the
+ * The model is stateless. It is a cheap value type: create it from the
  * configuration and copy it freely. Every method is const or static, so
  * concurrent calls on one model are safe.
  */

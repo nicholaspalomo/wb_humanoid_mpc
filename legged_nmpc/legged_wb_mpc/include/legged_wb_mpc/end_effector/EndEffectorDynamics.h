@@ -45,11 +45,11 @@ namespace ocs2 {
  * functions of the state and the input, all in the world frame: the position
  * and its first two time derivatives (the swing foot's vertical-motion
  * constraint, EndEffectorDynamicsLinearAccConstraint), and the pose with
- * respect to a plane - the position and the orientation error to the plane -
+ * respect to a plane (the position and the orientation error to the plane)
  * with its first two time derivatives (the stance foot's constraint,
  * EndEffectorDynamicsAccelerationsConstraint). Each function returns one value
  * per end effector of getIds(), in that order, and each linear approximation
- * holds the value it linearizes. An implementation need not be safe to call
+ * stores the value it linearizes. An implementation need not be safe to call
  * concurrently: the terms clone it (clone()), and the solver clones the terms
  * per worker thread.
  */

@@ -17,7 +17,7 @@ cc_library(
     srcs = ["RootJointModelPair.cpp"],
     hdrs = ["RootJointModelPair.h"],
     copts = FIRST_PARTY_COPTS,
-    # Every shipped MPC configuration: its task file names the joints the model keeps, its description the URDF.
+    # Every shipped MPC configuration: its task file lists the joints the model keeps, its description the URDF.
     # LINT.IfChange(equivalence_robot_data)
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",

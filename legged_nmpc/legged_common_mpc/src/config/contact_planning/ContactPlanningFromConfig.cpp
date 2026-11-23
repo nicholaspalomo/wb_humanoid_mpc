@@ -54,7 +54,7 @@ namespace {
 
 using File = mpc_config::ContactPlanningFile;
 
-/** The list of `file` that holds the terms of `kind`. */
+/** The list of `file` that contains the terms of `kind`. */
 const std::vector<std::string>& termList(const File& file, TermKind kind) {
   switch (kind) {
     case TermKind::kModelBlock:

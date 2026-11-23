@@ -118,8 +118,8 @@ TEST(CostTermAndLibraryNames,
 }
 
 // The single-rigid-body model tapes other dynamics and another momentum mapping
-// under the same library names and sizes, so its libraries live in a folder of
-// their own; the full centroidal dynamics keeps the folder every robot ships
+// under the same library names and sizes, so its libraries are stored in their
+// own folder; the full centroidal dynamics keeps the folder every robot ships
 // with, whose library names the benchmark baselines count.
 TEST(CostTermAndLibraryNames,
      TheCppAdModelFolderKeyNamesEveryCentroidalModelButTheFullDynamics) {

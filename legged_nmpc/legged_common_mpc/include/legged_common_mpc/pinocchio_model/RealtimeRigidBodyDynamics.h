@@ -54,9 +54,9 @@ namespace ocs2::legged {
  * orientations of the contact frames, for any contact set of at most
  * kMaxNumContacts contacts.
  *
- * Every function takes and returns the MPC model's coordinates - the
+ * Every function takes and returns the MPC model's coordinates (the
  * configuration q = [p_W, unit quaternion (x, y, z, w), q_j] and the velocity v
- * = [dp_W, w_B, dq_j] of its Composite(Translation, Spherical) root - but runs
+ * = [dp_W, w_B, dq_j] of its Composite(Translation, Spherical) root), but runs
  * Pinocchio on a twin of the model whose root joint is a FreeFlyer: the same
  * joint indices, bodies, inertias and frames (frame indices included), the same
  * q, and the velocity [R' dp_W, w_B, dq_j]. Pinocchio's passes over the
@@ -66,7 +66,7 @@ namespace ocs2::legged {
  * the joint torques, the momentum and the frame placements are the robot's and
  * do not depend on how the base velocity is coordinatized
  * (testRealtimeRigidBodyDynamics holds them to the MPC model's own passes and
- * RNEA). Each result lives in a workspace sized by Create() and stays valid
+ * RNEA). Each result is stored in a workspace sized by Create() and stays valid
  * until the next call of the same function.
  *
  * Not thread-safe: one per control thread. Copying is disabled; it is owned

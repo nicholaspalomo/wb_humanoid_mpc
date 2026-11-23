@@ -66,7 +66,7 @@ T valueOrFailure(std::optional<T> optional) {
 ModeSchedule alternatingSingleSupport(scalar_t period, size_t cycles) {
   // Built through the two-argument constructor, not by push_back onto a
   // default-constructed schedule: the default constructor is ModeSchedule({},
-  // {0}), i.e. it already carries one FLY mode, so appending to it silently
+  // {0}), i.e. it already contains one FLY mode, so appending to it silently
   // produces a schedule whose first phase is a flight phase and whose modes and
   // events no longer line up.
   std::vector<size_t> modes;
@@ -169,8 +169,8 @@ TEST(StanceDutyFactor,
   EXPECT_NEAR(stanceDutyFactor(schedule, kContactRightIndex, /*time=*/0.5), 1.0,
               1.0e-12);
   // During the first swing of the left foot the RIGHT foot is still in the
-  // stance it started in - it has no complete stride yet - but it is carrying
-  // the robot through a step. Handing it the standing value would ask it for
+  // stance it started in (it has no complete stride yet), but it is carrying
+  // the robot through a step. Assigning it the standing value would ask it for
   // half the weight in single support.
   EXPECT_NEAR(stanceDutyFactor(schedule, kContactRightIndex, /*time=*/1.3),
               0.8 / 1.4, 1.0e-9);
@@ -191,9 +191,9 @@ TEST(StanceDutyFactor, DegenerateInputsReturnOneRatherThanZero) {
   // the one that makes the correction vanish rather than the one that makes it
   // infinite.
   //
-  // The default-constructed schedule is the case that matters in practice:
+  // The default-constructed schedule is the practical case:
   // ModeSchedule() is ModeSchedule({}, {0}), one FLY mode and no events, and it
-  // is what the reference manager holds until its first modifyReferences().
+  // is what the reference manager stores until its first modifyReferences().
   // Read literally it says no foot is ever in contact, which would clamp to
   // minimumDutyFactor and multiply the contact-force reference fivefold on the
   // strength of a placeholder.

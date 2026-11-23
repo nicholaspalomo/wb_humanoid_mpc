@@ -27,7 +27,7 @@
 
 """Decodes a bus message from its type name, without a registry of topics (for tools/ipc).
 
-Every bus sample (a robot_ipc::Envelope) carries the full protobuf type name of its payload, such as
+Every bus sample (a robot_ipc::Envelope) includes the full protobuf type name of its payload, such as
 "legged_mpc_msgs.MpcPolicy". The class is found in the protobuf default descriptor pool, which knows every message
 whose generated module (`*_pb2`) has been imported: import the modules of the messages you want to decode first.
 """

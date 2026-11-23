@@ -63,7 +63,7 @@ constexpr std::array<absl::string_view, 2> kFields = {
 };
 // LINT.ThenChange(//legged_nmpc/legged_mpc_config/task_file.proto)
 
-/** Whether `ocp` carries the foot cost of any foot of `contactNames`. */
+/** Whether `ocp` includes the foot cost of any foot of `contactNames`. */
 bool carriesFootCost(const OptimalControlProblem& ocp,
                      absl::Span<const std::string> contactNames) {
   for (const std::string& footName : contactNames) {

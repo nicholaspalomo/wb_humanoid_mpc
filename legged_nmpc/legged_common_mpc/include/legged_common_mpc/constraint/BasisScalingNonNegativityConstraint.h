@@ -58,8 +58,8 @@ namespace ocs2::legged {
  * Whether it is gated on the mode schedule follows the hard `zero_wrench`
  * constraint. With `zero_wrench` listed the swing-phase λ are already pinned to
  * zero by that equality, so bounding them again is redundant and the term
- * switches itself off. The contact-implicit formulation removes `zero_wrench` -
- * checkMpcFormulationTasks() insists on it - and this term is then the ONLY
+ * switches itself off. The contact-implicit formulation removes `zero_wrench`
+ * (checkMpcFormulationTasks() insists on it), and this term is then the ONLY
  * thing standing between the solver and a negative λ, because in basis-vector
  * mode CentroidalMpcInterface skips ContactWrenchConeConstraint entirely and
  * the wrench cone is enforced structurally by λ ≥ 0 alone. A negative λ is an
@@ -78,10 +78,10 @@ namespace ocs2::legged {
  * and the term is switched off there anyway.
  *
  * Un-gated it is not harmless in principle, so the term switches to a
- * SquaredHingePenalty whose zero sits exactly at λ = 0 in value AND gradient -
+ * SquaredHingePenalty whose zero is exactly at λ = 0 in value AND gradient -
  * the same substitution makeContactConePenalty() performs for the three
  * un-gated cone terms. The two penalties agree to within `delta` of the
- * boundary for every λ that matters (at the shipped mu = 0.01, delta = 1e-3
+ * boundary for every practical λ (at the shipped mu = 0.01, delta = 1e-3
  * they differ by under 0.1 % at |λ| = 1 N), so this is not a retuning: it
  * removes a 1 mN dead zone and changes nothing else.
  *
@@ -146,7 +146,7 @@ class BasisScalingNonNegativityConstraint final : public StateInputCost {
    * tuning dashboard.
    *
    * `delta` reaches the penalty only while this term is gated. Un-gated the
-   * penalty is a hinge whose zero must sit exactly on λ = 0, so a positive
+   * penalty is a hinge whose zero must be exactly at λ = 0, so a positive
    * `delta` there would reinstate the very bribe the hinge exists to remove; it
    * is dropped deliberately, exactly as MpcParameterUpdaterModule does for the
    * un-gated cone terms.
@@ -174,7 +174,7 @@ class BasisScalingNonNegativityConstraint final : public StateInputCost {
   size_t numBasis_;
   // Fixed by the formulation at load time rather than tuned, so it is const and
   // the parallel solve reads it without synchronization. It has to survive the
-  // copy the SQP solver makes of the whole problem per worker thread.
+  // copy the SQP solver makes of the problem per worker thread.
   const bool scheduleGated_;
   PieceWisePolynomialBarrierPenalty::Config barrierConfig_;
   std::unique_ptr<PenaltyBase> penaltyPtr_;

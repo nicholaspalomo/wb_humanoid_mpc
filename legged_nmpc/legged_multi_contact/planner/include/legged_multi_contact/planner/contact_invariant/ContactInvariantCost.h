@@ -41,7 +41,7 @@ namespace ocs2::legged::multi_contact {
 
 /** The weights of ContactInvariantCost. Passive data. */
 struct ContactInvariantWeights {
-  // The weight of the whole term, raised by the continuation.
+  // The weight of the overall term, raised by the continuation.
   scalar_t weight = 0.0;
   // [s^2/m^2 relative to 1/m^2] w_slip of the tangential velocity, and the
   // weight of the tilt (dimensionless) against the squared distance [m^2].

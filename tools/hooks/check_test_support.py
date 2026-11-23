@@ -72,7 +72,7 @@ def read_repository_file(relative_path: str) -> str:
 def source_tree_root() -> str:
     """The checkout's root, for a test that has to see every file of the tree, not only its own data.
 
-    Bazel's runfiles hold only a test's data, as links to the source files, so the checkout is where the link of
+    Bazel's runfiles contain only a test's data, as links to the source files, so the checkout is where the link of
     MODULE.bazel points; the test needs `//:MODULE.bazel` in its `data`. Outside Bazel it is the tree this file is in.
 
     Returns:
@@ -191,7 +191,7 @@ def assert_check_behaves(
     Args:
       test: The calling test.
       name: The check's name.
-      flagged: A source with exactly one finding of the check, on a line that can carry a trailing comment.
+      flagged: A source with exactly one finding of the check, on a line that can have a trailing comment.
       path: The first-party path the source is checked as.
       clean: A source the check accepts, if not just the fixed `flagged`.
     """

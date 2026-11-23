@@ -243,7 +243,7 @@ TargetTrajectories PlannedMotionReferenceManager::targetsAtOffset(
       motion_.targetsOver(initTime - offset, finalTime - offset);
   for (scalar_t& time : targets.timeTrajectory) time += offset;
   if (targets.empty()) {
-    // Past the plan's end: it holds its last knot.
+    // Past the plan's end: it keeps its last knot.
     targets.timeTrajectory.push_back(initTime);
     targets.stateTrajectory.push_back(plan.stateTrajectory.back());
     targets.inputTrajectory.push_back(plan.inputTrajectory.back());

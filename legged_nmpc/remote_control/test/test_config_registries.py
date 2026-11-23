@@ -28,7 +28,7 @@
 
 """The registries' names in the tuning GUI (legged_nmpc/legged_mpc_config/config_registries.textproto).
 
-The file lists every registry the schemas name, and nothing else; every name a shipped file gives a registry string is
+The file lists every registry the schemas specify, and nothing else; every name a shipped file gives a registry string is
 one the registry offers; and with the file, the tabs show a registry string as a drop-down of its registry's names.
 That the file is what the registries themselves accept is //tools/config_registries:config_registries_test.
 """

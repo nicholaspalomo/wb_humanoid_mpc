@@ -24,7 +24,7 @@ derived from it and the meshes.
 
 ## Changes to the URDF
 
-- A comment at the top says that the file is modified and names the upstream file and commit.
+- A comment at the top notes that the file is modified and lists the upstream file and commit.
 - The Gazebo tags (the wheel contact parameters, the leg materials, the `gazebo_ros_control` and controller-manager
   plugins and the Velodyne sensor plugin), the Gazebo XML namespaces of `<robot>` and the 16 ROS `<transmission>`
   elements are removed, with the comments that introduce them.
@@ -40,7 +40,7 @@ derived from it and the meshes.
 - The visual of each `<leg>_LEG` wheel adapter (`aww_description`'s `foot.stl`) is a cylinder of its adapter collision
   (radius 0.0175 m, length 0.282504 m, centered 0.168985 m above the `LEG` frame), and the visual of each wheel
   (Clearpath Jackal's `jackal-wheel.stl`) is its collision cylinder (radius 0.098 m, length 0.04 m).
-- The top-level materials `black` and `orange`, which the wheel and IMU visuals name, are defined.
+- The top-level materials `black` and `orange`, referenced by the wheel and IMU visuals, are defined.
 - The wheel joints `<leg>_wheel` stay `continuous` and get `<limit effort="80.0" velocity="7.5"/>`, the limits of
   the leg joints' drives; upstream gives them none (its Gazebo transmissions drive them by velocity).
 - A stray text node (`-`) between two elements of `LH_LEG` is removed.
@@ -120,7 +120,7 @@ touches the ground.
 
 ## Meshes
 
-The upstream meshes are COLLADA files of 36,268 triangles (in meters, as the URDF uses them). `meshes/` holds one
+The upstream meshes are COLLADA files of 36,268 triangles (in meters, as the URDF uses them). `meshes/` contains one
 binary STL per upstream file the URDF uses, 0.9 MB in all. A one-off script, outside the repository, flattened each
 COLLADA scene with trimesh 5.2.0 and pycollada 0.9.3 and decimated every mesh of more than 3,000 triangles by quadric
 edge collapse (fast-simplification 0.2.0, aggressiveness 4) to 3,000:

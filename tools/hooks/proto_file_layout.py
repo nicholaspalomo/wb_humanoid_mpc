@@ -28,7 +28,7 @@
 """Checks the layout of the .proto files: google3's "1-1-1" rule and the nproto struct option.
 
 Every .proto file defines exactly ONE top-level message, enum or service, and the file is named after it in
-snake_case: `message MpcPolicy` lives in mpc_policy.proto, `enum ControllerType` in controller_type.proto, `message
+snake_case: `message MpcPolicy` is in mpc_policy.proto, `enum ControllerType` in controller_type.proto, `message
 Vector3` in vector3.proto. Types that only make sense inside their parent (a message's own enum, such as
 TargetContactPatch.Kind) stay nested in it. A file that only declares options (`extend google.protobuf.MessageOptions
 {...}`, such as tools/nproto/options.proto) is the one exception to the naming rule.
@@ -36,7 +36,7 @@ TargetContactPatch.Kind) stay nested in it. A file that only declares options (`
 One definition per file keeps every build dependency, every generated header and every import exactly as large as
 what is used, and it makes the file of a type obvious from its name.
 
-Every top-level message or enum also names the C++ type nproto generates for it, as the FIRST statement of its body
+Every top-level message or enum also specifies the C++ type nproto generates for it, as the FIRST statement of its body
 (tools/nproto/README.md), the file importing "nproto/options.proto":
 
     // Next ID: 4
@@ -53,10 +53,10 @@ Every top-level message or enum also names the C++ type nproto generates for it,
     }
 
 The value is a fully qualified C++ name whose last component is the definition's name. Nested types are generated as
-nested C++ types of their parent's struct and carry no option; neither does the file.
+nested C++ types of their parent's struct and have no option; neither does the file.
 
 No message reserves a field NAME, in either spelling (`reserved "old_name";`, edition 2023's `reserved old_name;`):
-protobuf's C++ text parser skips a reserved name without a word, so a configuration file that still carries a retired
+protobuf's C++ text parser skips a reserved name without a word, so a configuration file that still contains a retired
 key would silently stop meaning anything. List the name in `(nproto.retired_field)` instead, which turns it into an
 error that says what replaced it (tools/nproto/README.md, "Retired fields"). Reserving field numbers is fine.
 

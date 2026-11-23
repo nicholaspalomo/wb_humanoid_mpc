@@ -49,7 +49,7 @@ class DodgeballTab(ttk.Frame):
     thrown from the same side, and the button throws it. The ball is always aimed at the base - there is no aiming error to tune,
     because a disturbance the operator can miss with is a disturbance that cannot be repeated.
 
-    ALL OF THE GEOMETRY IS IN `dodgeball.py`, not here. This class reads the widgets, hands the five numbers to that
+    ALL OF THE GEOMETRY IS IN `dodgeball.py`, not here. This class reads the widgets, passes the five numbers to that
     module and publishes what comes back; everything that could be wrong about an angle convention or the gravity
     compensation is a pure function over there, and is unit-tested in test/test_dodgeball.py. What is left here is
     Tk, which the tests in this package do not exercise.

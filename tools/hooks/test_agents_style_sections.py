@@ -43,7 +43,7 @@ AGENTS = "AGENTS.md"
 CLANG_TIDY = ".clang-tidy"
 COPTS = "bazel/copts.bzl"
 
-# The labeled blocks of AGENTS.md that the registry and the configurations point at (LINT.ThenChange targets).
+# The labeled blocks of AGENTS.md that the registry and the configurations reference (LINT.ThenChange targets).
 STYLE_LABELS = (
     "cpp_style",
     "nullability",

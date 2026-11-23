@@ -47,8 +47,8 @@ side had seven faults:
                                                                                        !hasOutstandingReset()
 ```
 
-`MPC_BASE::reset()` is where the reset lives, so every path gets it: the MPC node through its `MpcServer`, which
-serves the reset requests the robot's observations carry (`legged_mpc_ipc`), and the controller tests' in-process
+The reset is implemented in `MPC_BASE::reset()`, so every path uses it: the MPC node through its `MpcServer`, which
+handles the reset requests attached to the robot's observations (`legged_mpc_ipc`), and the controller tests' in-process
 solver through `MPC_MRT_Interface`.
 `MPC_BASE::resetSolver()` (`MPC_MRT_Interface::resetMpcSolver()`) resets the solver alone, for the resets of section 3
 that must not change what the robot is doing. What each component clears in the full reset, keeping only its
@@ -60,15 +60,15 @@ configuration:
 | `SwitchedModelReferenceManager` | the gait schedule (`GaitSchedule::reset()`: the reference file's initial stance schedule and template), the lift-off positions of the feet, the measured base, CoM and yaw inertia; the target's ground offset |
 | `ContactPlanningReferenceManager` | the above, the active and the pending plan, the applied schedule, the lift-off history, the foot bookkeeping, the swing latches, the rule outputs, the NMPC prediction, the schedule shifts, the target contact poses and the operator's target; a new plan epoch |
 | `ContactPlannerModule` | the snapshot waiting for the worker and the throttle. The planner's own state (`ContactPlannerInterface::reset()`: its warm start, its previous plan) is reset by the thread that plans, at the first snapshot of the new plan epoch; a snapshot of an older epoch is not planned from |
-| `ProceduralMpcMotionManager` | the gait (`stance`), the gait-change hold-off, the acceleration ramp, the stride history of the measured motion (`StrideMotionHistory`: the next solve starts it again from the exact base twist of its observation, which the targets read and the gait switches do not: they wait until the window is measured throughout) with the gaits the schedule runs, and the observation handed over before a solve; then its reset hook, which resets the target calculator |
+| `ProceduralMpcMotionManager` | the gait (`stance`), the gait-change hold-off, the acceleration ramp, the stride history of the measured motion (`StrideMotionHistory`: the next solve starts it again from the exact base twist of its observation, which the targets read and the gait switches do not: they wait until the window is measured throughout) with the gaits the schedule runs, and the observation passed before a solve; then its reset hook, which resets the target calculator |
 | `TargetTrajectoriesCalculatorBase` / `CentroidalMpcTargetTrajectoriesCalculator` | the velocity filter; the joint-state filter and its clock, so that the joint target starts again from the joints the robot has at the reset, however late it comes (it used to decay over the whole time since the filter's clock was last set, and jumped to the nominal joints) |
 | `MRT_BASE` | the policy waiting in the buffer (the policy in use is replaced by the control thread with the first policy of the new epoch) |
 
 The operator's current command and the limits are inputs, not state, and are kept. The contact planner's drop counters
 and the planner module's statistics are diagnostics and keep counting.
 
-A plan the contact planner's worker thread computed from a snapshot taken before the reset is refused when it is handed
-over (`ContactPlanningReferenceManager::setContactPlan(plan, planEpoch)`): the reference manager's reset, which runs
+A plan the contact planner's worker thread computed from a snapshot taken before the reset is rejected when submitted
+(`ContactPlanningReferenceManager::setContactPlan(plan, planEpoch)`): the reference manager's reset, which runs
 first, started a new plan epoch. The planner's reset is keyed to that epoch too, not to a request the module's reset
 raises: a plan of the old epoch that was under way when the reset came would have consumed such a request and left its
 own warm start and previous plan to the first plan after the reset.
@@ -164,9 +164,9 @@ $\operatorname{atan2}(\sin(\psi - \psi_{ref}), \cos(\psi - \psi_{ref}))$ for eve
 zero when masked. The order of the cross product is the sign of the residual: with $\mathbf{h} = (\cos\psi, \sin\psi)$
 and $\mathbf{r} = (\cos\psi_{ref}, \sin\psi_{ref})$, $\mathbf{r} \times \mathbf{h} = \sin(\psi - \psi_{ref})$ and
 $\mathbf{h} \cdot \mathbf{r} = \cos(\psi - \psi_{ref})$, so $e = \psi - \psi_{ref}$ wrapped to $(-\pi, \pi)$, positive when the
-foot has turned past its reference (`testFootYawResidual` pins the sign against that difference). CppAD's `atan2` evaluates both branches, one of which divides by its first argument; the generated
+foot has turned past its reference (`testFootYawResidual` verifies the sign against that difference). CppAD's `atan2` evaluates both branches, one of which divides by its first argument; the generated
 derivative code does not skip the unselected one, so at $R_{10} = 0$ the old residual's derivative was $0 \cdot \infty$,
-and the mask made it $0 \cdot \mathrm{NaN}$. The CppAD library name carries the residual's version
+and the mask made it $0 \cdot \mathrm{NaN}$. The CppAD library name includes the residual's version
 (`CentroidalMpcEndEffectorFootCost::kLibraryVersionSuffix`: `_yawRefHalfAngle` for this fix, `_tiltAngle` since the tilt
 residual became the angle $\theta\,\mathbf{u}$ of `tiltAngleToPlane()` in place of its half-angle sine), so a cached
 library of an older residual is never loaded in its place.
@@ -176,12 +176,12 @@ library of an older residual is never loaded in its place.
 `WBMpcMrtJointController` has the modes of the centroidal one: ZERO_TORQUE, JOINT_PD (the nominal posture with the
 gravity torques of the base-held robot), GRAVITY_COMP, SAFETY (the shared decay law of
 `legged_common_mpc/mrt/SafetyDecay.h`) and WB_MPC with the hold of section 3. The robot process
-(`legged_common_mpc_app/robot`) hands it the FSM mode and the nominal posture every cycle, so that JOINT_PD,
-GRAVITY_COMP and SAFETY never leave the whole-body MPC driving a robot caught on the gantry. Its reset target has two knots and carries the weight on both feet.
+(`legged_common_mpc_app/robot`) passes it the FSM mode and the nominal posture every cycle, so that JOINT_PD,
+GRAVITY_COMP and SAFETY never leave the whole-body MPC driving a robot caught on the gantry. Its reset target has two knots and distributes the weight across both feet.
 
 ## 7. Tests
 
-| Test | What it pins |
+| Test | What it verifies |
 | --- | --- |
 | `//lib/ocs2:test_mpc_reset` | `MPC_BASE::reset()` resets the reference manager and every module before the solver, `resetSolver()` the solver alone; a policy solved before a reset is never swapped in after it; a stalled MPC is a failure a reset cures |
 | `//legged_nmpc/legged_common_mpc:testMpcResetSupervisor` | the reset hand-over and its two kinds, the escalation from solver to full resets, the back-off, one error per failure episode, the clock check |

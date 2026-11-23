@@ -58,7 +58,7 @@ EulerStateSegment segment(std::string name,
 
 /**
  * What the rows of a tuning block are in the Euler state: the rotation blocks
- * hold the ZYX Euler angles and, on the whole-body
+ * store the ZYX Euler angles and, on the whole-body
  * angvel_base_rt_world_ewrt_base block (body rates in the tuning, design
  * decision D18), the ZYX Euler rates.
  */

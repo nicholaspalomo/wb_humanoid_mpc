@@ -347,8 +347,8 @@ TEST(MotionPhaseDefinitionTest,
 }
 
 // A set of four point contacts: STANCE is all four, a mode is one digit per
-// contact, and the foot names LF and RF, which name no contact of it, are
-// refused naming the contact count.
+// contact, and the foot names LF and RF, which match no contact of it, are
+// refused with the contact count.
 TEST(MotionPhaseDefinitionTest, AFourPointSetReadsStanceAndDigitMasks) {
   const GaitModeLayout fourPoints{.numContacts = 4, .stanceMode = 0b1111};
   const absl::StatusOr<size_t> stance = parseModeNumber("STANCE", fourPoints);
@@ -389,7 +389,7 @@ TEST(MotionPhaseDefinitionTest, ASetEndingInTheFeetKeepsTheBipedNames) {
 }
 
 // On the biped the aliases keep their meaning, and the default legs and the
-// foot names name the same modes.
+// foot names map to the same modes.
 TEST(MotionPhaseDefinitionTest, TheBipedReadsItsAliasesLegsAndContacts) {
   const GaitModeLayout biped = bipedLayoutWithLegs();
   const std::vector<std::pair<std::string, size_t>> names = {

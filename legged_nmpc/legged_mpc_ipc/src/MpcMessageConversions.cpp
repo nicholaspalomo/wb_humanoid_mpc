@@ -128,9 +128,9 @@ void writeIndices(absl::Span<const size_t> values,
 }
 
 // Gives `field` exactly `size` elements. RepeatedPtrField keeps the elements
-// RemoveLast() takes away for Add() to hand out again, and each kept element
+// RemoveLast() takes away for Add() to reuse, and each kept element
 // keeps the capacity of its data, so this allocates only when the field grows
-// past the number of elements it ever held.
+// past the number of elements it ever stored.
 void resizeVectors(size_t size, VectorField* absl_nonnull field) {
   const int target = static_cast<int>(size);
   while (field->size() > target) {
@@ -366,7 +366,7 @@ void writeController(const PrimalSolution& primalSolution,
 }
 
 // =====================================================================================================================
-// Validation. The error messages name the field by its path in the message;
+// Validation. The error messages identify the field by its path in the message;
 // they are built only on failure, so a valid message is checked without
 // allocating.
 // =====================================================================================================================
@@ -534,7 +534,7 @@ absl::Status validateTargetTrajectories(
 absl::Status validatePostEventIndices(const IndexField& indices, int nodes) {
   for (int i = 0; i < indices.size(); ++i) {
     const uint64_t index = indices.Get(i);
-    // A post-event index names the node after its pre-event node, so it is a
+    // A post-event index identifies the node after its pre-event node, so it is a
     // node of the policy: at most nodes - 1.
     if (index < 1 || index >= static_cast<uint64_t>(nodes)) {
       return absl::InvalidArgumentError(

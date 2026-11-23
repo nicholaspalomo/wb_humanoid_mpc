@@ -255,7 +255,7 @@ TEST(ContactPlanningTerms, TermsAreAssembledInListOrderAndOnTheirNodeSets) {
 
 // step_length: w ||dp - d_nom (1 - c)||^2 per foot and axis on the running
 // nodes. The residual is affine in dp and the relaxed binary c, so the stage
-// carries the cross terms of the two: R(dp, dp) = 2w, R(dp, c) = 2w d, R(c, c)
+// includes the cross terms of the two: R(dp, dp) = 2w, R(dp, c) = 2w d, R(c, c)
 // = 2w d^2, r(dp) = -2w d, r(c) = -2w d^2 (0.5 u'Ru + r'u convention), summed
 // over both axes for the c entries.
 TEST(ContactPlanningTerms,

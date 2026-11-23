@@ -235,7 +235,7 @@ class VisualColorTest(unittest.TestCase):
                 palette.with_alpha(palette.DEFAULT_MESH_COLOR, style.alpha)
             ),
         )
-        # A glTF carries its own colors, which a gray albedo would darken.
+        # A glTF includes its own colors, which a gray albedo would darken.
         self.assertEqual(
             robot_meshes.visual_color(self.visual(glb), style)[:3],
             (255, 255, 255),

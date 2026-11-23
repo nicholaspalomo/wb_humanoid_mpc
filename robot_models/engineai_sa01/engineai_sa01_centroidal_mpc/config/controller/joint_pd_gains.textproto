@@ -8,13 +8,13 @@
 # and moderate gains are stable without saturating.
 #
 # Sizing. SA01 weighs 33.1 kg, which puts it within 6% of the Unitree G1 (35 kg), so the leg gains start from G1's and
-# are rescaled by the actuator each joint has. G1's leg gains sit at roughly 1.5 * the joint's torque limit
+# are rescaled by the actuator each joint has. G1's leg gains are roughly 1.5 * the joint's torque limit
 # (hip 150 for 88 N*m, knee 200 for 139 N*m, ankle 80 for 50 N*m). SA01's hip and knee actuators are stronger than
 # G1's at 140 N*m, so those gains carry over unchanged; its ankles are much weaker at 24 N*m, so the ankle gains are
 # halved with them.
 #
 # max_joint_torque is not only documentation. The MRT joint controller clamps the commanded feedforward torque of every
-# joint against it, in every mode; a joint this file does not name gets default_gains' limit, and default_gains must
+# joint against it, in every mode; a joint this file does not list gets default_gains' limit, and default_gains must
 # set it (the controller refuses a file without it, where it used to fall back to a hard-coded 500 N*m - twenty times
 # what the 24 N*m ankle can deliver, which the MuJoCo clamp against the model's actuatorfrcrange would then have
 # absorbed silently, so the controller would have tracked a torque the robot never applied). The values here are the URDF effort limits, and

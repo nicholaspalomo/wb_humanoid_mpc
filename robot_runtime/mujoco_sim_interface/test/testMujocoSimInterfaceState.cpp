@@ -56,7 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotState.h"
 
 /*
- * What the simulator hands the controller and takes from it, against MuJoCo's
+ * What the simulator passes to the controller and takes from it, against MuJoCo's
  * own physics: the free joint's state in the robot state's frames, the scene's
  * joints and actuators at their own addresses whatever their order, and the
  * impact of the dodgeball when no ball is compiled into the scene. Headless, on
@@ -175,9 +175,9 @@ ForwardState forwardSnapshot(const MujocoSimInterface& sim) {
 // ---------------------------------------- the free joint
 // ----------------------------------------------
 
-// MuJoCo's free joint holds the quaternion w first, the linear velocity of the
+// MuJoCo's free joint stores the quaternion w first, the linear velocity of the
 // body frame's origin in the WORLD frame and the angular velocity in the BODY
-// frame; the robot state holds the orientation, and both velocities in the base
+// frame; the robot state stores the orientation, and both velocities in the base
 // frame. Pinned against MuJoCo's integration of them, at an attitude far from
 // the identity: a convention swapped anywhere (x-first quaternion, a
 // world-frame angular velocity, an unrotated linear one) is an error of the
@@ -531,7 +531,7 @@ Momentum computeCmomWorldRtWorldEwrtWorld(const mjModel* absl_nonnull model,
 // The ball hits the base's origin head on. Its impulse J must (1) conserve
 // momentum and reverse the relative normal velocity at the restitution,
 // measured on the robot's actual response, which holds only for the right
-// effective mass; (2) be the whole change of the robot's linear momentum; and
+// effective mass; (2) be the total change of the robot's linear momentum; and
 // (3) change its angular momentum by the moment of J at the base's origin, p x
 // J, which the force at the center of mass alone would miss.
 TEST(SimFallbackImpulse,

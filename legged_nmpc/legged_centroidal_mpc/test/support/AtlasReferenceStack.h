@@ -72,7 +72,7 @@ class AtlasReferenceStack {
   enum class ScheduleSource { kGaitSchedule, kContactPlanner };
 
   /**
-   * Under the contact planner, `plannerType` names the planner
+   * Under the contact planner, `plannerType` specifies the planner
    * (ContactPlannerFactory, `planner.type`); empty: the one the shipped file
    * selects. Another one than the shipped runs on the grid and the solver
    * limits testContactPlanningIntegration gives the mixed-integer planner, with

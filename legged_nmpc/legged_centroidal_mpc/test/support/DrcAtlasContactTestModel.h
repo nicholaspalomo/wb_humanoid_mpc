@@ -68,10 +68,10 @@ namespace ocs2::legged {
  * the test.
  *
  * The last one is the point. The terms under test ask the reference manager
- * whether a foot is in contact, and the whole question the contact-implicit
- * formulation raises is what they do when the schedule says "swing" and the
- * solver disagrees. setContactFlags() writes a constant mode schedule, so
- * getContactFlags(t) returns exactly what the test asked for at every time.
+ * whether a foot is in contact, and the contact-implicit formulation must
+ * handle the case where the schedule says "swing" and the solver disagrees.
+ * setContactFlags() writes a constant mode schedule, so getContactFlags(t)
+ * returns exactly what the test asked for at every time.
  *
  * The model is loaded once per fixture instance. Code generation is disabled
  * (`recompileLibrariesCppAd = false`), so the cached libraries under the
@@ -124,8 +124,7 @@ class DrcAtlasContactTestModel {
    * (`contact_input_parameterization: "basis_vectors"`): its input vector
    * stores non-negative scalings of a LOCAL contact-frame wrench-cone basis, so
    * getWrenchContactEwrtParam() returns a local-frame wrench where the wrench
-   * model returns a world-frame one. That difference is the whole of audit
-   * finding A3.
+   * model returns a world-frame one. That difference is audit finding A3.
    */
   const BasisInputsModelDecorator<scalar_t>& basisModel() const {
     return *basisModel_;
@@ -155,7 +154,7 @@ class DrcAtlasContactTestModel {
    * It is built on the wrench-space auto-diff model even in the tests that
    * drive the basis-vector model, and that is not a shortcut: this object only
    * ever asks a STATE for its generalized coordinates, and the input
-   * parameterization - the one thing BasisInputsModelDecorator changes - never
+   * parameterization (the only thing BasisInputsModelDecorator changes) never
    * enters it. Sharing the model also shares the cached CppAD library between
    * the two test binaries.
    */

@@ -1,9 +1,9 @@
 # web_viewer: the MuJoCo viewer in a browser tab
 
 The HTTP side of the simulator's `web` viewer. The robot process renders the MuJoCo scene offscreen on a thread of its
-own (EGL, `robot_runtime/mujoco_sim_interface`), encodes each frame as JPEG and hands it to this package's server,
-which serves a page that pulls the frames and sends the mouse and keyboard back to the renderer. There is no X server,
-no VNC and no window: open `http://localhost:6090` in a browser.
+own (EGL, `robot_runtime/mujoco_sim_interface`), encodes each frame as JPEG and passes it to this package's server,
+which serves a page that pulls the frames and sends the mouse and keyboard back to the renderer. It requires no X server,
+VNC, or local window: open `http://localhost:6090` in a browser.
 
 The package is MuJoCo-free and EGL-free:
 
@@ -36,10 +36,10 @@ it the keyboard.
 | `p` | Show the markers panel (the GLFW viewer prints the hotkeys to the log instead) |
 
 The toolbar resets the camera, switches tracking, saves the current frame as a PNG, and opens the markers panel (click
-a marker to toggle it) and the settings (frame size, "fit window", frames per second, quality). A bookmark can carry
+a marker to toggle it) and the settings (frame size, "fit window", frames per second, quality). A bookmark can include
 settings: `http://localhost:6090/?width=960&height=540&fps=20&quality=60`. The HUD shows the frames shown and rendered
 per second, the size, the camera mode, the simulation time, the age of the frame on screen and the number of viewers:
-the tabs that pulled a frame within the last second (each names itself with a random id) and the open streams.
+the tabs that pulled a frame within the last second (each identifies itself with a random id) and the open streams.
 
 The camera and the settings are shared: every tab shows the same view, the last input wins, and each tab's settings
 controls show what the renderer runs at (the server clamps a value out of range). No input reaches the simulation: see the
@@ -65,7 +65,7 @@ trust model.
 <!-- LINT.ThenChange(//robot_runtime/web_viewer/page/index.html:web_viewer_routes, //robot_runtime/web_viewer/src/WebViewerServer.cpp:web_viewer_routes, //robot_runtime/web_viewer/src/ViewerInputParsing.cpp:web_viewer_routes) -->
 
 A POST answers `204`; a malformed parameter, an unknown or repeated one (also with the same value, or a name spelled
-with escapes), a non-finite number, a key outside the set or a request body answers `400` with a message naming it. A frame request beyond the client limit answers `503 too many viewers (N)`. Any
+with escapes), a non-finite number, a key outside the set or a request body answers `400` with a message identifying it. A frame request beyond the client limit answers `503 too many viewers (N)`. Any
 other path answers `404`, another method `405` with `Allow`.
 
 ## The pull protocol
@@ -104,7 +104,7 @@ Nothing here runs on the physics or the realtime thread, and nothing blocks them
   accepting, ends the open requests (a write blocked on a stuck client within the 2 s write timeout) and joins every
   thread. The port can be bound again at once.
 
-cpp-httplib's `Server` constructor sets `SIGPIPE` to ignored for the whole process, as servers do; a write to a closed
+cpp-httplib's `Server` constructor sets `SIGPIPE` to ignored process-wide, as servers do; a write to a closed
 connection then fails with `EPIPE` instead of killing the process.
 
 ## Trust model
@@ -135,7 +135,7 @@ has no authentication and no TLS.
   - A `POST` needs `X-MuJoCo-Viewer: 1`, which a form cannot send and a cross-origin script can send only after a CORS
     preflight that the server never grants (it sends no `Access-Control-Allow-*` header, ever), and an `Origin`, when
     there is one, equal to `http://<Host>` or `https://<Host>` (an HTTPS-terminating forward that keeps the Host).
-  - Every answer carries `Cross-Origin-Resource-Policy: same-origin`, `X-Frame-Options: DENY`,
+  - Every response includes `Cross-Origin-Resource-Policy: same-origin`, `X-Frame-Options: DENY`,
     `Content-Security-Policy: frame-ancestors 'none'` and `X-Content-Type-Options: nosniff`.
 - On a non-loopback bind, browsers send no `Sec-Fetch-*` headers to a plain-HTTP origin that is not
   loopback, so with the LAN address among the allowed hosts another site can make a visitor's browser send short

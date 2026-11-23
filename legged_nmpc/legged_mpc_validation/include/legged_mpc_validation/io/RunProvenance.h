@@ -91,7 +91,7 @@ std::string describeMachine();
  * (`git_commit`, `worktree_state`, `machine`, `toolchain` {`compiler`,
  * `hpipm_target`, `container_image`}) and the SHA-256 of every configuration
  * file
- * (`configuration_sha256`). NotFound naming the first file that cannot be read.
+ * (`configuration_sha256`). NotFound identifying the first file that cannot be read.
  */
 absl::StatusOr<JsonValue> makeRunProvenanceJson(
     const RunEnvironment& environment,

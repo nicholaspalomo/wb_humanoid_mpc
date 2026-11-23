@@ -156,12 +156,12 @@ int characterColumn(absl::string_view text, int line, int column) {
 
 struct Problem {
   int line =
-      0;  // negative: a problem of the whole message, which has no position
+      0;  // negative: a problem of the full message, which has no position
   int column = 0;
   std::string message;
 };
 
-// The header line a configuration file names its message with
+// The header line a configuration file identifies its message with
 // (tools/nproto/README.md, "Textproto configuration files"), in its leading
 // comment block.
 // LINT.IfChange(header_lines)

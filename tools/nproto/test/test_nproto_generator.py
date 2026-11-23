@@ -27,7 +27,7 @@
 
 """The nproto generator on requests built here: what it generates, and the files it refuses with a clear error.
 
-The requests hold FileDescriptorProtos written as text, as protoc would send them, so that the cases nproto must
+The requests contain FileDescriptorProtos written as text, as protoc would send them, so that the cases nproto must
 reject - which the repository's lint keeps out of real .proto files - need no .proto file of their own.
 """
 
@@ -548,7 +548,7 @@ class GeneratedFilesTest(GeneratorTestCase):
     def test_options_parsed_before_the_extensions_were_registered_are_read(
         self,
     ):
-        # A process that parses the request before it imports nproto's options_pb2 holds the options as unknown fields.
+        # A process that parses the request before it imports nproto's options_pb2 stores the options as unknown fields.
         script = (
             "import sys\n"
             "from google.protobuf.compiler import plugin_pb2\n"
@@ -1261,7 +1261,7 @@ class GeneratedLayoutTest(GeneratorTestCase):
             )
 
 
-# A nested message Child of Node, for the fields that hold one.
+# A nested message Child of Node, for the fields that contain one.
 CHILD = f'nested_type {{ name: "Child" {FIELD_X} }} '
 OPTIONAL_MESSAGE = "options { [nproto.optional_message]: true }"
 RETIRED_DEPENDENCIES = (
@@ -1364,7 +1364,7 @@ class RetiredFieldTest(GeneratorTestCase):
         files = self.assertGenerates(
             self.generate_retired(("old_x", "write x"), ("legacyY", "drop it"))
         )
-        # The retired names are options only: the struct holds the live fields.
+        # The retired names are options only: the struct stores the live fields.
         self.assertNotIn("old_x", files["pkg/node.nproto.h"])
 
     def test_a_retired_name_that_is_a_live_field(self):

@@ -368,7 +368,7 @@ TEST(RobotRealtimeAllocations,
       << "the physics thread published its states";
 }
 
-/** A shipped robot the whole process cycle runs on: its URDF, its centroidal
+/** A shipped robot the full process cycle runs on: its URDF, its centroidal
  * task file and a base height that keeps its feet off the fake backend's
  * floor-less world. */
 struct ProcessCycleRobot {
@@ -408,12 +408,12 @@ class ProcessCycleAllocations
 TEST_P(
     ProcessCycleAllocations,
     TheProcessCycleOnTheHardwareSupervisorWithTheKalmanEstimatorAllocatesNothing) {
-  // The whole cycle of the robot process on its realtime thread - the
+  // The full cycle of the robot process on its realtime thread (the
   // contacts' surface heights from a multi-contact plan's patches, the planned
   // switch times and the kalman state estimator's predict and corrections with
   // its contact-trust ramp on and its leg kinematics, the FSM
   // commands of the hardware supervisor, the fall recovery, the telemetry
-  // sampler and the backend hand-over - between two cycles well after the
+  // sampler and the backend hand-over) between two cycles well after the
   // start, while FSM commands switch the torques. The scripted controller
   // samples the realtime thread's own counter at those cycles.
   constexpr uint64_t kFirstSample = 100;

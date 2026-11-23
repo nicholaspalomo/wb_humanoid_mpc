@@ -38,7 +38,7 @@ phases count the touch-downs, so a wheel that lifted would add one.
 
 In `walk_0p5` the gait table of `wheeled_gait.textproto` switches from `stance` to `drive`, and the robot rolls on its
 wheels without a step. The base reaches the command within about 1 s, averages 0.506 m/s over the last 10 s of the 15 s
-command (0.49 m/s over the whole 15 s, the start included), and stops 7.59 m from where the command started, 6 mm to
+command (0.49 m/s over all 15 s, including acceleration), and stops 7.59 m from where the command started, 6 mm to
 the side and 0.0016 rad off its heading. The 1.2 mm of slip over that drive is the distance the wheel material at the
 contact point slid, the stance-foot slip of a rolling contact (`ContactSlipMeasure::kMaterialSlip`): a wheel's contact
 point moves with the wheel, so its drift from touch-down is no slip measure.
@@ -54,7 +54,7 @@ the rim that touches the floor on the outside of the turn, about 20 mm here. The
 which fits the yaw rate falling about 10 % short of the command.
 The yaw-rate RMS error, 0.096 rad/s, is about ANYmal B's in the same scenario (0.094 rad/s, `2026-11-10_anymal_b`).
 
-Standing, the base sits 0.2 mm below the nominal 0.7485 m and the wheels slip less than 3 micrometers.
+Standing, the base is 0.2 mm below the nominal 0.7485 m and the wheels slip less than 3 micrometers.
 
 The solve benchmark replaying this label's states (`make benchmark-mpc-solve ROBOT=tron1 LABEL=<label>`) measured
 2.12 ms mean and 3.15 ms p99, 25 % of the 12.5 ms MPC period, on the states of the rerun (2.11 ms and 3.16 ms over

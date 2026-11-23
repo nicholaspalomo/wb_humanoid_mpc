@@ -131,7 +131,7 @@ absl::StatusOr<std::unique_ptr<WBMpcNode>> WBMpcNode::Create(
 
   // Hot reloading of the MPC parameters, wired by the one function every node
   // and driver that runs the whole-body MPC uses, as the centroidal node does:
-  // it applies the task file's RELOAD_HOT fields before a solve, and hands the
+  // it applies the task file's RELOAD_HOT fields before a solve, and passes the
   // command limits of a reloaded reference file to the calculator and the
   // motion manager built above.
   ASSIGN_OR_RETURN(

@@ -88,9 +88,9 @@ absl::string_view stanceConstraintName(
  * constrainYawRateAboutContactNormal). The two booleans of the file that the
  * name replaced are retired fields, which the parser refuses with the names.
  *
- * @return InvalidArgument naming
+ * @return InvalidArgument identifying
  * model_settings.foot_constraint.stance_constraint and listing the names, for a
- * name that is none of stanceConstraintNames(); InvalidArgument naming the
+ * name that is none of stanceConstraintNames(); InvalidArgument identifying the
  * field, for a soft_constraint_weight or normal_velocity_soft_constraint_weight
  * that is not a finite positive number, or for an error gain that is not a
  * finite number of at least 0 (the start-up and a hot reload refuse the same

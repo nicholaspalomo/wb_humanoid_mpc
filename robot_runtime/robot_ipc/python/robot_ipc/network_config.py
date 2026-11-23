@@ -36,9 +36,9 @@ The file is a textproto of robot_ipc_proto.NetworkConfig (robot_runtime/robot_ip
     topics { name: "mpc/policy" qos_profile: "reliable_latest" publishers: "mpc" }
 
 It is parsed strictly with google.protobuf.text_format: a syntax error, an unknown field or a value of the wrong type
-is a NetworkConfigError that names the file, the line and the column, e.g.
+is a NetworkConfigError that reports the file, the line and the column, e.g.
 "config/ipc/network.textproto:3:42: Message type "robot_ipc_proto.NetworkConfig.Node" has no field named "hots".".
-The content is then validated, and an error names the node, the topic or the field, e.g.
+The content is then validated, and an error identifies the node, the topic or the field, e.g.
 "config/ipc/network.textproto: domain_id: 300 is not a domain id in [0, 232]".
 """
 
@@ -66,7 +66,7 @@ _NODE_NAME = re.compile(r"[A-Za-z0-9_-]+")
 _DOMAIN_TAG = re.compile(r"[A-Za-z0-9_.-]*")
 # A DDS topic name is letters, digits, '_' and '/', not starting with a digit (Cyclone DDS's own rule).
 _TOPIC_NAME = re.compile(r"[A-Za-z_/][A-Za-z0-9_/]*")
-# The hosts that name every interface rather than a machine.
+# The hosts that represent every interface rather than a machine.
 _WILDCARD_HOSTS = ("0.0.0.0", "*")
 _LOCALHOST_NAME = "localhost"
 _LOOPBACK_PREFIX = "127."
@@ -320,7 +320,7 @@ def topic_name_problem(topic: str) -> str | None:
 
 
 def _validate_nodes(config: NetworkConfig) -> None:
-    """Raises NetworkConfigError naming the first invalid or repeated node."""
+    """Raises NetworkConfigError reporting the first invalid or repeated node."""
     if not config.nodes:
         raise NetworkConfigError(f"{NODES_FIELD}: names no node")
     names: dict[str, int] = {}
@@ -347,7 +347,7 @@ def _validate_nodes(config: NetworkConfig) -> None:
 
 
 def _validate_topics(config: NetworkConfig) -> None:
-    """Raises NetworkConfigError naming the first invalid or repeated topic, or a publisher that is no node."""
+    """Raises NetworkConfigError reporting the first invalid or repeated topic, or a publisher that is no node."""
     topics: dict[str, int] = {}
     for index, entry in enumerate(config.topics):
         name_key = _field_key(TOPICS_FIELD, index, entry.topic, "name")
@@ -370,7 +370,7 @@ def _validate_topics(config: NetworkConfig) -> None:
 
 
 def _validate_transport(transport: TransportOptions) -> None:
-    """Raises NetworkConfigError naming the first transport value out of range."""
+    """Raises NetworkConfigError reporting the first transport value out of range."""
     size = transport.max_message_size_bytes
     if (
         size != 0
@@ -421,7 +421,7 @@ def validate_network_config(config: NetworkConfig) -> None:
         config: The network to check.
 
     Raises:
-        NetworkConfigError: naming the offending node, topic or field.
+        NetworkConfigError: reporting the offending node, topic or field.
     """
     _validate_nodes(config)
     if not 0 <= config.domain_id <= MAX_DOMAIN_ID:
@@ -516,7 +516,7 @@ def _parse_error_text(error: text_format.ParseError, source: str) -> str:
 
 
 def parse_network_config(text: str, source: str = "<string>") -> NetworkConfig:
-    """Parses and validates the text of a network file; `source` names it in the error messages.
+    """Parses and validates the text of a network file; `source` identifies it in the error messages.
 
     Args:
         text: The textproto of a robot_ipc_proto.NetworkConfig.
@@ -526,7 +526,7 @@ def parse_network_config(text: str, source: str = "<string>") -> NetworkConfig:
         The validated network.
 
     Raises:
-        NetworkConfigError: naming the line and column of a malformed file, or the offending node, topic or field.
+        NetworkConfigError: reporting the line and column of a malformed file, or the offending node, topic or field.
     """
     message = network_config_pb2.NetworkConfig()
     try:
@@ -551,7 +551,7 @@ def load_network_config(path: str) -> NetworkConfig:
 
     Raises:
         FileNotFoundError: the file does not exist (OSError for other failures to read it).
-        NetworkConfigError: naming the line and column of a malformed file, or the offending node, topic or field.
+        NetworkConfigError: reporting the line and column of a malformed file, or the offending node, topic or field.
     """
     with open(path, encoding="utf-8") as file:
         return parse_network_config(file.read(), path)

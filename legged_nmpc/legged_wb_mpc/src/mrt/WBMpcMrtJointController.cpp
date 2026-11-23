@@ -97,7 +97,7 @@ namespace ocs2::legged {
 
 namespace {
 
-/** The class name the events carry. */
+/** The class name the events include. */
 constexpr char kControllerName[] = "WBMpcMrtJointController";
 
 /** The fraction of their JOINT_PD position gain the joints outside the MPC keep
@@ -227,7 +227,7 @@ WBMpcMrtJointController::WBMpcMrtJointController(
   otherJointIndices_ =
       robotDescription.getJointIndices(modelSettings.fixedJointNames);
   // Once, here, what the control cycle then takes for granted
-  // (jointActionUnchecked()): every joint it writes carries an action in a
+  // (jointActionUnchecked()): every joint it writes has an action in a
   // RobotJointAction of the robot description.
   checkJointIndices(robotDescription, mpcJointIndices_, kControllerName);
   checkJointIndices(robotDescription, otherJointIndices_, kControllerName);
@@ -767,8 +767,8 @@ void WBMpcMrtJointController::computeJointControlAction(
     // measurement is (LookaheadPolicyEvaluator). A policy the evaluator refuses
     // is not left to MRT_BASE::evaluatePolicy(), which allocates, logs and
     // aborts on a malformed policy: the robot is held as for a solver that
-    // keeps failing - the entry's hold on the cycle that handed over to the
-    // policy, the JOINT_PD action otherwise - until a policy the evaluator
+    // keeps failing (the entry's hold on the cycle that switched to the
+    // policy, the JOINT_PD action otherwise) until a policy the evaluator
     // takes is in use.
     const LookaheadPolicyEvaluator::Outcome outcome = policyEvaluator_.evaluate(
         mpcLink_->getPolicy(), currentMpcObservation_.time, simDt,
@@ -821,12 +821,12 @@ void WBMpcMrtJointController::executePolicy(
     const vector_t& mpcPolicyState,
     const vector_t& mpcPolicyInput,
     ::robot::model::RobotJointAction& robotJointAction) {
-  // The policy carries a wrench wherever its own schedule expects contact.
+  // The policy includes a wrench wherever its own schedule expects contact.
   // Whether a contact can actually transmit it is decided by the measured
   // contact state of this cycle, not by the plan: the wrench of a contact that
   // is not touching is dropped, and after touch-down it is debounced and ramped
   // in as configured (ContactWrenchGate). World-frame wrenches for the
-  // LOCAL_WORLD_ALIGNED Jacobians; the whole-body input carries them as they
+  // LOCAL_WORLD_ALIGNED Jacobians; the whole-body input stores them as they
   // are (fixed-size copies into the preallocated wrenchContactsEwrtWorld_).
   for (size_t i = 0; i < wrenchContactsEwrtWorld_.size(); ++i) {
     wrenchContactsEwrtWorld_[i] = mpcRobotModel_.getWrenchContactEwrtWorld(

@@ -46,7 +46,7 @@ namespace ocs2::legged::teleop {
  * and a finite number, and the four limits are positive (a limit of 0 would
  * normalize the command by 0).
  *
- * @return The limits; InvalidArgument naming the field that is absent or out of
+ * @return The limits; InvalidArgument identifying the field that is absent or out of
  * range.
  */
 absl::StatusOr<KeyboardCommandLimits> keyboardCommandLimitsFromConfig(

@@ -37,13 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::legged {
 
 /**
- * The operator's walking command as the operator bus carries it: the stick
+ * The operator's walking command as transmitted on the operator bus: the stick
  * deflections of the base velocities, each a dimensionless fraction of the
  * reference file's cmd_max_... limit (the `lnorm` qualifier), and the pelvis
  * height in meters. ProceduralMpcMotionManager::setAndScaleVelocityCommand()
  * multiplies the fractions by the limits into a WalkingVelocityCommand. A
  * plain value, free of any transport; the conversion from the bus message
- * lives in legged_common_mpc_app/node (WalkingVelocityCommandConversions.h).
+ * is in legged_common_mpc_app/node (WalkingVelocityCommandConversions.h).
  * Its vector form, toVector(), has WalkingVelocityCommand's layout.
  */
 struct NormalizedWalkingVelocityCommand {

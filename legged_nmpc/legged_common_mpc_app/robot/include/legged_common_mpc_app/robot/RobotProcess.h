@@ -85,12 +85,12 @@ namespace ocs2::legged {
  * The robot process: the realtime loop over a robot backend and an MRT joint
  * controller, and everything around it on the bus. The same for both
  * formulations and every backend; the binaries (legged_centroidal_mpc_robot,
- * legged_wb_mpc_robot) build the controller and its MPC link and hand them
- * over. See legged_nmpc/legged_common_mpc_app/robot/README.md and
+ * legged_wb_mpc_robot) build the controller and its MPC link and pass them
+ * in. See legged_nmpc/legged_common_mpc_app/robot/README.md and
  * legged_nmpc/docs/distributed_runtime/README.md.
  *
- * THE BACKEND'S SUPERVISOR. The FSM bridge and the fall recovery are the ones
- * the backend names (RobotBackend::supervisorName(), RobotSupervisorRegistry):
+ * THE BACKEND'S SUPERVISOR. The FSM bridge and the fall recovery are selected
+ * by the backend (RobotBackend::supervisorName(), RobotSupervisorRegistry):
  * `sim` drives the simulator's torque switch, gantry, dodgeballs and resets
  * (SimFsmBridge, SimFallRecovery); `hardware` the backend's torque switch only,
  * with no gantry and a tilt cut-off (HardwareFsmBridge, HardwareFallRecovery).
@@ -99,13 +99,13 @@ namespace ocs2::legged {
  *
  * THE REALTIME THREAD runs, every control period:
  *   1. read the robot state from the backend, and run the task file's state
- * estimator over it (state_estimator: `ground_truth` hands the backend's state
- * on as it is, `kalman` replaces the base's position and linear velocity with
- * its estimate from the IMU and the leg kinematics), with the surface height
- * of each contact (Config::contactSurfaceHeights, looked up at the previous
- * estimate's contact positions): what every later step reads;
+ * estimator over it (state_estimator: `ground_truth` forwards the backend's
+ * state as it is, `kalman` replaces the base's position and linear velocity
+ * with its estimate from the IMU and the leg kinematics), with the surface
+ * height of each contact (Config::contactSurfaceHeights, looked up at the
+ * previous estimate's contact positions): what every later step reads;
  *   2. take the operator's joint targets into the JOINT_PD posture (mailbox);
- *   3. hand the controller the mode and the posture, and run
+ *   3. pass the controller the mode and the posture, and run
  * computeJointControlAction(), which writes the observation into the MPC link
  * (for a remote link: a triple buffer that the bus's IO thread publishes);
  *   4. tell the viewer the contact state the policy in use plans for now (the
@@ -123,8 +123,8 @@ namespace ocs2::legged {
  *  10. the MPC's health into the FSM state.
  * The action goes to the backend after the cycle's FSM command and fall
  * recovery (9), not before them: a cycle that switches the torques back on
- * hands the backend the action it computed - in ZERO_TORQUE, no gain and no
- * torque - instead of leaving it the action latched when the torques went off,
+ * sends the backend the action it computed (in ZERO_TORQUE, no gain and no
+ * torque) instead of leaving it the action latched when the torques went off,
  * possibly long before and in another mode, for a control period. The simulator
  * also refuses to execute an action applied before its torques came back on
  * (RobotHWInterfaceBase::discardAppliedJointAction()). It talks to nothing but
@@ -271,9 +271,10 @@ class RobotProcess {
   /**
    * Builds the process around `backend` and `controller` and registers it on
    * `bus` (not running yet). Installs the task file's contact estimator
-   * (resolved through `contactEstimators`, which already holds the backend's)
-   * and its state estimator (StateEstimatorRegistry), and the supervisor the
-   * backend names (RobotSupervisorRegistry): an unknown name is InvalidArgument
+   * (resolved through `contactEstimators`, which already contains the
+   * backend's) and its state estimator (StateEstimatorRegistry), and the
+   * supervisor the backend specifies (RobotSupervisorRegistry): an unknown name
+   * is InvalidArgument
    * listing the available ones, and so is the `sim` supervisor of a backend
    * that is no simulator.
    */

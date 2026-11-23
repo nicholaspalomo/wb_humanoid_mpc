@@ -74,11 +74,11 @@ std::optional<std::filesystem::file_time_type> lastWriteTime(
  * place on the solver's existing OCP objects, through their
  * setGains/setWeights/ setConfig methods, rather than rebuilding the MPC
  * interface (which would leave the solver with dangling references). What a
- * reload writes is decided by the hot-field appliers the formulation hands it
+ * reload writes is decided by the hot-field appliers the formulation provides
  * (Options::appliers; centroidalHotFieldAppliers(),
  * wholeBodyHotFieldAppliers()); this module is the machinery both share.
  *
- * A reload is a whole typed file, and it is applied as that file
+ * A reload is a complete typed file, and it is applied as that file
  * (legged_nmpc/legged_mpc_config/README.md, "Live updates"): a block it
  * leaves out is the block's defaults, exactly as at start-up. The fields that
  * are applied are the ones the schema marks RELOAD_HOT
@@ -98,7 +98,7 @@ std::optional<std::filesystem::file_time_type> lastWriteTime(
  * Options::fileCheckPeriod (by default about once a second), and the reference
  * file, whose command limits go to the registered reloaders
  *      (addReferenceFileReloader()).
- *   2. enqueueParameterUpdate(): the tuning GUI's whole task file and contact
+ *   2. enqueueParameterUpdate(): the tuning GUI's full task file and contact
  * planner's file, applied by the next preSolverRun() without touching any file.
  * The transport is the caller's (the MPC node forwards
  *      operator/mpc_parameters).
@@ -162,7 +162,7 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
     size_t inputDim = 0;
     // Optional; must outlive the updater. Its swing trajectory planner is
     // reconfigured, and it owns the ground: a reloaded
-    // pos_surface_rt_world_ewrt_world_z is handed to it
+    // pos_surface_rt_world_ewrt_world_z is passed to it
     // (setPosSurfaceRtWorldEwrtWorldZ), and the contact-implicit terms follow
     // the ground it applied (getAppliedPosSurfaceRtWorldEwrtWorldZ) from the
     // next solve on, so that they never disagree with the swing trajectories or
@@ -198,7 +198,7 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
   std::vector<std::string> appliedFields() const;
 
   /**
-   * Hands the updater a whole task file and, for a robot with a contact
+   * Passes the updater a full task file and, for a robot with a contact
    * planner, its file (as the tuning GUI publishes them on
    * operator/mpc_parameters), to be applied by the next preSolverRun() exactly
    * as edits of the files on disk would be, without writing any file. An update
@@ -284,8 +284,8 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
    */
   void applyChangedFiles() ABSL_LOCKS_EXCLUDED(pendingMutex_);
 
-  /** Reads and converts the reference file and hands it to the reloaders; logs
-   * what refused it. */
+  /** Reads and converts the reference file and passes it to the reloaders;
+   * logs what refused it. */
   void reloadReferenceFile();
 
   MPC_BASE* absl_nullable mpcPtr_;

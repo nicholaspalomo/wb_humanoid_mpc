@@ -68,7 +68,7 @@ class JointMimicKinematicConstraint final : public StateInputConstraint {
    * The constraint q_child = multiplier * q_parent between two MPC joints of
    * `mpcRobotModel`, which must outlive it.
    *
-   * @return NotFound naming the joint when `parentJointName` or
+   * @return NotFound identifying the joint when `parentJointName` or
    * `childJointName` is not an active joint of the MPC model; InvalidArgument
    * when `positionGain` is not positive.
    */

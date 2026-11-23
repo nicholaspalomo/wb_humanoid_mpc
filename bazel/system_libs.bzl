@@ -122,10 +122,10 @@ cc_library(
         "-lpinocchio_default",
     ],
     # Pinocchio's configuration of the Boost and urdfdom headers it includes. As `defines` they reach every target that
-    # depends on Pinocchio, so every translation unit that sees its headers agrees on them, and no other target carries
+    # depends on Pinocchio, so every translation unit that sees its headers agrees on them, and no other target gets
     # Boost flags. The joint model is a boost::variant over an MPL list of more joint types than Boost's default limit
     # of 20, its joint visitors dispatch through boost::fusion::invoke, whose arity limit is raised to match, and the
-    # urdfdom it parses hands out std::shared_ptr.
+    # urdfdom it parses returns std::shared_ptr.
     defines = [
         # NOLINTBEGIN(boost): Boost's configuration for Pinocchio's headers, on this target and on no other.
         "BOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",

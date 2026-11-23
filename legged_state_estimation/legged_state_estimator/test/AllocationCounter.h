@@ -37,7 +37,7 @@ namespace ocs2::legged::estimation {
  * The number of heap allocations this process has made so far.
  *
  * Linking this library into a binary interposes malloc, calloc and realloc for
- * the whole process, forwarding each to glibc's own implementation after
+ * the process, forwarding each to glibc's own implementation after
  * counting it. That catches every allocation, including Eigen's, which calls
  * std::malloc directly rather than operator new. Only for test and benchmark
  * binaries, and only with glibc.

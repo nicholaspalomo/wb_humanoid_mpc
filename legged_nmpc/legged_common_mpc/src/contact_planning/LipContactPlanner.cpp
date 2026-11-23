@@ -223,7 +223,7 @@ std::optional<int> LipContactPlanner::previousPlanShift(
   //
   // This guard used to also demand |prev.dt - planner.dt| <= 1e-9 and then
   // divide by planner.dt. Nothing in the configuration can make those two
-  // differ - setConfig() calls reset() on any change of the grid - so the only
+  // differ (setConfig() calls reset() on any change of the grid), so the only
   // plan the test ever rejected was one the planner itself had just produced on
   // a stretched grid: CadenceStretchStage sets SearchRun::chosenDt and plan()
   // copies it into ContactPlan::dt. The cycle after every stretch therefore
@@ -296,14 +296,14 @@ HeadingNominal LipContactPlanner::defaultNominal(
   const int N = config_.planner.numNodes;
   // The grid this nominal is to be read on. It is planner.dt for the plan's own
   // problem and the stretched node duration for a candidate of
-  // CadenceStretchStage, and the difference matters because the two branches
-  // below are of different kinds. The previous-plan branch is per-node GEOMETRY
-  // - node k of the previous plan is node k of this one shifted - and a
+  // CadenceStretchStage, and the distinction is required because the two
+  // branches below are of different kinds. The previous-plan branch is per-node
+  // GEOMETRY (node k of the previous plan is node k of this one shifted), and a
   // re-timing of the grid re-times that plan's phases with it, so it is indexed
   // by node whatever a node lasts. The commanded-ramp branch is a function of
   // TIME: it integrates the commanded yaw rate and CoM velocity, so node k of a
-  // grid of duration `nodeDuration` sits at k * nodeDuration and must be
-  // sampled there.
+  // grid of duration `nodeDuration` is at k * nodeDuration and must be sampled
+  // there.
   const scalar_t dt = nodeDuration > 0.0 ? nodeDuration : config_.planner.dt;
   HeadingNominal nominal;
   nominal.nomHeadingModelYawTraj.resize(static_cast<size_t>(N) + 1);
@@ -323,7 +323,7 @@ HeadingNominal LipContactPlanner::defaultNominal(
   // started on. Across a crossing of +-pi the two differ by 2 pi, and a nominal
   // on the old branch made every first-order frame term g (theta - theta_n)
   // equal to g 2 pi (over a meter on the step width) and aimed the foot yaw
-  // tracking a full turn away. One offset moves the whole previous heading
+  // tracking a full turn away. One offset shifts the previous heading
   // trajectory onto the branch of the measurement, which keeps it continuous
   // whatever the plan turns through.
   const int previousShift =
@@ -546,13 +546,13 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // The LINEARIZATION POINT does not compose the same way yet:
   // a stretch listed after a re-linearization
   // rebuilds the nominal from the command (or from the previous plan) and so
-  // drops that stage's relinearized frame, because SearchRun carries the
+  // drops that stage's relinearized frame, because SearchRun stores the
   // adopted grid but has no field for the adopted nominal, and a stage's
-  // re-assembly closure is also called speculatively - for candidates it then
-  // rejects - so this side cannot infer the adopted point from the calls alone.
-  // Listing cadence_stretch before heading_relinearization - the order
+  // re-assembly closure is also called speculatively (for candidates it then
+  // rejects), so this side cannot infer the adopted point from the calls alone.
+  // Listing cadence_stretch before heading_relinearization (the order
   // setHeadingModel(true) produces when the stretch is already listed, since it
-  // appends - costs nothing and keeps both: the re-linearization then runs
+  // appends) costs nothing and keeps both: the re-linearization then runs
   // last, on the stretched grid, around the incumbent's own heading.
   //
   // assembleWithNominal used to pass no node duration at all, so makeContext
@@ -562,9 +562,9 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // that solve, while run.chosenDt kept the stretched value that plan() copies
   // into ContactPlan::dt below. The emitted plan paired a node duration of s *
   // dt with trajectories that satisfy the dt recursion, and since
-  // ContactPlan::dt is the sole carrier of the grid - toModeSchedule() places
+  // ContactPlan::dt is the sole record of the grid (toModeSchedule() places
   // every event at startTime + dt * k and getDesPosFootRtWorldEwrtWorldXy()
-  // rounds with it - a lift-off or touch-down at node k was handed to the
+  // rounds with it), a lift-off or touch-down at node k was passed to the
   // whole-body MPC (s - 1) k dt late, 0.3 s at the end of a twelve-node horizon
   // stretched by a quarter. Nothing rejected the order: the `search` list is
   // documented as not order-sensitive and validate() imposes no order on it,
@@ -578,9 +578,9 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
     return problem_.assemble(relinearizedContext);
   };
   // The mirror of the same mistake: this closure used to capture the nominal
-  // that defaultNominal() built on the unstretched grid and hand it to a
+  // that defaultNominal() built on the unstretched grid and pass it to a
   // context whose dt alone had been overridden. A HeadingNominal is indexed by
-  // node, so on a grid of duration s * dt node k sits at time k * s * dt while
+  // node, so on a grid of duration s * dt node k is at time k * s * dt while
   // nominal.nomHeadingModelYawTraj[k] and
   // nominal.nomPosComRtWorldEwrtWorldXyTraj[k] still described k * dt. Every
   // term that reads ctx.dt was re-timed (LipComDynamics,
@@ -615,8 +615,8 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
 
   ContactPlan plan = decode(input, ctx, lastResult_);
   // A stage that re-timed the grid (cadence_stretch) reports the node duration
-  // the plan is to carry. ContactPlan holds its own dt, so the whole plan -
-  // event times, horizon, foothold lookup - follows from this one field.
+  // for the plan. ContactPlan stores its own dt, so all timing fields (event
+  // times, horizon, foothold lookup) follow from this one field.
   if (run.chosenDt > 0.0) plan.dt = run.chosenDt;
   if (config_.planner.verbose) {
     LOG(INFO) << "[LipContactPlanner] valid=" << plan.valid

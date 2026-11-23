@@ -117,7 +117,7 @@ bool TelemetrySampler::sample(
           jointAction[joint];  // joint < numJoints_, the description's
       slot.joint_positions[row] = robotState.getJointPosition(joint);
       slot.joint_velocities[row] = robotState.getJointVelocity(joint);
-      // The RobotState carries no measured effort yet (nothing fills
+      // The RobotState contains no measured effort yet (nothing fills
       // JointState::measuredEffort).
       slot.joint_measured_efforts[row] = 0.0;
       // robot_state_sample.proto: a joint without an action has a NaN position

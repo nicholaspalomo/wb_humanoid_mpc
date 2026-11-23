@@ -108,7 +108,7 @@ using node::test_support::ScriptedRobot;
 
 node::MpcFiles g1Files() {
   node::MpcFiles files;
-  // A file missing from the runfiles throws here, naming the data dependency to
+  // A file missing from the runfiles throws here, identifying the data dependency to
   // add (robot::resolveResourcePath).
   files.taskFile =
       robot::resolveResourcePath(
@@ -310,7 +310,7 @@ matrix_t stateWeightsOf(const legged_mpc_config::TaskFile& task,
 }
 
 /**
- * Expects every worker's running quadratic state cost to hold the state weights
+ * Expects every worker's running quadratic state cost to store the state weights
  * `expected` (Q of the tuning layout, which the cost's TuningLayoutDeviation
  * maps onto the quaternion state's tangent), and the swing foot's gains of
  * every worker's pre-computation to be the model settings'.
@@ -422,7 +422,7 @@ TEST(WBMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   // The controller as the robot process builds it, with a link that keeps the
-  // reset target the controller hands it.
+  // reset target the controller passes it.
   mpc_test::ScriptedMpc scriptedMpc(interface.mpcSettings(),
                                     interface.getMpcRobotModel().getInputDim());
   MpcLink::ResetTargetFunction controllerResetTarget;

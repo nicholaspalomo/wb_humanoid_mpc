@@ -158,7 +158,7 @@ bool PhaseDurationsRule::propagate(const ContactLogicState& s,
         if (mustStay && mustSwitch) {
           // The grid cannot honor both limits for this phase (they are less
           // than a node apart); decide by the nearest node instead of declaring
-          // the whole horizon infeasible.
+          // the horizon infeasible.
           const int tauNearest = static_cast<int>(
               std::lround(static_cast<scalar_t>(k) - phaseStartNode));
           mustStay = (kappa == 1 && tauNearest < s.nContactMin) ||
@@ -190,8 +190,8 @@ bool PhaseDurationsRule::propagate(const ContactLogicState& s,
           // the hold after one), and it read the hold from a per-pass snapshot
           // of the prefix that missed a touch-down this very pass had fixed.
           // Each of those fixed binaries that some feasible completions
-          // disagree with, so the branch-and-bound pruned feasible subtrees -
-          // the other foot stepping first after a push, for one - and still
+          // disagree with, so the branch-and-bound pruned feasible subtrees
+          // (the other foot stepping first after a push, for one) and still
           // reported the plan optimal. See MiqpPropagateFn and ContactLogicRule
           // for the contract, and testContactPlanningRegression for the
           // enumeration over the partial assignments the search reaches.

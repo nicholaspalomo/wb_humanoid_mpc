@@ -90,7 +90,7 @@ constexpr char kTwoJointUrdf[] = R"(<robot name="two_joints">
 </robot>
 )";
 
-// The header of a task file, which names its schema.
+// The header of a task file, which specifies its schema.
 constexpr char kTaskHeader[] = "# proto-message: legged_mpc_config.TaskFile\n";
 
 /** The robot of kTwoJointUrdf, written to the scratch directory. */
@@ -208,7 +208,7 @@ TEST(ModelSettingsCreate,
   EXPECT_EQ(missing.status().code(), absl::StatusCode::kNotFound);
   EXPECT_THAT(missing.status().message(), HasSubstr("no_such_task.textproto"));
 
-  // A value that does not convert is refused by the parser, naming the file,
+  // A value that does not convert is refused by the parser, reporting the file,
   // its line and its column.
   const std::string badValueFile =
       writeFile("bad_value.textproto",

@@ -42,7 +42,7 @@ namespace robot {
  * frame rates of the MuJoCo metrics overlay. Each rate is one over the period
  * between two ticks, so the first tick after construction or reset() only
  * starts the clock, and fps() is 0 until the second. A period of zero or less
- * (two ticks within one tick of the steady clock) carries no rate and is
+ * (two ticks within one tick of the steady clock) has no rate and is
  * skipped. Not thread-safe: one thread ticks and reads it.
  */
 class FPSTracker {
@@ -93,7 +93,7 @@ class FPSTracker {
 
  private:
   double alpha_;  // Smoothing factor (0 < alpha <= 1)
-  /// Whether fps_ holds a rate yet; the first rate is taken as it is rather
+  /// Whether fps_ stores a rate yet; the first rate is taken as it is rather
   /// than smoothed against 0.
   bool hasRate_ = false;
   double fps_ = 0.0;

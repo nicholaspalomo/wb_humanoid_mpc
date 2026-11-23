@@ -25,19 +25,19 @@ keyboard teleoperation ([`../teleop`](../teleop/README.md)). The binaries are bu
  operator/mpc_parameters ----------> parameter updater (enqueueParameterUpdate)    |  visualization observer
 ```
 
-A formulation's node (`CentroidalMpcNode`, `WBMpcNode`) builds the MPC and its synchronized modules and hands the
-runtime what it is made of (`MpcNodeRuntime::Components`):
+A formulation's node (`CentroidalMpcNode`, `WBMpcNode`) builds the MPC and its synchronized modules and passes its
+components to the runtime (`MpcNodeRuntime::Components`):
 
 - `mpc`: the `SqpMpc`, with the reference manager and the synchronized modules registered in this order: motion
   manager, contact planner, parameter updater;
-- `resetTargetTrajectories`: the formulation's reset target, the same free function the MRT joint controller hands its
+- `resetTargetTrajectories`: the formulation's reset target, the same free function the MRT joint controller passes to its
   in-process link (`centroidalMpcResetTargetTrajectories()`, `wbMpcResetTargetTrajectories()`), so that a reset served
   by the MPC node and one served in process restart the MPC from the same target;
 - `motionManager`: `operator/walking_velocity_command` goes to its `setAndScaleVelocityCommand()` on the IO thread
   (`ProceduralMpcMotionManager` keeps the command under a mutex; the solver thread reads it in `preSolverRun()`); a
   command with a value that is not finite is refused, logged and counted;
 - `parameterUpdateSink` (optional): the updates of `operator/mpc_parameters` (`legged_mpc_config.MpcParameterUpdate`,
-  the tuning GUI's whole task file and contact planner's file), converted to their structs on the IO thread, for
+  the tuning GUI's full task file and contact planner's file), converted to their structs on the IO thread, for
   `MpcParameterUpdaterModule::enqueueParameterUpdate()` (`legged_common_mpc/parameter_update/`, the one updater
   both formulations' nodes register), which applies the newest one before the next solve. An update of another schema
   version, of another robot (`Config::robotName`) or of another configuration (`Config::taskFileIdentity`, the
@@ -54,11 +54,11 @@ thread inherit them.
 
 ### The observation hand-over
 
-Before every solve the runtime's `MpcServer` hands the observation the solve starts from to the motion manager
+Before every solve the runtime's `MpcServer` passes the observation the solve starts from to the motion manager
 (`MpcServer::Hooks::preSolveObserver` -> `ProceduralMpcMotionManager::observe()`), on the solver thread. The MPC's
 `run()` takes the observation's time and state only, and the motion manager needs its input as well: the centroidal MRT
 writes the measured joint velocities there, without which the base twist of a centroidal state is the twist of the robot
-with its joints locked. The lockstep closed loop hands it over the same way, through
+with its joints locked. The lockstep closed loop passes it the same way, through
 `InProcessMpcLink::Config::solverObservationObserver` (LINT pair `observation_hand_over`).
 
 ### The visualization publisher
@@ -69,7 +69,7 @@ publishes `viz/scene` and `viz/telemetry` from a thread of its own. It returns t
 server calls after every policy it publishes, on the solver thread, with the command, the solution and the performance
 index: the observer copies what it needs and returns.
 
-Both formulation nodes always attach it: `CentroidalMpcNode` and `WBMpcNode` hand the runtime `visualization::VisualizationPublisher::MakeBusAttacher()` on the
+Both formulation nodes always attach it: `CentroidalMpcNode` and `WBMpcNode` pass the runtime `visualization::VisualizationPublisher::MakeBusAttacher()` on the
 MPC's own models, keep the publisher as a member declared before the runtime (so that it outlives the server whose
 observer feeds it), start it in `start()` before the runtime, and stop it in `stop()` before the runtime, which owns
 the bus. `Options::visualization` sets its thread and queue. The runtime's tests attach scripted observers instead.
@@ -107,7 +107,7 @@ The link's health is not acted on: the plant keeps rolling the policy in use out
 <!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/node/include/legged_common_mpc_app/node/MpcAppFlags.h:mpc_app_flags) -->
 
 Each binary defines `--ipc_node` itself: `mpc` for the MPC nodes, `robot` for the dummy simulators. A file flag that is
-not given, or names no file, ends the binary with exit code 2 and a message that names the flag. The files are the
+omitted or specifies a nonexistent file ends the binary with exit code 2 and prints the flag name. The files are the
 typed textprotos of [`legged_mpc_config`](../../legged_mpc_config/README.md), read strictly: an unknown field or a
 value of the wrong type ends the start-up with its file, line and column.
 

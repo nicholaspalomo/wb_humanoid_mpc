@@ -65,10 +65,10 @@ class CentroidalMpcTargetTrajectoriesCalculator
    * (loadReferenceFile(): the path form of a root of the MPC's configuration).
    * `mpcRobotModel` must outlive the calculator.
    *
-   * @return The loader's errors for the path form; InvalidArgument naming the
-   * field of a file whose command limits or default posture do not convert
-   * (referenceSettingsFromConfig(), defaultJointStateFromConfig()), and naming
-   *         target_joint_state_interpolation_time_constant when the file does
+   * @return The loader's errors for the path form; InvalidArgument identifying
+   * the field of a file whose command limits or default posture do not convert
+   * (referenceSettingsFromConfig(), defaultJointStateFromConfig()), and
+   * reporting target_joint_state_interpolation_time_constant when the file does
    * not give it or it is not positive. The path form prefixes the conversions'
    * errors with the file.
    */

@@ -45,7 +45,7 @@ namespace ocs2::legged::test {
 /**
  * The assembled optimal control problem of an interface, as the solver sees it,
  * as labeled matrices compared exactly: every collection's term names, and the
- * LQ approximation of the whole problem (cost with its soft constraints,
+ * LQ approximation of the full problem (cost with its soft constraints,
  * dynamics, equality constraints) at points along the walking schedule of
  * setWalkingReferences(), plus the terminal approximation and the reference
  * manager's desired state.
@@ -69,7 +69,7 @@ void setWalkingReferences(CentroidalMpcInterface& interface);
  * first. */
 Fingerprint fingerprintOf(CentroidalMpcInterface& interface);
 
-/** Bit-for-bit equality of two fingerprints, naming the first entry that
+/** Bit-for-bit equality of two fingerprints, reporting the first entry that
  * differs. */
 ::testing::AssertionResult identical(const Fingerprint& a,
                                      const Fingerprint& b);

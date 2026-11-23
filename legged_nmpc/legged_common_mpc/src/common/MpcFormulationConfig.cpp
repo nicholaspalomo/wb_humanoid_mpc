@@ -270,9 +270,10 @@ absl::StatusOr<MpcSoftConstraintType> stringToMpcSoftConstraintType(
 }
 
 // The canonical soft-constraint names, the spelling a task file lists. The
-// robots' task files name the contact-implicit entries in comments and README
-// section 5 in its switch-on snippet; a rename here has to reach both, or the
-// documented switch-on lists name something this registry refuses.
+// robots' task files list the contact-implicit entries in comments and README
+// section 5 includes them in its switch-on snippet; a rename here has to update
+// both, or the documented switch-on lists will reference an entry this registry
+// refuses.
 // LINT.IfChange(soft_constraint_names)
 absl::StatusOr<std::string> mpcSoftConstraintTypeToString(
     MpcSoftConstraintType type) {

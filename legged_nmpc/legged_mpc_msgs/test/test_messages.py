@@ -53,7 +53,7 @@ import rerun
 import robot_ipc
 
 PACKAGE = "legged_mpc_msgs"
-# The one import from outside the package: the options that name each message's nproto struct.
+# The one import from outside the package: the options that specify each message's nproto struct.
 NPROTO_OPTIONS = "nproto/options.proto"
 STRUCT_NAMESPACE = "ocs2::legged::msgs"
 # The .proto files are data of this test, next to its directory in the runfiles tree.

@@ -51,7 +51,7 @@ double firstPeriodicTimeAfter(double scheduled, double period, double time);
  * A solve is due every `period` from the first one (step 5, the pacing; a solve
  * falls in the first control cycle at or after its time). A solve that fails
  * and asks for a pause before the next attempt
- * (MpcResetSupervisor::onSolveResult()'s retry delay) holds the solves back
+ * (MpcResetSupervisor::onSolveResult()'s retry delay) delays the solves
  * until the delay has passed, or until a reset is requested after that failure
  * (MpcResetSupervisor::resetRequestedSinceLastFailure()), whichever comes first
  * (step 4, waitBeforeRetry()). The solve that ends the pause runs at once, and
@@ -75,8 +75,8 @@ class LockstepSolveSchedule {
   /**
    * Whether a solve is due in the control cycle at `time`.
    * `resetRequestedSinceFailure` is
-   * MpcResetSupervisor::resetRequestedSinceLastFailure(); it matters only while
-   * a pause holds the solves back.
+   * MpcResetSupervisor::resetRequestedSinceLastFailure(); it applies only while
+   * a pause delays the solves.
    */
   bool isDue(double time, bool resetRequestedSinceFailure) const;
 
@@ -84,7 +84,7 @@ class LockstepSolveSchedule {
    * `retryDelay` [s] before the next (zero: none). */
   void onSolve(double time, double retryDelay);
 
-  /** Whether a failed solve's pause holds the solves back. */
+  /** Whether a failed solve's pause is delaying the solves. */
   bool isPaused() const { return retryUntil_.has_value(); }
 
  private:

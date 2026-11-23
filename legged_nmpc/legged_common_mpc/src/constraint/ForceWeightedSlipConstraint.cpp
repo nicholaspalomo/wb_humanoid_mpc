@@ -185,7 +185,7 @@ ForceWeightedSlipConstraint::getLinearApproximation(
   approximation.f = scaledForceContactEwrtParamZ * scaledSlip;
   approximation.dfdx = scaledForceContactEwrtParamZ * dScaledSlipdx;
   // d(f_hat v_hat) / du = f_hat dv_hat/du + v_hat (df_hat/du), the second term
-  // being the constant normal-force row carrying the force scale.
+  // being the constant normal-force row with the force scale.
   approximation.dfdu = scaledForceContactEwrtParamZ * dScaledSlipdu +
                        (scaledSlip * inverseScaleForceContactEwrtParamZ_) *
                            inputRowForceContactEwrtParamZ_.transpose();

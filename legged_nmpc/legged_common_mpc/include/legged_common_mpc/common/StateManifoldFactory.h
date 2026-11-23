@@ -54,7 +54,7 @@ namespace ocs2::legged {
  * OptimalControlProblem::stateManifoldPtr, ManifoldLinearController,
  * MRT_BASE::setStateManifold and RolloutBase::setStateManifold take one.
  *
- * InvalidArgument, naming the layout, when it is not placed on a state of
+ * InvalidArgument, reporting the layout, when it is not placed on a state of
  * model.getStateDim() entries or places its orientation on another number of
  * rows than the quaternion's 4.
  */

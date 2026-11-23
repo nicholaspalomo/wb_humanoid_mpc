@@ -138,23 +138,22 @@ std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule,
  * Bledt's beta (Appendix C, the impulse-scaling heuristic): a foot down for a
  * fraction beta of its cycle must push m*g/(F beta) while it is down for the
  * feet between them to carry the weight over the cycle. The stride is measured
- * lift-off to lift-off - a swing and the stance that follows it - and the
- * stride containing `time` is used. On any periodic gait that is the gait's own
- * duty factor at EVERY node, whichever foot and wherever in the cycle, which is
- * what makes the scaled reference average to exactly m*g. (It used to be the
- * contact fraction over a window as long as the MPC horizon. A horizon is not a
- * whole number of strides in general - a 1.4 s walk stride against a 1.0 s
- * horizon
- * - so that beta swung with the phase, the two feet saw different values at the
- * same node, and the reference averaged to 17% more than the weight.)
+ * lift-off to lift-off (a swing and the stance that follows it), and the stride
+ * containing `time` is used. On any periodic gait that is the gait's own duty
+ * factor at EVERY node, whichever foot and wherever in the cycle, which is what
+ * makes the scaled reference average to exactly m*g. (It used to be the contact
+ * fraction over a window as long as the MPC horizon. A horizon is not a whole
+ * number of strides in general, e.g. a 1.4 s walk stride against a 1.0 s
+ * horizon, so that beta swung with the phase, the two feet saw different values
+ * at the same node, and the reference averaged to 17% more than the weight.)
  *
- * Outside every complete stride of this foot - before its first lift-off, or
- * after its last complete stride - it is the nearest complete stride's value
+ * Outside every complete stride of this foot (before its first lift-off, or
+ * after its last complete stride), it is the nearest complete stride's value
  * while a gait is under way, and 1 once the robot is standing: 1 before any
- * foot has lifted off, and after the last event of the whole schedule. 1 is
- * "always down", the value at which the impulse correction vanishes, and it is
- * also what an empty schedule, or the default ModeSchedule() - one FLY mode and
- * no events - returns, so a caller never has to guard against a divide by zero.
+ * foot has lifted off, and after the last event of the schedule. 1 is "always
+ * down", the value at which the impulse correction vanishes, and it is also
+ * what an empty schedule, or the default ModeSchedule() (one FLY mode and no
+ * events), returns, so a caller never has to guard against a divide by zero.
  */
 scalar_t stanceDutyFactor(const ModeSchedule& schedule,
                           size_t foot,
@@ -235,7 +234,7 @@ bool planAgreesWithSwingsInFlight(const ModeSchedule& applied,
  * `maxNodes` of them. A node that lies entirely inside the window is sampled at
  * its midpoint; the last committed node, whether it straddles the boundary or
  * ends exactly on it, is sampled at the boundary, i.e. with the contact state
- * the executed schedule hands over to the plan there. Sampling that node at its
+ * the executed schedule passes to the plan there. Sampling that node at its
  * midpoint let the planner contradict the executed schedule inside it (a
  * touch-down after the midpoint read as "still swinging"), which the merge then
  * turned into a delayed touch-down or a phantom re-lift of the foot that had
@@ -288,8 +287,9 @@ std::vector<BipedFeetArray<scalar_t>> committedPhaseStartsForPlanner(
  *
  * The reference manager keeps the executed schedule only from one horizon
  * before the solver time on (the merge's lowerBoundTime), so about a horizon
- * after the robot comes to stand the schedule no longer holds the robot's last
- * lift-off at all. The last swung foot used to be read off that schedule alone,
+ * after the robot comes to stand the schedule no longer contains the robot's
+ * last lift-off at all. The last swung foot used to be read off that schedule
+ * alone,
  * and it then became -1 (unknown): the H-LIP blend lost the zero-command orbit
  * it measures the lateral velocity against in double support
  * (HlipContactPlanner::computeZeroCommandOrbitLinvelComRtWorldEwrtHeadingY), so

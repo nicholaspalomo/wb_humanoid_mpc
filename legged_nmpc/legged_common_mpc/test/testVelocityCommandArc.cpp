@@ -211,7 +211,7 @@ struct ChordDeviation {
 /**
  * The deviation from the arc of a segment cut into `parts`: the base starts
  * with the world velocity `initLinvelBaseRtWorldEwrtWorldXy` and turns at
- * `rateYawBaseRtWorld` for `duration`, the knots carry the velocity target
+ * `rateYawBaseRtWorld` for `duration`, the knots store the velocity target
  * R_z(psi_k) `cmdLinvelBaseRtWorldEwrtHeadingXy`, and between them the
  * positions and targets are interpolated linearly, as OCS2 interpolates a
  * TargetTrajectories.
@@ -395,7 +395,7 @@ vector2_t integrateRampErrPosBaseRtWorldEwrtWorldXy(const TwistRamp& ramp) {
 
 TEST(VelocityCommandArc,
      TheHeldMeanTwistDiffersFromALinearRampByTheDocumentedLeadingTerm) {
-  // The first segment holds the mean twist instead of ramping from the measured
+  // The first segment uses the mean twist instead of ramping from the measured
   // to the commanded one. Its end heading is the ramp's; its position differs
   // by (tau^2 / 12) R_z(psi0) J (omega_m v_c - omega_c v_m) + O(tau^3 omega^2
   // |v|), J = R_z(pi / 2): halving the rates halves the term and quarters the

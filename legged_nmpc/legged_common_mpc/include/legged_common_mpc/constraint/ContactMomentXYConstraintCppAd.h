@@ -117,7 +117,7 @@ class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and
   // the parallel solve reads it without synchronization. It has to survive the
-  // copy the SQP solver makes of the whole problem per worker thread.
+  // copy the SQP solver makes of the problem per worker thread.
   const bool scheduleGated_;
 };
 

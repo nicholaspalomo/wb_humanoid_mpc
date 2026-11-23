@@ -475,7 +475,7 @@ TEST(AddProjectileToSpec,
   ASSERT_NE(scene.model, nullptr);
   const int ballBody = scene.body("sim_projectile");
   const int ballGeom = scene.geom("sim_projectile_geom");
-  // Compiled COLLIDING - see setProjectileCollisionEnabled - and taken out of
+  // Compiled COLLIDING (see setProjectileCollisionEnabled) and taken out of
   // play at runtime instead.
   EXPECT_EQ(scene.model->geom_contype[ballGeom], 1);
   EXPECT_EQ(scene.model->geom_conaffinity[ballGeom], 1);
@@ -483,7 +483,7 @@ TEST(AddProjectileToSpec,
       << "the compiler folds the geom flags into the body aggregates here, and "
          "only here";
   // Gravity compensation compiled in, so that the compiler COUNTS the body:
-  // MuJoCo skips the whole gravity compensation pass when ngravcomp is zero,
+  // MuJoCo skips the gravity compensation pass when ngravcomp is zero,
   // and a runtime body_gravcomp write then does nothing.
   EXPECT_GE(scene.model->ngravcomp, 1);
   EXPECT_NEAR(scene.model->body_gravcomp[ballBody], 1.0, 1.0e-12);

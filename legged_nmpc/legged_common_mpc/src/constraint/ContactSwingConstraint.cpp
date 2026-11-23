@@ -70,7 +70,7 @@ ContactSwingConstraint::ContactSwingConstraint(
       eeLinearConstraintPtr_(rhs.eeLinearConstraintPtr_->clone()),
       contactIndex_(rhs.contactIndex_),
       positionGain_(rhs.positionGain_),
-      // Copied deliberately: the SQP solver clones the whole problem once per
+      // Copied deliberately: the SQP solver clones the full problem once per
       // worker thread.
       isActive_(rhs.isActive_) {}
 

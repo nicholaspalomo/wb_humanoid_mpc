@@ -29,9 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The messages of the realtime loop and the MPC link convert without a heap
 // allocation once the struct or message they convert into has the value's
-// shape, so that the robot's communication thread can decode a policy and
+// layout, so that the robot's communication thread can decode a policy and
 // encode an observation into objects it keeps. A binary of its own, because the
-// allocation counter replaces malloc for the whole process.
+// allocation counter replaces malloc for the process.
 
 #include "gtest/gtest.h"
 

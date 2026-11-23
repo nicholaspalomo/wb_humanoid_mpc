@@ -613,8 +613,8 @@ TEST(ModelSettingsLegs, ABipedWhoseFeetAreSwappedIsRefused) {
 }
 
 /** The Atlas on four 6-DoF soles, the legs LF, RF, LH and RH: the feet are the
- * front legs, the forearms stand in for the hind ones. Each leg names its hip,
- * so that no hip is derived from an arm. */
+ * front legs, the forearms stand in for the hind ones. Each leg specifies its
+ * hip, so that no hip is derived from an arm. */
 absl::StatusOr<LoadedRobot> fourSoleAtlas() {
   ASSIGN_OR_RETURN(LoadedRobot atlas,
                    loadRobot(kAtlasTaskFile, kAtlasUrdfFile));

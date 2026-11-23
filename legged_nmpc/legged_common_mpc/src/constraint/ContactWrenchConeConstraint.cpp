@@ -584,8 +584,8 @@ ContactWrenchConeRows buildFrictionPyramidRows(
 ContactWrenchConeRows buildLocalWrenchConeRows(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& contactRectangle) {
-  // Every factory reports these as a Status naming the task-file key; only a
-  // caller that bypassed all of them gets here.
+  // Every factory reports these as a Status identifying the task-file key; only
+  // a caller that bypassed all of them gets here.
   const absl::Status validConfig =
       ContactWrenchConeConstraint::validateConfig(config);
   CHECK(validConfig.ok()) << validConfig.message();

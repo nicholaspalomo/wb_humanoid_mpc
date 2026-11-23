@@ -31,7 +31,7 @@ The parameters are what the schemas render (config_schema); this test drives eac
 Parameters tab builds for it - every state and input weight by joint and contact name, the task-space and torque costs,
 the barriers, the foot constraint, the swing trajectory, the solver, the planner - and checks that:
 
-- the published MpcParameterUpdate carries every value the rows were set to, and nothing else changed;
+- the published MpcParameterUpdate contains every value the rows were set to, and nothing else changed;
 - Save writes them into the two files (a strict parse of each reads them back), keeping every other line;
 - Reset All after the save returns nothing: the saved files are the checkpoint.
 

@@ -136,7 +136,7 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
     if (!line.has_value()) break;
 
     // Before every command, so that a limit the operator has just changed in
-    // reference.textproto - through the tuning GUI or by hand - applies to the
+    // reference.textproto (through the tuning GUI or by hand) applies to the
     // command about to be sent: the MPC scales it back by its own copy, which
     // its parameter updater reloads, and a stale copy here would make the robot
     // walk at a speed nobody asked for.

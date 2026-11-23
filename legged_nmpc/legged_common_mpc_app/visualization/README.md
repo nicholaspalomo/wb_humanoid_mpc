@@ -27,8 +27,8 @@ bus IO thread -------- pushRobotState(sample) ----------> [bounded SPSC      |  
                                                                                       Bus::publishFromIoThread()
 ```
 
-Feeding never blocks and never waits for the visualization: each mailbox has one producer and copies into storage it
-already holds (no allocation once the shapes are stable). When the visualization falls behind, `robot/state` samples
+Feeding never blocks and never waits for the visualization: each mailbox has one producer and copies into preallocated
+storage (no allocation once the shapes are stable). When the visualization falls behind, `robot/state` samples
 that do not fit in the queue are dropped and counted (`Statistics::robotStatesDropped`), never queued without bound; a
 newer observation or policy replaces one not yet drawn. The visualization thread runs under `SCHED_IDLE`
 (`Options::threadPriority`, `robot::web_viewer::ViewerThreadPriority`, as the MuJoCo web viewer's threads): it runs only
@@ -80,8 +80,8 @@ the bus.
 `BasisInputsModelDecorator` when the task file selects `basis_vectors`), and the Pinocchio model the MPC's
 (`loadCustomPinocchioInterface()`): `checkVisualizationModel()` refuses one whose `nq` and `nv` are not the robot
 model's `getConfigurationDim()` and `getVelocityDim()`, or a robot model whose base is not the
-`Composite(Translation, Spherical)` root (`nq = 7 + nj`, `nv = 6 + nj`). `stateManifold` is the manifold the MPC's state
-lives on, along which the plan's and the target's states are interpolated (`samplePlan()`, `sampleTarget()`: a slerp of
+`Composite(Translation, Spherical)` root (`nq = 7 + nj`, `nv = 6 + nj`). `stateManifold` is the manifold of the MPC's
+state, along which the plan's and the target's states are interpolated (`samplePlan()`, `sampleTarget()`: a slerp of
 the base quaternion block; the inputs stay linear); the nodes pass their problem's, and `checkVisualizationModel()`
 refuses a null one, since every legged MPC state has the quaternion block. `Create()` takes a `PublishFunction` instead
 of a bus for tests. Any process that runs a solver feeds it the same three calls.
@@ -90,7 +90,7 @@ of a bus for tests. Any process that runs a solver feeds it the same three calls
 
 **Scene** (`SceneBuilder`), from the latest observation, policy and `robot/state` sample:
 
-- `measured`: every link of the URDF with every joint of the sample, from a Pinocchio model of the whole URDF (the
+- `measured`: every link of the URDF with every joint of the sample, from a Pinocchio model of the full URDF (the
   MPC's model fixes the joints it does not plan for). Without a sample in the last `Options::robotStateTimeout`
   (500 ms; the dummy sim sends none), the observation's state on the MPC's model.
 - `terminal_state` (the plan's last node) and `terminal_target` (the reference at the plan's last time), on the MPC's
@@ -108,12 +108,12 @@ of a bus for tests. Any process that runs a solver feeds it the same three calls
 sources: measured (the sample, `RobotStateDecoder`), reference (the target trajectories of the latest policy's command)
 and plan (the latest policy). See the bridge's README for the paths, the names and the units.
 
-The MPC's `q` holds the base quaternion and `v` the body angular velocity `w_B`. For the plots the builder computes, into
+The MPC's `q` stores the base quaternion and `v` the body angular velocity `w_B`. For the plots the builder computes, into
 buffers sized at construction, the ZYX Euler angles of each source's quaternion (`eulerZyxFromQuaternion()`,
 `orientation/EulerBoundary.h`), their rates `T_B(Theta)^-1 w_B` (`eulerZyxRatesForDisplay()`: all three NaN where
 `|cos(pitch)| < 1e-6`), and display coordinates `[p_W, (yaw, pitch, roll), q_j]` that the `dofs/position` and
 `generalized_base` coordinate groups plot; the velocity and force groups plot `v` as it is, named by
-`getBaseVelocityDofNames()`. `base_pose/{roll,pitch,yaw}_rate` and `base_pose/angular_velocity_{x,y,z}` sit in the
+`getBaseVelocityDofNames()`. `base_pose/{roll,pitch,yaw}_rate` and `base_pose/angular_velocity_{x,y,z}` appear in the
 "Base Pose & Euler" tab next to the angles; `base_twist/angular_*` is the world-frame angular velocity `R(xi) w_B`. All of
 it is display only and runs on this thread, never in the robot process; `mpc_observation/state` stays the raw state
 (legged_nmpc/docs/quaternion_base_orientation/README.md, section 3.4).
@@ -124,7 +124,7 @@ Pinocchio model's gravity, `z0 = computeProxyPosComRtFeetmeanEwrtWorldZ()` at `V
 interface's initial state: the repository's one pendulum height, logged at start-up), the ZMP of the contact wrenches at
 the contact frames (`p_x = (h F_x - M_y) / F_z`, `p_y = (h F_y + M_x) / F_z`, `h` the normal-force-weighted contact
 height; NaN below 1 N), and the ACoM attitude (`AngularCenterOfMass`, NaN for a robot without a network) as roll,
-pitch, yaw. The measured wrenches carry no torque (the simulator's force sensors), so the measured ZMP is the
+pitch, yaw. The measured wrenches have no torque (the simulator's force sensors), so the measured ZMP is the
 normal-force-weighted mean of the contact frames, not a per-foot center of pressure.
 
 **Contacts.** The contact force, foot kinematics and contact wrench groups, and the ZMP, cover every contact of
@@ -166,7 +166,7 @@ Read at start-up from the robot's typed task file (`config/mpc/task.textproto`, 
 strictly: an unknown field or a value of the wrong type is refused with its file, line and column), together with the
 contact polygons (`contacts`) and the collision spheres (`collision_constraint`) the scene draws. The tuning GUI's MPC
 Parameters tab shows `rerun_scene_frequency` as a slider like every number of the schema; a change takes effect when the
-MPC node restarts. The start-up log names the values.
+MPC node restarts. The start-up log prints the values.
 
 <!-- LINT.IfChange(task_keys) -->
 | Field | Absent | Meaning |
@@ -176,15 +176,15 @@ MPC node restarts. The start-up log names the values.
 | `rerun_plan_frames` | the contact frames | the frames whose planned paths `world/plan/end_effectors` draws, one strip each (the G1 adds its lidar and palms) |
 <!-- LINT.ThenChange(//legged_nmpc/legged_mpc_config/task_file.proto:visualization_task_keys, //legged_nmpc/legged_common_mpc_app/visualization/include/legged_common_mpc_app/visualization/VisualizationConfig.h:visualization_task_fields) -->
 
-A frame a list names that the MPC's model does not have, a duplicate, or a name that is not a valid entity path is an
-error at start-up that names the field.
+A listed frame that the MPC's model does not have, a duplicate, or an invalid entity path causes a start-up error
+reporting the field.
 
 ## The `robot/state` sample
 
 `RobotStateDecoder` maps the sample's joints by name. The five joint-action arrays are each empty or aligned with
 `joint_names`; a joint without an action has a NaN position target (`robot_state_sample.proto`). The effort applied is
 `feed-forward + kp (q_des - q) + kd (qd_des - qd)`, 0 without an action. `meas_wrench_contacts_ewrt_world` are in contact
-order, in the world frame: `DecodedRobotState::measWrenchContactsEwrtWorld` holds one per contact of the set, zero for a
+order, in the world frame: `DecodedRobotState::measWrenchContactsEwrtWorld` stores one per contact of the set, zero for a
 contact the sample sends none for. The base and the MPC joints become the MPC's generalized coordinates `[p_W, xi, q_j]` and
 velocities `[v_W, w_B, dq_j]` through the robot model's measurement helpers (`fillGeneralizedCoordinatesFromMeasurement()`,
 `fillGeneralizedVelocitiesFromMeasurement()`), the conversion the MRT controllers use; the generalized forces are sized

@@ -34,7 +34,7 @@ built on it again would bring the singular velocity map, and its gimbal-locked m
 
   spherical-zyx  an identifier containing `SphericalZYX` (`JointModelSphericalZYX`, `JointModelSphericalZYXTpl`, ...)
                  in the C++ code of legged_nmpc/, robot_runtime/ and lib/ocs2/pinocchio/centroidal_model/. Comments
-                 and string literals are not read: they may name the old root.
+                 and string literals are not read: they may mention the old root.
 
 The equivalence tests build the Euler root on purpose, as the oracle the quaternion root is compared with; each such
 line says so with `NOLINT(spherical-zyx): <reason>`.

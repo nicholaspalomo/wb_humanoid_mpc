@@ -199,7 +199,7 @@ std::string CentroidalDynamicsBasisInputsAD::uniqueModelName(
     absl::Span<const matrix_t> localBasisMatrices) {
   // A cached CppAD library compiled for a different basis (another generator
   // set, friction coefficient, footprint or number of generators) must never be
-  // reused, so the name carries the basis' content key.
+  // reused, so the name includes the basis' content key.
   return absl::StrCat(modelName, "_",
                       basisInputsLibraryKey(localBasisMatrices));
 }

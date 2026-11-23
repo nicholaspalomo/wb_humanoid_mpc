@@ -37,7 +37,7 @@ every action's cache key, and the script used to add .bazel/bin only once a buil
 rebuilt everything its `bazel build` had just built.
 
 It leaves LD_LIBRARY_PATH alone: robotpkg's libraries find each other through their RUNPATH, and robotpkg's lib
-directory holds a libblasfeo.so of another version than the solver's. (//tools/dev_container:test_dev_container keeps
+directory contains a libblasfeo.so of another version than the solver's. (//tools/dev_container:test_dev_container keeps
 ROS out of it.)
 """
 

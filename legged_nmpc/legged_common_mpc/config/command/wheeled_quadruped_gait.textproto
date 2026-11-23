@@ -3,7 +3,7 @@
 #
 # The gait file of the wheeled quadrupeds: four rolling contacts (model_settings.contacts_rolling,
 # legged_nmpc/docs/rolling_contact/README.md) ordered LF, RF, LH, RH, with one leg of the same name per contact, so
-# the mode bits are LF = 8, RF = 4, LH = 2 and RH = 1 (as in quadruped_gait.textproto). A mode names the legs in
+# the mode bits are LF = 8, RF = 4, LH = 2 and RH = 1 (as in quadruped_gait.textproto). A mode lists the legs in
 # stance, joined by '_'; STANCE is every contact (mode_sequence_template_config.proto).
 #
 # A quadruped's four wheel axles are parallel to the base's y axis and its legs have no yaw joint, so the no-slip
@@ -61,7 +61,7 @@ gaits {
 # - turning_trot takes every yaw-rate command above 0.1 rad/s and gives way to drive once the yaw-rate command is below
 #   0.1 rad/s and the stride-mean yaw rate below 0.15 rad/s. Its linear lower bound of 10 m/s is above any command, so
 #   the linear command does not keep it.
-# Each row's lower bounds sit below the upper bounds of the row before, so that a command near one bound does not switch
+# Each row's lower bounds are below the upper bounds of the row before, so that a command near one bound does not switch
 # back and forth.
 gait_switching {
   rows {

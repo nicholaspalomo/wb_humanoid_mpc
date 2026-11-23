@@ -218,7 +218,7 @@ class HardContactRefinement {
 };
 
 /**
- * The effort limits solve 3 holds the quasi-static torques within: every joint
+ * The effort limits solve 3 keeps the quasi-static torques within: every joint
  * of the MPC (`settings`' joints of `model`) that has one under
  * JointLimits::kPositionAndEffort; none under kPositionOnly, where solve 3 adds
  * no torque constraint.

@@ -87,7 +87,7 @@ shared {  # parameters read by more than one term
   # left out is the robot's own: the model's center of mass above the mean height of its soles at task.textproto
   # initial_state (computeProxyPosComRtFeetmeanEwrtWorldZ), 1.0805 m for this URDF, so omega = 3.013 rad/s; the planner logs both
   # at start-up. task.textproto dcm_terminal_cost resolves its own absent nom_pos_com_rt_feetmean_ewrt_world_z with the same function, so the
-  # two pendulums agree by construction, and a plan carries the omega it was made on, which the terminal cost takes
+  # two pendulums agree by construction, and a plan includes the omega it was made on, which the terminal cost takes
   # the planned DCM with. A positive nom_pos_com_rt_feetmean_ewrt_world_z is an explicit override of the model; give
   # dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z the same value then. gravity is the robot model's in both.
   # (Until the height was derived both keys were hand-set to 0.85 m, 23 cm below the model's center of mass: omega
@@ -172,7 +172,7 @@ hlip {
   nom_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.25  # [m] lateral distance between the feet of the nominal period-two orbit
   max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x: 0.5  # [m] clip on the step along the heading. This and the two below are the only bounds
                                       #     the planner applies to the deadbeat step: a foothold outside the leg's reach is
-                                      #     clipped rather than handed to the MPC. They are safety limits, not tuning.
+                                      #     clipped rather than passed to the MPC. They are safety limits, not tuning.
   max_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.45  # [m] largest lateral distance between the feet after a step
   min_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.15  # [m] self-collision margin on that distance
   # Standing / walking blend, equations (15) - (17) of the paper: alpha = tanh(sharpness (phi - threshold)) / 2 + 1/2
@@ -206,7 +206,7 @@ hlip {
 #   execution  in full. ContactPlanningReferenceManager::setConfigStatus builds the execution rules from this list
 #              whatever the planner is, and preSolverRun / overrideTarget apply them under either one. This comment
 #              used to say only `dynamics` was consulted, which is how the `execution` list below came to be
-#              described as empty under hlip while it holds the one entry the gait cannot walk without.
+#              described as empty under hlip while it contains the one entry the gait cannot walk without.
                                     # model blocks; order fixes the variable layout, the first two are mandatory
 dynamics: "lip_com"  # LIP center of mass: c, v; input zmp (zero-order hold)
 dynamics: "foothold_integrator"  # foot positions p_i; inputs dp_i and the contact binaries c_i
@@ -256,7 +256,7 @@ search: "heading_relinearization"
 # Execution rules of the reference manager, applied between plans (measured contact events, closed-form LIP
 # corrections). This list is read under BOTH planners; it is not part of the lip_miqp-only formulation above.
 #
-# With planner.type: hlip it holds exactly one entry, planned_com_override, and that entry is mandatory: it is the
+# With planner.type: hlip it contains exactly one entry, planned_com_override, and that entry is mandatory: it is the
 # paper's equations 11-14 reference plumbing rather than a heuristic, and the comment on it below says what happens
 # without it. Every other rule here is a heuristic correction between plans and stays commented out, because the
 # H-LIP replans from the measured state at every MPC solve and the whole-body MPC absorbs what is left, which is the
@@ -268,7 +268,7 @@ search: "heading_relinearization"
 # the reference manager merges plans exactly as it did before they existed, which is the behavior the gait is tuned
 # against" - three lines above the entry that must be there, and directly contradicted by the comment on that entry.
 # An operator who believed it and commented planned_com_override out would walk the robot sideways into the floor,
-# so the wording is now the same one the EngineAI SA01 copy of this file carries.
+# so the wording is now the same one the EngineAI SA01 copy of this file uses.
 # Not a heuristic: this is the reference plumbing of the paper (its equations 11-14). The H-LIP's lateral orbit
 # requires the center of mass to fall towards the swing foot, while the target trajectory built from the operator's
 # command asks for a straight line with no lateral velocity. Without this rule the whole-body MPC holds the center

@@ -43,7 +43,7 @@ namespace ocs2::legged::multi_contact {
  * torques g(q) - sum J' w of every planned configuration (design section 2)
  * only under kPositionAndEffort. No planner and no certifier reads the URDF's
  * joint velocity limits under either: planner B's timing law moves every
- * joint at most 0.5 rad/s, far below them, and planner A's solves carry no
+ * joint at most 0.5 rad/s, far below them, and planner A's solves have no
  * velocity limit.
  */
 enum class JointLimits {

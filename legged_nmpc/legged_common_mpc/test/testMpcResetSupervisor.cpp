@@ -249,7 +249,7 @@ TEST(MpcResetSupervisor, TheBackOffEndsEarlyWhenAResetIsRequestedFromOutside) {
   }
   serve(supervisor);
 
-  // Nothing requested: the whole wait.
+  // Nothing requested for the full wait.
   std::chrono::steady_clock::time_point start =
       std::chrono::steady_clock::now();
   supervisor.waitBeforeRetry(std::chrono::duration<scalar_t>(0.2),
@@ -341,7 +341,7 @@ TEST(MpcResetSupervisor, TheRequestCountersOnlyGrowAndCountFullRequestsApart) {
   EXPECT_EQ(supervisor.resetsRequested().requested, 3u);
   EXPECT_EQ(supervisor.resetsRequested().fullRequested, 1u);
   // Serving a reset changes what is served, never what was requested: a lost
-  // observation carrying the counters is replaced by any later one.
+  // observation with the counters is replaced by any later one.
   EXPECT_TRUE(serve(supervisor));
   EXPECT_EQ(supervisor.resetsRequested().requested, 3u);
   EXPECT_EQ(supervisor.resetsRequested().fullRequested, 1u);

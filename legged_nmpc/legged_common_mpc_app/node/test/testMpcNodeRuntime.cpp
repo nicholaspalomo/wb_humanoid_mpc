@@ -103,7 +103,7 @@ namespace {
 namespace topics = ::ocs2::legged::ipc::topics;
 
 /**
- * Stands in for the MPC parameter updater: updates are handed to it on the
+ * Stands in for the MPC parameter updater: updates are passed to it on the
  * bus's IO thread and taken into use in the preSolverRun() of the next solve,
  * as MpcParameterUpdaterModule does; it records the contact estimator of each
  * and the solve it was applied at.

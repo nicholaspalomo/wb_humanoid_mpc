@@ -43,9 +43,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * The realtime loop of the robot process: it paces its cycles on absolute
- * deadlines, counts the cycles that overran their period, hands the timing of
- * every reporting window to the communication thread, stops cleanly, and ends -
- * not the process - when a cycle throws.
+ * deadlines, counts the cycles that overran their period, passes the timing of
+ * every reporting window to the communication thread, stops, and ends (without
+ * terminating the process) when a cycle throws.
  */
 
 namespace ocs2::legged {

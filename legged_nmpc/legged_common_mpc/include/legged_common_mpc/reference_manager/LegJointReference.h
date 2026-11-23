@@ -67,7 +67,7 @@ std::vector<std::string> legJointReferenceNames();
 /** The name of `reference`, the inverse of legJointReferenceFromName(). */
 absl::string_view legJointReferenceName(LegJointReference reference);
 
-/** The reference named `name`; InvalidArgument naming the accepted names for
+/** The reference named `name`; InvalidArgument listing the accepted names for
  * any other. */
 absl::StatusOr<LegJointReference> legJointReferenceFromName(
     absl::string_view name);

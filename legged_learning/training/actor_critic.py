@@ -31,7 +31,7 @@
 It is the network train_ppo.py defined until PPO training moved to Brax's own networks; bc_warmstart.py and
 export_onnx.py are built around its layer names. The deterministic policy is policy_action(): the observation
 normalized by an ObservationNormalizer, the actor's mean, squashed by tanh into the action range (-1, 1) as Brax PPO's
-deterministic policy squashes its mean. A checkpoint (save_checkpoint(), load_checkpoint()) holds the network's
+deterministic policy squashes its mean. A checkpoint (save_checkpoint(), load_checkpoint()) stores the network's
 parameters and the normalizer; bc_warmstart.py writes it and export_onnx.py reads it.
 """
 
@@ -192,7 +192,7 @@ def load_checkpoint(path: str) -> tuple[dict[str, Any], ObservationNormalizer]:
         The ActorCritic parameters, as `ActorCritic.init` returns them, and the normalizer.
 
     Raises:
-        KeyError: When the file lacks one of the parameters or the normalizer, naming every missing key.
+        KeyError: When the file lacks one of the parameters or the normalizer, listing every missing key.
         ValueError: When the normalizer's standard deviation is not positive and finite.
     """
     with np.load(path) as archive:

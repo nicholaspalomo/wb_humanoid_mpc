@@ -76,7 +76,7 @@ inline std::vector<std::string> wbMpcFeedforwardNames() {
  * (config/mpc/task.textproto) besides the MPC's own settings: the fields of its
  * control loop. An absent field keeps the default below, except the lists
  * (robotProcessSettingsFromConfig()); a value the robot process cannot run with
- * is an InvalidArgument naming its field.
+ * is an InvalidArgument identifying its field.
  */
 struct RobotProcessSettings {
   /** `contact_estimator`: the controller's measured contact state, by
@@ -135,7 +135,7 @@ struct RobotProcessSettings {
  * (`enable_telemetry`, now telemetry_sinks; `use_gravity_comp_feedforward`, now
  * wb_mpc_feedforward).
  *
- * @return The errors of loadTaskFile(), which name the file, the line and the
+ * @return The errors of loadTaskFile(), which report the file, line, and
  * column, and those of robotProcessSettingsFromConfig() prefixed with the file.
  */
 absl::StatusOr<RobotProcessSettings> loadRobotProcessSettings(

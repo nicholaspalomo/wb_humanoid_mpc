@@ -497,7 +497,7 @@ TEST(MujocoContactUtils,
                 scene.data->subtree_com[3 * pelvis + axis], 1.0e-12);
     EXPECT_NEAR(resting.linvelComRtWorldEwrtWorld[axis], 0.0, 1.0e-12);
   }
-  // The whole robot translating at 1 m/s along x: so does its center of mass.
+  // The robot translating at 1 m/s along x: so does its center of mass.
   scene.data->qvel[0] = 1.0;
   mj_forward(scene.model, scene.data);
   const RobotCentroidalState moving =
@@ -651,7 +651,7 @@ TEST(MujocoUtils, MjStateCopiesAreDeepAndMovesHandTheDataOver) {
 }
 
 /**
- * A 30 kg trunk welded to a 1 kg foot that carries the foot force sensor,
+ * A 30 kg trunk welded to a 1 kg foot that has the foot force sensor,
  * standing on the floor yawed by `yawDegrees`, under a gravity with a
  * horizontal part (a slope's). The sensor reads the force between the foot and
  * the trunk.

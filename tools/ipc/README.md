@@ -1,6 +1,6 @@
 # tools/ipc
 
-Inspects the Cyclone DDS bus of the distributed runtime from the command line: the topics it carries, their messages and
+Inspects the Cyclone DDS bus of the distributed runtime from the command line: the active topics, their messages and
 their rates.
 The bus itself is described in [`legged_nmpc/docs/distributed_runtime/README.md`](../../legged_nmpc/docs/distributed_runtime/README.md).
 
@@ -31,7 +31,7 @@ Every topic is a DDS topic of the same name whose samples are one `robot_ipc::En
 the full protobuf type name and the payload; a sample of another protocol version is counted as malformed and skipped.
 The tool imports every generated module of `legged_mpc_msgs` and of `legged_mpc_config` (the configuration files
 the tuning GUI publishes whole on `operator/mpc_parameters` and `operator/pd_gains`), so the protobuf default descriptor
-pool knows every message, and decodes a payload by the type name its envelope carries. A message of a type outside
+pool knows every message, and decodes a payload by the type name in its envelope. A message of a type outside
 those packages is described (`# type: unknown message type, N bytes`) rather than decoded.
 
 `echo` prints the newest message when it cannot keep up (a large topic such as `mpc/policy` arrives faster than it is
@@ -51,9 +51,9 @@ stays current and no backlog piles up in the tool.
 `google.protobuf.text_format.Parse` reads back into the message type. Unlike `text_format.MessageToString`, it prints
 every field, fields at their default value included (`healthy: false`, `time_trajectory: []`, an unset submessage of a
 proto3 message as its defaults), so that a zero reads as a zero rather than as a missing line; repeated scalars are one
-list (`data: [0.0, 0.5]`), enums print by name, and a field that tracks presence and is not set - a oneof member, a
-proto3 `optional` field, a field of an edition-2023 file such as the tuning payloads' gains, where absent means "the
-controller's default" - is a `# name: not set` comment. `--format json` prints the same values as JSON, an unset field
+list (`data: [0.0, 0.5]`), enums print by name, and a field that tracks presence and is not set (a oneof member, a
+proto3 `optional` field, or a field of an edition-2023 file such as the tuning payloads' gains, where absent means "the
+controller's default") is printed as a `# name: not set` comment. `--format json` prints the same values as JSON, an unset field
 of those as `null`, which `google.protobuf.json_format.ParseDict` reads back.
 
 ```textproto
@@ -69,7 +69,7 @@ resets_served: 4
 
 `--fields` takes dotted field paths; a component after a repeated field is an index, negative from the end:
 `state_trajectory.-1.data`. With `--format text` the message is printed pruned to the selected fields, still a textproto
-of its type, and a repeated field of which only some elements are selected carries their indices as a comment
+of its type, and a repeated field of which only some elements are selected includes their indices in a comment
 (`state_trajectory {  # [2] of 3`). With `--format json` the selected values are printed keyed by their path.
 <!-- LINT.ThenChange(//tools/ipc/message_decoding.py:output_formats) -->
 

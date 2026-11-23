@@ -288,7 +288,7 @@ TEST_F(WBMpcFormulationNamesTest,
     log.StopCapturingLogs();
     EXPECT_FALSE(refused.ok());
   }
-  // And a value that is not a bool is refused by the parser, naming the field
+  // And a value that is not a bool is refused by the parser, identifying the field
   // and its place in the file.
   const absl::Status notABool = refusalOfFile(
       "verboseNotABool",

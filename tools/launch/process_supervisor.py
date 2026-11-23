@@ -81,7 +81,7 @@ DEFAULT_TERMINAL_COMMAND = ("x-terminal-emulator", "-e")
 EXIT_CANNOT_EXECUTE = 126
 EXIT_NOT_FOUND = 127
 
-# Environment variables through which a Bazel binary finds its runfiles. Under `bazel run //tools/launch` they name the
+# Environment variables through which a Bazel binary finds its runfiles. Under `bazel run //tools/launch` they refer to the
 # launcher's runfiles; a child that is a Bazel binary too must find its own, so they are not passed on.
 RUNFILES_ENVIRONMENT = (
     "RUNFILES_DIR",

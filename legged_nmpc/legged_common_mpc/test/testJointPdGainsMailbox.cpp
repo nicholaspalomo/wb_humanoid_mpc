@@ -50,7 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The hand-over of joint PD gains to the realtime control thread: the control
  * thread only receives a preallocated set of gains, without a lock another
  * thread holds for long, a file or a parse. This binary links the allocation
- * counter, which interposes malloc for the whole process.
+ * counter, which interposes malloc for the process.
  */
 
 namespace ocs2::legged {

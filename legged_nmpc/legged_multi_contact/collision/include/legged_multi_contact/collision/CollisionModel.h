@@ -56,7 +56,7 @@ namespace ocs2::legged::multi_contact {
  */
 inline constexpr double kDefaultPadNeighborhood = 0.05;
 /** What a point pad does to the spheres of the link above it within its
- * neighborhood - the end of the thigh at a kneeling knee - selected by name
+ * neighborhood (the end of the thigh at a kneeling knee), selected by name
  * (Scenario::point_pad_link_above, kLinkAboveNames). */
 enum class LinkAbove {
   // Exempt, as the link and those below (the box climb's kneels on the box's
@@ -178,10 +178,10 @@ class CollisionModel {
  public:
   /**
    * Validates `config` against `model` and builds the spheres.
-   * InvalidArgument names the link at fault: no link, a duplicate or empty
+   * InvalidArgument identifies the link at fault: no link, a duplicate or empty
    * name, no shape, a vector of the wrong size, a radius or half extent that is
-   * not positive, or a self-collision pair naming an unknown link or one link
-   * twice; NotFound for a parent joint that is not a joint of the model.
+   * not positive, or a self-collision pair referencing an unknown link or one
+   * link twice; NotFound for a parent joint that is not a joint of the model.
    */
   static absl::StatusOr<CollisionModel> Create(
       const config::CollisionModel& config, const RobotStanceModel& model);

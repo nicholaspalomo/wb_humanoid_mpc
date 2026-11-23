@@ -201,7 +201,7 @@ std::vector<int> resolveContactBodies(
   urdf::ModelInterfaceSharedPtr urdfModel;
 
   for (size_t i = 0; i < contactFrameNames.size(); ++i) {
-    // 1. The body driven by the joint that carries the contact frame.
+    // 1. The body driven by the joint that has the contact frame.
     if (i < contactParentJointNames.size() &&
         !contactParentJointNames[i].empty()) {
       const int jointId =
@@ -269,7 +269,7 @@ uint32_t groundTruthContactMask(const mjModel* absl_nonnull model,
       continue;  // detected but not active in the constraint solver
     }
     if (contact.geom[0] < 0 || contact.geom[1] < 0) {
-      continue;  // flex contacts carry no geoms
+      continue;  // flex contacts have no geoms
     }
     mjtNum wrenchMjcontactEwrtMjcontact[kMjSpatialVectorSize];
     mj_contactForce(model, data, c,

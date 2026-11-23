@@ -80,7 +80,7 @@ class TunedFile:
 
     Raises:
       OSError: The file cannot be read.
-      TunedFileError: It does not parse strictly into `message_class`; the message names the line and column.
+      TunedFileError: It does not parse strictly into `message_class`; the message reports the line and column.
 
     Attributes:
       path: The file, a textproto of `message_class`.
@@ -352,9 +352,9 @@ def _same(first: Any, second: Any) -> bool:
 
 
 def group_of(spec: config_schema.ParameterSpec) -> str:
-    """The group a parameter's row is shown in: the path of the block that holds it.
+    """The group a parameter's row is shown in: the path of the block that contains it.
 
-    The elements of a repeated field that each hold one value (`joint_positions { joint: "x" value: 1 }`) share their
+    The elements of a repeated field that each contain one value (`joint_positions { joint: "x" value: 1 }`) share their
     field's group, so that a joint list is one group rather than a group per joint; an element with several values
     (`contact_wrenches[contact=l_foot].force`) is a group of its own.
 

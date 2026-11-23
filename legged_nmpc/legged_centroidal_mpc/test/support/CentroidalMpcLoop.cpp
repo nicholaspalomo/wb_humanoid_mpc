@@ -148,8 +148,8 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> CentroidalMpcLoop::Create(
   loop->mpc_->getSolverPtr()->addSynchronizedModule(loop->motionManager_);
   loop->mrt_ = std::make_unique<MPC_MRT_Interface>(*loop->mpc_);
   // The observation of every solve to the motion manager, before the solve, as
-  // the MPC node's server and the lockstep closed loop hand it over
-  // (ProceduralMpcMotionManager::observe()): its input carries the joint
+  // the MPC node's server and the lockstep closed loop pass it
+  // (ProceduralMpcMotionManager::observe()): its input contains the joint
   // velocities of the measured base twist. The loop owns both.
   ProceduralMpcMotionManager* absl_nonnull motionManager =
       loop->motionManager_.get();

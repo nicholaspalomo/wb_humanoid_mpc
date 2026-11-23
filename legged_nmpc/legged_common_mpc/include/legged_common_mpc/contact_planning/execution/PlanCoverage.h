@@ -47,9 +47,9 @@ inline constexpr scalar_t kPlanCoverageTolerance = 1.0e-9;
  * evaluateLinvelComRtWorldEwrtWorldXy, headingModelYawAtTime, ...) CLAMPS to
  * the first or the last node rather than reporting that the query left the
  * horizon. A reference written from such a lookup past the plan's end is
- * therefore frozen at the last node - a constant position that still asks for
- * the last node's velocity - so every rule that writes a reference from the
- * plan, and every accessor that hands a planned quantity to a cost, asks this
+ * therefore frozen at the last node (a constant position that still asks for
+ * the last node's velocity), so every rule that writes a reference from the
+ * plan, and every accessor that passes a planned quantity to a cost, asks this
  * first and leaves the operator's reference alone outside it.
  */
 inline bool planCoversTime(const ContactPlan& plan, scalar_t time) {

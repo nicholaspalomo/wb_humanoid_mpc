@@ -330,7 +330,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
       std::make_unique<robot::model::RobotDescription>(std::move(description));
   const robot::model::RobotDescription& robotDescription =
       *stack.robotDescription;
-  // A task file naming an MPC joint the URDF does not have is refused here,
+  // A task file listing an MPC joint the URDF does not have is refused here,
   // before anything indexes the joints by it.
   ASSIGN_OR_RETURN(
       const std::vector<robot::joint_index_t> mpcJointIndices,

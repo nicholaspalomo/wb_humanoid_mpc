@@ -54,10 +54,10 @@ class SliderRow(ttk.Frame):
     - Visual indicator when modified from default value
 
     By default a value typed beyond the slider's range WIDENS the range, which suits tuning parameters whose useful range
-    is not known in advance. `clamp_to_range=True` instead holds every value - typed, set or dragged - inside
+    is not known in advance. `clamp_to_range=True` instead clamps every value (typed, set or dragged) inside
     [min_val, max_val] and shows the clamped value, for rows whose range is a hard limit on the other side of the wire.
     A value that is not a finite number is rejected either way and the entry reverts. `log_scale=True` spaces the
-    slider's travel by decades (a weight or a tolerance spanning several of them), and `integer=True` holds the value
+    slider's travel by decades (a weight or a tolerance spanning several of them), and `integer=True` restricts the value
     to whole numbers.
 
     The entry shows the value rounded. Leaving the entry, or pressing Return, without changing its text changes nothing:
@@ -184,7 +184,7 @@ class SliderRow(ttk.Frame):
         self._show_current()
 
     def _slider_coordinate(self, value: float) -> float:
-        """Where `value` sits on the slider: the value itself, or its decade on a logarithmic slider."""
+        """Where `value` is on the slider: the value itself, or its decade on a logarithmic slider."""
         if not self.log_scale:
             return value
         return math.log10(max(value, self.min_val))

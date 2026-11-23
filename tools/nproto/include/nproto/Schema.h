@@ -54,7 +54,7 @@ namespace nproto {
  * Each is "<path>: field <number>", the path from `message` with an element of
  * a repeated field by its index
  * ("task.contact_wrench_gate: field 103", "joint_gains[2]: field 9", ": field
- * 40" for one of `message` itself). Empty when `message` carries no unknown
+ * 40" for one of `message` itself). Empty when `message` has no unknown
  * field.
  */
 std::vector<std::string> UnknownFieldPaths(

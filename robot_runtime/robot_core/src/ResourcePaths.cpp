@@ -99,7 +99,7 @@ absl::Status validateRepositoryRelativePath(absl::string_view path) {
  * The label of the Bazel package that `path` belongs to, as far as the path
  * shows it. The package ends before the first data directory
  * (kDataDirectories). Without one, the package is the path itself when the path
- * names a directory (no extension), or the file's parent directory otherwise.
+ * specifies a directory (no extension), or the file's parent directory otherwise.
  */
 std::string owningPackageLabel(absl::string_view path) {
   const std::vector<absl::string_view> components = absl::StrSplit(path, '/');
@@ -120,7 +120,7 @@ std::string owningPackageLabel(absl::string_view path) {
 }
 
 /** Appends `entry` to `searched` unless it is there already: two places can
- * name the same runfiles tree. */
+ * reference the same runfiles tree. */
 void recordSearched(std::string entry, std::vector<std::string>& searched) {
   if (std::find(searched.begin(), searched.end(), entry) == searched.end()) {
     searched.push_back(std::move(entry));
@@ -205,7 +205,7 @@ absl::StatusOr<std::string> resolveResourcePath(
 
   // 2. The runfiles tree next to the executable: `bazel run`, or a binary
   // started from .bazel/bin. The environment is ignored here, because it can
-  // name the runfiles of a parent process that lists other files.
+  // reference the runfiles of a parent process that lists other files.
   const std::optional<std::string> executable = executablePath();
   if (executable.has_value()) {
     error.clear();

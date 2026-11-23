@@ -179,7 +179,7 @@ TEST_F(RollingContactSetTest, theJointLimitsDoNotSeeAWheelsAngle) {
   EXPECT_EQ(jointLimits.getValue(turned), jointLimits.getValue(standing));
   const ScalarFunctionQuadraticApproximation approximation =
       jointLimits.getQuadraticApproximation(turned);
-  // The approximation is over the whole state; the joints start at this row.
+  // The approximation is over the full state; the joints start at this row.
   const Eigen::Index jointStart =
       static_cast<Eigen::Index>(mpc().getMpcRobotModel().getJointStartindex());
   for (const std::string& wheelJoint : settings.rollingContactJointNames()) {

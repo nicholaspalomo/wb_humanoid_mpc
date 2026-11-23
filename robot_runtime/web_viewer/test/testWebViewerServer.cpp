@@ -877,7 +877,7 @@ struct HostWithPort {
 };
 
 // An allowed host with a port would never match a request (the Host check
-// compares names alone), so Create() refuses it, naming the flag and the name
+// compares names alone), so Create() refuses it, identifying the flag and the name
 // to give instead.
 TEST(WebViewerServerTest, CreateRefusesAnAllowedHostWithAPort) {
   for (const HostWithPort& host :

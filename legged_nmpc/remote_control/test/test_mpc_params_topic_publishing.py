@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The MPC Parameters tab on the bus: a change is published as the whole edited files, and only Save writes them.
+"""The MPC Parameters tab on the bus: a change is published as the full edited files, and only Save writes them.
 
 The tab is given the GUI's publisher of operator/mpc_parameters over a bus that records, so the tests assert on the
 legged_mpc_config.MpcParameterUpdate that would have gone out. The tab works on copies of the DRC Atlas files (which
@@ -103,7 +103,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         return row
 
     def _published(self) -> mpc_parameter_update_pb2.MpcParameterUpdate:
-        """The last update published; every update published so far names the task file it is of."""
+        """The last update published; every update published so far specifies its task file."""
         for update in self.publisher.messages:
             assert isinstance(
                 update, mpc_parameter_update_pb2.MpcParameterUpdate

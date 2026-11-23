@@ -54,7 +54,7 @@ namespace robot::web_viewer {
  * The render thread publishes each frame and status; it never waits on a
  * socket, only on the mutex that a request thread holds while it copies the
  * frame into its response (about 10 us for 100 KB). Older frames are dropped: a
- * client that is slower than the renderer skips frames. The mailbox holds the
+ * client that is slower than the renderer skips frames. The mailbox stores the
  * frame by value, so a reader always copies a whole frame and never sees one
  * being replaced.
  *

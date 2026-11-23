@@ -90,7 +90,7 @@ void FootConstraintSoftWeightsApplier::apply(HotUpdateTarget& target) {
   // keeps this race-free; mutating the shared ModelSettings would not be.
   for (OptimalControlProblem& ocp : target.problems()) {
     LeggedPreComputation* absl_nullable preComputationPtr =
-        // NOLINTNEXTLINE(rtti): OCS2 holds the pre-computation as a PreComputation, and a problem may carry another kind.
+        // NOLINTNEXTLINE(rtti): OCS2 stores the pre-computation as a PreComputation, and a problem may have another kind.
         dynamic_cast<LeggedPreComputation*>(ocp.preComputationPtr.get());
     if (preComputationPtr != nullptr) {
       preComputationPtr->setNormalVelocityPositionErrorGain(

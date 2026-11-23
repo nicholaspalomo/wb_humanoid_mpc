@@ -38,7 +38,7 @@ namespace robot::web_viewer {
 enum class ViewerThreadPriority {
   // SCHED_IDLE, the default: the thread runs only on time no other thread
   // wants, and a thread of the normal scheduler
-  // that wakes on its core - the physics, an MPC worker - takes the core at
+  // that wakes on its core (the physics, an MPC worker) takes the core at
   // once. A higher nice value does not do that:
   // under EEVDF a woken thread may wait out the running thread's time slice (3
   // ms on 8 or more CPUs), whatever its nice

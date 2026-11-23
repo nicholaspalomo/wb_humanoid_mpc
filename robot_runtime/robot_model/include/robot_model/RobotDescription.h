@@ -121,8 +121,8 @@ class RobotDescription {
    * name. */
   std::optional<joint_index_t> findJointIndex(
       absl::string_view jointName) const;
-  /** The indices of `jointNames`, in their order; NotFound naming the first
-   * joint the URDF does not have. */
+  /** The indices of `jointNames`, in their order; NotFound identifying the
+   * first joint the URDF does not have. */
   absl::StatusOr<std::vector<joint_index_t>> findJointIndices(
       absl::Span<const std::string> jointNames) const;
 

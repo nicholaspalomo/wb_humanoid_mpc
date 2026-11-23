@@ -188,7 +188,7 @@ TEST_P(RootJointCentroidalEquivalence,
 
 TEST_P(RootJointCentroidalEquivalence, MomentumRateIsTheSame) {
   // dh_G/dt of the same motion (C2, C3) from Pinocchio's forward kinematics
-  // with accelerations, which carries the Euler side's dT_B/dt dTheta in
+  // with accelerations, which includes the Euler side's dT_B/dt dTheta in
   // SphericalZYX's bias and the quaternion side's in a = J_v a_e + (dJ_v/dt)
   // v_e.
   const pinocchio::Model& quaternionModel = models_->quaternionModel();

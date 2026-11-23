@@ -105,9 +105,9 @@ struct ContactInvariantPlannerOptions {
  *     to the goal pose, every allowed candidate's contact variable c at the
  *     guess's activation (its initial stance at the first node).
  *  2. Solves 1 and 2 (solveContinuation()): the MPC's problem with every
- *     allowed candidate in contact - its dynamics, posture and goal costs,
+ *     allowed candidate in contact (its dynamics, posture and goal costs,
  *     joint limits, the surface candidates' wrench cones and the zero wrench
- *     of the candidates the scenario does not allow - augmented with c and its
+ *     of the candidates the scenario does not allow) augmented with c and its
  *     rate (augmentProblem()): the contact-invariant cost, the force gate, the
  *     quasi-static terms, the point candidates' friction cones in the blended
  *     patch frame and the pads' and the collision spheres' clearance.
@@ -117,7 +117,7 @@ struct ContactInvariantPlannerOptions {
  *     (HardContactRefinement).
  *
  * The plan is stamped with the scenario's hashes and certified.
- * FailedPrecondition naming the first failing knots when the certifier refuses
+ * FailedPrecondition listing the first failing knots when the certifier refuses
  * it, NotFound saying what of the goal is not reached, Internal when a solve
  * fails.
  *
@@ -151,7 +151,7 @@ class ContactInvariantPlanner final : public MultiContactPlanner {
 /**
  * Solve 3 on `seed` and the checks every plan of planner A ends with: the
  * plan of `refinement` from the warm start `guess`, its goal reached
- * (checkGoalReached()) and its certificate. `planner` names the planner in
+ * (checkGoalReached()) and its certificate. `planner` identifies the planner in
  * the messages.
  */
 absl::StatusOr<config::MultiContactPlan> refinedPlan(

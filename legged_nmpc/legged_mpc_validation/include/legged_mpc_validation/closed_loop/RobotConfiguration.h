@@ -43,7 +43,7 @@ enum class MpcFormulation {
   kWholeBody,   ///< legged_wb_mpc
 };
 
-/** "centroidal" or "whole_body", as the metrics documents name a formulation.
+/** "centroidal" or "whole_body", as the metrics documents label a formulation.
  */
 std::string formulationName(MpcFormulation formulation);
 

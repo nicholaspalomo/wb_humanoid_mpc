@@ -7,7 +7,7 @@ abduction/adduction (`abad`, about the base's x axis), hip flexion (`hip`, y), k
 pendulum: it balances in pitch by moving the wheels under its center of mass and turns by driving them at different
 speeds.
 
-This directory holds two Bazel packages:
+This directory contains two Bazel packages:
 
 | Package | Contents |
 | --- | --- |

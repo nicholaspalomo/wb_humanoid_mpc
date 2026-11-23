@@ -380,7 +380,7 @@ TEST(StrideMotionOfRecordedWalks,
   // across the stall only; once it starts inside, both are off by the heading's
   // deviation from the line across the stall, within the bounds
   // StrideMotionHistory states. The mean is never measured while its window
-  // holds the stall.
+  // spans the stall.
   const absl::btree_map<std::string, scalar_t> cycles = gaitCycles();
   for (const RecordedWalk& walk : recordedWalks()) {
     SCOPED_TRACE(walk.file);

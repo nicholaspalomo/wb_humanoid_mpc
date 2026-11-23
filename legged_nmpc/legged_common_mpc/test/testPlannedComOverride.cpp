@@ -59,8 +59,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * the base position that puts the knot's center of mass there. The horizontal
  * offset from the base to the center of mass is measured once per cycle in
  * world axes; it is fixed in the base for a fixed posture, so a knot whose
- * reference heading has turned by dpsi from the measured one carries the
- * offset turned by dpsi. The states are the centroidal MPC's quaternion layout
+ * reference heading has turned by dpsi from the measured one uses the offset
+ * turned by dpsi. The states are the centroidal MPC's quaternion layout
  * of the shipped DRC Atlas (test/support/QuaternionLayoutRobotModel.h).
  */
 namespace ocs2::legged {

@@ -43,7 +43,7 @@ namespace ocs2::legged::validation {
  */
 std::string sha256Hex(absl::string_view data);
 
-/** sha256Hex() of the bytes of the file at `path`; NotFound naming the path
+/** sha256Hex() of the bytes of the file at `path`; NotFound including the path
  * when it cannot be read. */
 absl::StatusOr<std::string> sha256HexOfFile(absl::string_view path);
 

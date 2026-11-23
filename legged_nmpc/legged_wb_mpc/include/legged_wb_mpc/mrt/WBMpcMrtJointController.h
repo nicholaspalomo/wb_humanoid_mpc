@@ -110,11 +110,11 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * Reloaded by pollPdGainsFile(). Its max_joint_torque bounds every
    * feedforward torque the controller commands, as in the centroidal
    * controller.
-   * @return The errors of loadRequiredJointPdGains(), naming the file:
+   * @return The errors of loadRequiredJointPdGains(), identifying the file:
    * InvalidArgument when `pdGainsFile` is empty, cannot be read or is refused
    * (a default_gains without kp, kd and max_joint_torque included), NotFound
    * when it does not exist - at start-up there are no gains in use to keep.
-   * NotFound naming the joint when `modelSettings` names a joint (an MPC joint
+   * NotFound identifying the joint when `modelSettings` specifies a joint (an MPC joint
    * or a fixed one) that `robotDescription` does not have, and the error of
    *         checkContactFramesExist() for contact frames the Pinocchio model
    * does not have.
@@ -160,7 +160,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    *
    * In WB_MPC the policy is read one lookahead (the time since the previous
    * cycle, clamped to [kMinPolicyLookahead, kMaxPolicyLookahead]) after the
-   * measurement - the joint targets and the feedforward - while its feedback
+   * measurement (the joint targets and the feedforward) while its feedback
    * acts on the error at the measurement time (LookaheadPolicyEvaluator): a
    * robot exactly on a moving plan gets exactly the feedforward. Every
    * feedforward torque is clamped to its joint's max_joint_torque, in every
@@ -169,8 +169,8 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    *
    * In the passive modes, the hold of WB_MPC, its weight compensation before a
    * policy and the execution of a policy it allocates nothing once the
-   * controller is built - Pinocchio runs on the FreeFlyer twin of the model
-   * (RealtimeRigidBodyDynamics, legged_common_mpc_app/robot/README.md) -,
+   * controller is built (Pinocchio runs on the FreeFlyer twin of the model,
+   * RealtimeRigidBodyDynamics, legged_common_mpc_app/robot/README.md),
    * takes no lock and writes no log line (reports go to the event sink). A
    * policy the realtime evaluator refuses is never evaluated by MRT_BASE (which
    * allocates, and aborts on a malformed policy): the robot is held with the
@@ -192,15 +192,15 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   const MpcLink& getMpcLink() const { return *mpcLink_; }
 
   /**
-   * Hands the controller the joint PD gains of a whole gains file (as the
+   * Passes the controller the joint PD gains of a full gains file (as the
    * tuning GUI publishes it on operator/pd_gains), without writing the file.
    * Thread-safe, for any non-realtime thread; resolved on the caller's thread
    * (jointPdGainsFromConfig()) and taken into use by the control thread at its
    * next cycle without locking or allocating (see
    * CentroidalMpcMrtJointController::setPdGains). Gains
    * jointPdGainsFromConfig() refuses are returned as its InvalidArgument and
-   * change nothing. Of files handed in concurrently (here, or by
-   * pollPdGainsFile()), the one handed in last wins, whichever is resolved
+   * change nothing. Of files passed in concurrently (here, or by
+   * pollPdGainsFile()), the one passed in last wins, whichever is resolved
    * first.
    */
   absl::Status setPdGains(const mpc_config::JointPdGainsFile& gains);
@@ -305,7 +305,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   }
   /**
    * The control cycles whose contact estimate was refused because it did not
-   * carry one flag per contact point: a configuration error of the estimator,
+   * include one flag per contact point: a configuration error of the estimator,
    * after which the measured contact flags stay those of the cycle before. The
    * first refusal of each run posts
    * ControllerEventCode::kContactEstimateRefused to the event sink, which the
@@ -450,7 +450,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   const vector_t& computeGravityCompensation(
       const ::robot::model::RobotState& robotState);
 
-  /** Hands an event to the event sink. Control thread. */
+  /** Passes an event to the event sink. Control thread. */
   void postEvent(ControllerEventCode code,
                  scalar_t value0 = 0.0,
                  scalar_t value1 = 0.0,

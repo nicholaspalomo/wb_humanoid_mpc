@@ -119,8 +119,8 @@ using node::test_support::ScriptedRobot;
 
 node::MpcFiles atlasFiles() {
   node::MpcFiles files;
-  // A file missing from the runfiles throws here, naming the data dependency to
-  // add (robot::resolveResourcePath).
+  // A file missing from the runfiles throws here, identifying the data
+  // dependency to add (robot::resolveResourcePath).
   files.taskFile = robot::resolveResourcePath(
                        "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/"
                        "mpc/task.textproto")
@@ -219,7 +219,7 @@ TEST(CentroidalMpcNode,
             static_cast<int>(dimensions.inputDim));
   EXPECT_EQ(policy->resets_served(), 0);
   // The shipped Atlas runs a feedback policy, which the SQP on the quaternion
-  // state's manifold hands out as a ManifoldLinearController: gains on the
+  // state's manifold returns as a ManifoldLinearController: gains on the
   // tangent, with the anchors they act at.
   ASSERT_TRUE(harness.node().interface().sqpSettings().useFeedbackPolicy)
       << "the shipped DRC Atlas runs multiple_shooting.use_feedback_policy";
@@ -313,7 +313,7 @@ matrix_t runningStateWeights(CentroidalMpcNode& node) {
 
 /**
  * The tuning GUI's update of the node's task file with `edit` applied, as it
- * publishes it: the whole file, typed, with the schema fingerprint and the
+ * publishes it: the full file, typed, with the schema fingerprint and the
  * file's configuration path `configPath`.
  */
 legged_mpc_config::MpcParameterUpdate parameterUpdateOf(
@@ -340,7 +340,7 @@ TEST(CentroidalMpcNode, AParameterUpdateIsAppliedBeforeTheNextSolve) {
   const size_t shippedIterations =
       solverOf(harness.node()).getSettings().sqpIteration;
 
-  // The tuning GUI sends the whole task file, typed; this one doubles the state
+  // The tuning GUI sends the full task file, typed; this one doubles the state
   // weights and adds an SQP iteration.
   const legged_mpc_config::MpcParameterUpdate update = parameterUpdateOf(
       harness.files().taskFile,
@@ -425,7 +425,7 @@ TEST(CentroidalMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   // The controller as the robot process builds it, with a link that keeps the
-  // reset target the controller hands it.
+  // reset target the controller passes it.
   mpc_test::ScriptedMpc scriptedMpc(
       interface.mpcSettings(),
       interface.getEffectiveMpcRobotModel().getInputDim());
@@ -448,8 +448,8 @@ TEST(CentroidalMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
           capturing, interface.getPinocchioInterface(),
           jointPdGainsFileBeside(harness.files().taskFile),
           &interface.getEffectiveMpcRobotModel());
-  // The controller, which owns the link the factory captured, lives in
-  // controllerOrStatus for the whole test.
+  // The controller, which owns the link the factory captured, stays in
+  // controllerOrStatus for the duration of the test.
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   ASSERT_TRUE(controllerResetTarget);
   const MpcRobotModelBase<scalar_t>& model = interface.getMpcRobotModel();
@@ -647,7 +647,8 @@ vector3_t samplePosBaseRtWorldEwrtWorld(
 // alone). The robot comes up on the gantry, enters WB_MPC through JOINT_PD on
 // the node's policies, is released, stands, walks forward and stops without
 // falling; the loop holds its period, the policy in use stays fresh, the node's
-// visualization reaches the bus, and SIGTERM ends both processes cleanly.
+// visualization reaches the bus, and SIGTERM stops both processes with zero
+// exit status.
 TEST(CentroidalMpcNodeEndToEnd,
      TheRobotProcessStandsAndWalksOnTheNodeBinarysPolicies) {
   const node::MpcFiles files = atlasFiles();

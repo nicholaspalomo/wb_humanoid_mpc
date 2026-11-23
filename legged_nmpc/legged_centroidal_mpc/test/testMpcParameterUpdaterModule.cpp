@@ -140,7 +140,7 @@ namespace {
 
 constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
-/** Whether `collection` carries a term named `name`. */
+/** Whether `collection` contains a term named `name`. */
 template <typename Term>
 bool hasTerm(const Collection<Term>& collection, absl::string_view name) {
   size_t index = 0;
@@ -539,7 +539,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
 TEST_F(MpcParameterUpdaterModuleTest,
        BasisCostTransformRejectsMismatchedInputDim) {
   // The R of the task file is indexed in wrench space, so the only sane
-  // inputDim for an updater carrying a basis-space transform is the transform's
+  // inputDim for an updater with a basis-space transform is the transform's
   // basis-space dimension: the wrench-space one is exactly the mistake this
   // guards against.
   std::optional<BasisInputsCostTransformConfig> transform =
@@ -1558,7 +1558,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
 
   CentroidalMpcConfig zero = config;
   zero.task.model_settings.foot_constraint.soft_constraint_weight = 0.0;
-  // A fresh start on the file refuses it, naming the field.
+  // A fresh start on the file rejects it and reports the field.
   const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> started =
       CentroidalMpcInterface::Create(zero, files_.urdfFile);
   EXPECT_EQ(started.status().code(), absl::StatusCode::kInvalidArgument);
@@ -2229,8 +2229,8 @@ TEST_F(
       << "the reloader after the refusing one did not run once";
 
   // A file whose limits do not convert reaches no typed reloader: it is
-  // reported once, naming the file and the field, and every running limit is
-  // kept.
+  // reported once, identifying the file and the field, and every running limit
+  // is kept.
   mpc_config::ReferenceFile refused = shipped_.reference;
   refused.cmd_max_linacc_base_rt_world_ewrt_heading_xy =
       std::numeric_limits<scalar_t>::quiet_NaN();
@@ -2288,7 +2288,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
             .getPosBaseRtWorldEwrtWorld(target.stateTrajectory.back())(2);
       };
   EXPECT_NEAR(refPosBaseRtWorldEwrtWorldZ(), 0.90 - 0.10, 1.0e-6);
-  // What a reload of the reference file hands the calculator
+  // What a reload of the reference file passes to the calculator
   // (MpcParameterUpdaterModule::ReferenceFileReloader).
   const absl::StatusOr<ReferenceSettings> reloaded =
       referenceSettingsFromConfig(referenceWith(0.25, 0.80));

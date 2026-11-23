@@ -90,7 +90,7 @@ class PlannedSurfaceHeights final : public ContactSurfaceHeightSource {
    * Collects the patches of `plan` for the contacts of `modelSettings`. A
    * phase of a contact the MPC does not have is skipped, as the MPC skips it.
    *
-   * @return InvalidArgument naming the phase and its contact when its
+   * @return InvalidArgument reporting the phase and its contact when its
    * des_pose_pad_rt_world is not six finite values with a unit normal.
    */
   static absl::StatusOr<std::unique_ptr<PlannedSurfaceHeights>> Create(
@@ -124,7 +124,7 @@ class PlannedSurfaceHeights final : public ContactSurfaceHeightSource {
     bool givesHeight = false;
   };
 
-  /** Returns whether `patches` holds the patch of exactly this center and
+  /** Returns whether `patches` contains the patch of exactly this center and
    * unit normal (the dedup of Create()). Private because Patch is. */
   static bool hasPatch(absl::Span<const Patch> patches,
                        const vector3_t& posSurfaceRtWorldEwrtWorld,

@@ -97,8 +97,8 @@ namespace {
 
 /**
  * Adds a stand-in for the solver's problem to `problem`: a term in a cost, a
- * final cost and a constraint collection, so that the mpc_solution groups carry
- * series (the node hands over its solver's own problem).
+ * final cost and a constraint collection, so that the mpc_solution groups contain
+ * series (the node passes its solver's own problem).
  */
 absl::Status addStandInTerms(Eigen::Index stateDim,
                              Eigen::Index inputDim,

@@ -63,8 +63,8 @@ struct TorqueFeasibilityResult {
  * within a margin when utilization <= that margin (isJointTorqueFeasible()).
  *
  * Requires that `equilibrium`'s stance is the model's at q: its contacts'
- * candidateIndex name the model's candidates, and the robot's CoM at q is in
- * static equilibrium on it (StaticEquilibrium::equilibriumResidual() within the
+ * candidateIndex refer to the model's candidates, and the robot's CoM at q is
+ * in static equilibrium on it (StaticEquilibrium::equilibriumResidual() within
  * tolerance); otherwise the LP has no solution and HPIPM's failure is an
  * Internal error. Reads `model` only.
  */

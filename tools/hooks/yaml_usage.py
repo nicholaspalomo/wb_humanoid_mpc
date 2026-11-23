@@ -54,7 +54,7 @@ from tools.hooks import repo_layout
 CONFIG_YAML = "config-yaml"
 YAML_CPP = "yaml-cpp"
 
-# The directories that hold the MPC's configuration files.
+# The directories that store the MPC's configuration files.
 CONFIG_DIRS = (repo_layout.ROBOT_MODELS_DIR, repo_layout.NMPC_DIR)
 YAML_EXTENSIONS = (".yaml", ".yml")
 

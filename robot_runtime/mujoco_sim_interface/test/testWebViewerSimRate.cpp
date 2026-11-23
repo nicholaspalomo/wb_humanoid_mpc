@@ -224,7 +224,7 @@ void expectTheWebViewerDoesNotDelayThePhysics(const Placement& placement) {
   EXPECT_GE(with.frames, 10) << "the browser hardly pulled any frames, so the "
                                 "viewer was not exercised";
   // The physics thread never waits for the viewer; a sample it cannot append is
-  // kept for the next, and dropped only if the viewer holds the timeline
+  // kept for the next, and dropped only if the viewer blocks the timeline
   // through two sample periods.
   EXPECT_LE(with.droppedTimelineSamples, with.steps / 100) << describe(with);
 }

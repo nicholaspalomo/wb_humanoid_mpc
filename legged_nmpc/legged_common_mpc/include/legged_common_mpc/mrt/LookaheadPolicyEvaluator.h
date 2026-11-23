@@ -46,13 +46,13 @@ namespace ocs2::legged {
  * lookahead delta ahead of its measurement: the measurement x is taken at time
  * t, and the command reaches the joints about one control period later.
  *
- * The plan is read at t + delta - the planned state x*(t + delta), which gives
+ * The plan is read at t + delta (the planned state x*(t + delta), which gives
  * the joint targets, the mode, and the feedforward input u(t + delta, x*(t +
- * delta)) - while the feedback correction is formed where the measurement is,
+ * delta))), while the feedback correction is formed where the measurement is,
  * at t, against the plan at t:
  *   input = u(t + delta, x*(t + delta)) + [u(t, x) - u(t, x*(t))].
  * For a linear policy u(t, x) = u_ff(t) + K(t) (x (-) x*(t)) that is u_ff(t +
- * delta) + K(t) (x (-) x*(t)). Evaluating the whole law at t + delta on the
+ * delta) + K(t) (x (-) x*(t)). Evaluating the full law at t + delta on the
  * state measured at t, as the controllers did, gives u_ff(t + delta) + K(t +
  * delta) (x (-) x*(t + delta)) instead: on a moving plan a robot exactly on it
  * gets the feedback -K (x*(t + delta) (-) x*(t)) ~ -K xdot* delta, a correction

@@ -133,7 +133,7 @@ bool storesAngvelBaseRtWorldEwrtBase(const TuningLayout& layout) {
   return false;
 }
 
-/** The tuning block of the centroidal state that holds the normalized angular
+/** The tuning block of the centroidal state that stores the normalized angular
  * momentum L / m (tuningLayoutOf()). */
 constexpr char kMnormAngmomSegmentName[] =
     "mnorm_angmom_com_rt_world_ewrt_world";
@@ -988,7 +988,7 @@ std::optional<vector3_t> SwitchedModelReferenceManager::targetPlanarCommandAt(
   }
   // Read the way the model's target calculator wrote the knot (design defect
   // D3: this read the centroidal slots on every model, the base position and a
-  // roll rate of the whole-body knot). A centroidal knot holds the turn as the
+  // roll rate of the whole-body knot). A centroidal knot stores the turn as the
   // momentum h_z = I_zz psidot / m of the body at the measured configuration,
   // so it comes back out with the inertia latched for this solve; until one is
   // latched it reads 0, which is accurate and safe: every
@@ -1140,8 +1140,8 @@ vector_t SwitchedModelReferenceManager::shapePoseBaseRtWorld(
   // Here, per node, at the point of use - not in the target-trajectory
   // calculator, where the roll and pitch zeros are written: that trajectory's
   // knots are placed by the command (three on a straight walk) and could not
-  // carry a limit cycle at gait frequency, it is published one solve ahead of
-  // the solver that reads it, and it is also what the operator's delta-pose
+  // represent a limit cycle at gait frequency, it is published one solve ahead
+  // of the solver that reads it, and it is also what the operator's delta-pose
   // commands are measured against. The zeros there stay; this writes on top of
   // them.
   BasePoseHeuristicContext context;
@@ -1476,7 +1476,7 @@ vector_t SwitchedModelReferenceManager::getDesiredContactInput(
   context.cmdRateYawBaseRtWorld = getCmdRateYawBaseRtWorld(time);
   // The same gravity weightCompensatingInput() uses, so that the offsets and
   // the reference they correct are measured in the same weight. It is a
-  // constant in both places because the centroidal model carries no gravity
+  // constant in both places because the centroidal model has no gravity
   // constant of its own.
   context.totalWeight = totalMass_ * kGravityMagnitude;
   // Each foot's duty factor over its OWN stride, lift-off to lift-off, from the

@@ -62,20 +62,20 @@ namespace ocs2::legged {
  *   f_n >= 0,   h >= 0,   f_n h = 0,
  *
  * of which the first is the contact cone's (the friction or wrench cone, or the
- * non-negativity of the basis scalings), which has to be un-gated for it -
- * checkMpcFormulationTasks() insists on a cone once `zero_wrench` is gone - the
- * second is GroundPenetrationConstraint and the third is this term, penalized
- * rather than imposed. A foot may then carry load only where it touches the
- * ground, and where it touches the ground it may carry load whatever the
- * nominal gait says. The contact schedule from the reduced-order planner is
- * demoted from a constraint to a set of REFERENCES - the swing-foot costs, the
- * input regularization's weight-compensating nominal, the DCM terminal support
- * - which the solver overrules whenever anything else pays more; see section 2
- * of legged_nmpc/docs/contact_implicit_mpc/README.md for every place it still
- * enters.
+ * non-negativity of the basis scalings), which has to be un-gated for it
+ * (checkMpcFormulationTasks() insists on a cone once `zero_wrench` is gone);
+ * the second is GroundPenetrationConstraint and the third is this term,
+ * penalized rather than imposed. A foot may then carry load only where it
+ * touches the ground, and where it touches the ground it may carry load
+ * whatever the nominal gait says. The contact schedule from the reduced-order
+ * planner is demoted from a constraint to a set of REFERENCES (the swing-foot
+ * costs, the input regularization's weight-compensating nominal, the DCM
+ * terminal support), which the solver overrules whenever anything else pays
+ * more; see section 2 of legged_nmpc/docs/contact_implicit_mpc/README.md for
+ * every place it still enters.
  *
- * The term is bilinear - the force enters linearly through the model's contact
- * parameterization and the height enters through the foot kinematics - so its
+ * The term is bilinear (the force enters linearly through the model's contact
+ * parameterization and the height enters through the foot kinematics), so its
  * linear approximation is assembled in closed form from the gap's Jacobian and
  * the constant row that maps the input to the normal force. The gap's Jacobian
  * is not free: FootprintCornerHeights tapes one first-order CppAD model of the
@@ -87,17 +87,17 @@ namespace ocs2::legged {
  * MpcRobotModelBase::getForceContactEwrtParam(), and which frame that is
  * depends on the model: the WORLD vertical for the wrench-space models, and the
  * contact frame's own normal under BasisInputsModelDecorator. Both are correct
- * here, because the term uses f_n as a LOAD INDICATOR - a number that vanishes
- * exactly when the foot carries no wrench - rather than as a physical force
+ * here, because the term uses f_n as a LOAD INDICATOR (a number that vanishes
+ * exactly when the foot carries no wrench) rather than as a physical force
  * (README section 2a, "What f_n actually is").
  *
- * WHICH HEIGHT. h is the GAP - the height of the LOWEST point of the footprint
- * above the terrain - and not the height of the sole's center. The two differ
+ * WHICH HEIGHT. h is the GAP (the height of the LOWEST point of the footprint
+ * above the terrain) and not the height of the sole's center. The two differ
  * whenever the foot is pitched or rolled, which this formulation makes the
  * normal case rather than an exceptional one: ForceWeightedSlipConstraint
  * deliberately leaves the rocking rates free so that the foot can roll from
  * heel to toe under load. Measured at the center, a foot up on its heel reads a
- * positive height while it is carrying the whole robot, and this term then
+ * positive height while it is carrying the full robot, and this term then
  * penalizes the force it is physically holding - it pays for a contact that
  * exists. It also disagreed with GroundPenetrationConstraint, which had already
  * been moved to the corners; the two now share one FootprintCornerHeights, so
@@ -108,15 +108,15 @@ namespace ocs2::legged {
  * the flat-footed stance where the robot spends most of its time; see that
  * function for why the normalization inside it is not cosmetic.
  *
- * The residual is normalized - it is (f_n / f_ref) (h / h_ref), not f_n h - and
- * that matters more than it looks. The penalty wrapped around this term is
- * quadratic, so what the solver actually sees is a curvature of
+ * The residual is normalized as (f_n / f_ref) (h / h_ref) rather than f_n h,
+ * which has a large effect on conditioning. The penalty wrapped around this
+ * term is quadratic, so what the solver actually sees is a curvature of
  *
  *   d2/dh2 [ w g^2 / 2 ] = w f_n^2 / f_ref^2 / h_ref^2,
  *
  * proportional to the square of the normal force. Unnormalized, on a 160 kg
  * robot, f_n^2 spans nine orders of magnitude between a foot in flight and a
- * foot carrying the whole body, so one weight cannot be right at both ends:
+ * foot carrying the full body, so one weight cannot be right at both ends:
  * chosen for the loaded foot it is negligible in flight, and chosen for the
  * flight foot it dwarfs every other term in the problem. It dwarfs, in
  * particular, the swing height reference - and since f_n h = 0 is satisfied
@@ -125,8 +125,8 @@ namespace ocs2::legged {
  * force off it.
  *
  * Dividing by a reference force and a reference height makes the residual
- * dimensionless and O(1) at the worst configuration the robot can reach - a
- * foot at full swing height carrying full body weight - so the weight means the
+ * dimensionless and O(1) at the worst configuration the robot can reach (a
+ * foot at full swing height carrying full body weight), so the weight means the
  * same thing at every point of the horizon and is comparable with the slip
  * term's weight. It is NOT comparable with the task-space weights it competes
  * against, whose residuals are in meters: in cost, `pos_z` at the swing apex
@@ -151,7 +151,7 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
    * the gap. Pass the same object given to this foot's
    * GroundPenetrationConstraint. It is cloned, not retained.
    * @param [in] mpcRobotModel : the robot model, for the input block that
-   * carries this contact's force.
+   * contains this contact's force.
    * @param [in] contactPointIndex : the contact this term belongs to.
    * @param [in] posSurfaceRtWorldEwrtWorldZ : [m] height of the ground under
    * the foot.

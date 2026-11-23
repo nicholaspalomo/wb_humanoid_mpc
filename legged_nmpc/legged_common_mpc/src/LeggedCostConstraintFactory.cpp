@@ -156,11 +156,11 @@ LeggedCostConstraintFactory::LeggedCostConstraintFactory(
  * A schedule-gated cone is only ever evaluated on a foot the schedule has
  * declared loaded, where the slack is comfortably positive and a relaxed log
  * barrier is the right object. An always-active cone is also evaluated on a
- * foot in flight, which sits exactly ON the boundary of the homogeneous cone. A
+ * foot in flight, which lies exactly ON the boundary of the homogeneous cone. A
  * relaxed log barrier has value -mu*ln(delta) + 3*mu/2 (its quadratic extension
  * mu*(-ln(delta) + ((h - 2*delta)/delta)^2/2 - 1/2) at h = 0) and derivative
- * -2*mu/delta there - with the shipped center-of-pressure settings, mu = 0.6
- * and delta = 0.03, that is a derivative of -40 per row - so it would pay the
+ * -2*mu/delta there (with the shipped center-of-pressure settings, mu = 0.6
+ * and delta = 0.03, that is a derivative of -40 per row), so it would pay the
  * solver to leave the origin, i.e. to invent a normal force on a foot in the
  * air. That is precisely the failure that dropping
  * `minForceContactEwrtContactZ` and the friction cone's parabolic margin exists
@@ -179,12 +179,12 @@ LeggedCostConstraintFactory::LeggedCostConstraintFactory(
  * discovered. In the barrier `mu` is a log coefficient whose gradient near the
  * boundary goes as mu/delta; in the hinge it is the quadratic stiffness of `0.5
  * * mu * h^2`. With the shipped cone settings (mu = 0.2, delta = 5, rows in
- * newtons) the hinge is the STRONGER of the two everywhere a violation is worth
- * caring about - equal at 0.42 N, 2.3x the barrier's restoring gradient at 1
- * N, 12.5x at 10 N, 22.7x at 100 N, and 25x its curvature throughout. Carrying
- * `mu` across therefore tightens the cone rather than loosening it, which is
- * the safe direction for a bound that is the ONLY thing holding a wrench inside
- * the cone once the schedule gate is gone. Matching the barrier's curvature
+ * newtons) the hinge is the STRONGER of the two for any significant violation
+ * (equal at 0.42 N, 2.3x the barrier's restoring gradient at 1 N, 12.5x at
+ * 10 N, 22.7x at 100 N, and 25x its curvature throughout). Reusing `mu`
+ * therefore tightens the cone rather than loosening it, which is the safe
+ * direction for a bound that is the ONLY thing keeping a wrench inside the cone
+ * once the schedule gate is gone. Matching the barrier's curvature
  * instead would mean mu/delta^2 = 0.008, an eightyfold softening, and is not
  * what is wanted here.
  */

@@ -26,16 +26,16 @@ code now represents a contact set; the other two paragraphs describe the code as
 
 **The contact set (resolved).**
 - The stack was written with two contacts fixed at compile time. The contact set is now run-time data
-  (`ModelSettings::contactNames`, at most `kMaxNumContacts = 32`): generic code holds one value per contact in a
+  (`ModelSettings::contactNames`, at most `kMaxNumContacts = 32`): generic code stores one value per contact in a
   `ContactArray<T>` (`legged_common_mpc/common/ContactArray.h`) and the active contacts in a `ContactMask`
   (`common/ContactMask.h`), both sized from the model. Code written for a left and a right foot uses
   `BipedFeetArray<T>` (`common/BipedFeet.h`).
-- The centroidal input holds the wrench of every 6-DoF contact and the force of every 3-DoF contact, followed by the
-  joint velocities (`CentroidalMpcRobotModel.h`). The whole-body input (`WBAccelMpcRobotModel.h`) holds one wrench
+- The centroidal input contains the wrench of every 6-DoF contact and the force of every 3-DoF contact, followed by the
+  joint velocities (`CentroidalMpcRobotModel.h`). The whole-body input (`WBAccelMpcRobotModel.h`) contains one wrench
   per contact, and the whole-body MPC refuses every contact set but the biped's two feet.
 - A mode number is the bitmask of the active contacts, contact `i` at bit `numContacts - 1 - i`
   (`gait/MotionPhaseDefinition.h`). The biped's `FLY`, `RF`, `LF` and `STANCE` are `kBipedModeFly` to
-  `kBipedModeStance` (`gait/BipedModes.h`). A gait file names a mode `FLY`, `STANCE` (both feet on a set ending in two
+  `kBipedModeStance` (`gait/BipedModes.h`). A gait file specifies a mode as `FLY`, `STANCE` (both feet on a set ending in two
   6-DoF feet, every contact otherwise), `LF` or `RF` (on a set ending in two 6-DoF feet), the stance legs joined by `_`
   (`LF_RH` on a quadruped), the stance contacts joined by `+`, or one digit 0 or 1 per contact in contact order
   (`parseModeNumber()`), and the gait schedule's stance phases are that `STANCE` (`gaitModeLayoutOf()`,
@@ -43,14 +43,14 @@ code now represents a contact set; the other two paragraphs describe the code as
 - The contact planner is written for two feet. `makeContactPlanner()` refuses every contact set but the biped's two
   6-DoF feet by `planner.type` and the contact count. Behind it, both planners (`LipContactPlanner`, `HlipContactPlanner`), the
   planner terms `foot_separation`, `zmp_support_region`, `yaw_torque_budget` and `alternating_feet`, the foothold
-  integrator and the knee mimic blocks refuse a contact set of any size but two when they are built, with an InvalidArgument that names the component and
+  integrator and the knee mimic blocks refuse a contact set of any size but two when they are built, with an InvalidArgument that reports the component and
   the contact count (`checkTwoContactCount()`, `common/TwoContactCount.h`). The count reaches the planner as
   `shared.numContacts`, which `ContactPlanningModelParameters::applyTo()` writes from the model. The rules
   `no_flight` and `phase_durations` and the `no_flight` row are written over the number of feet, and
   `minimum_double_support` is a minimum support count (every foot by default, the double support of a biped).
 - The basis-vector contact parameterization, which Atlas and SA01 ship, takes any number of 6-DoF contacts and no
   3-DoF contact (`CentroidalDynamicsBasisInputsAD.cpp`).
-- The contact set may hold any mix of 3-DoF and 6-DoF contacts, a set of point contacts alone included. The realtime
+- The contact set may contain any mix of 3-DoF and 6-DoF contacts, a set of point contacts alone included. The realtime
   inverse dynamics of the MRT controllers apply every contact's wrench at its own frame
   (`getContactFrameIndexArray()`).
 
@@ -76,7 +76,7 @@ mixed 3-DoF (point) and 6-DoF (surface) contacts (`numThreeDofContacts`, `numSix
 Climbing onto a box takes five to fifteen seconds and a sequence of contact changes the robot cannot find by looking
 one second ahead. A knee goes onto the box before the foot can, and a hand pushes so that the other knee can follow.
 So the design has two layers:
-- an **offline planner** that finds the whole contact sequence and a dynamically consistent motion through it;
+- an **offline planner** that finds the full contact sequence and a dynamically consistent motion through it;
 - the **online centroidal MPC**, which tracks that plan and rejects disturbances.
 
 ## 2. Stability: what "statically and dynamically stable" means here
@@ -85,8 +85,8 @@ Both planners and every test use the same two conditions, implemented once (sect
 
 **Contacts.**
 - A contact `i` touches a surface patch with unit normal `n_i` and friction coefficient `mu_i`.
-- A **point contact** (knee, hand, forearm, thigh) carries a force `f_i`.
-- A **surface contact** (foot, pelvis on the seat) carries a wrench `w_i = (f_i, tau_i)` about its frame, bounded by the
+- A **point contact** (knee, hand, forearm, thigh) transmits a force `f_i`.
+- A **surface contact** (foot, pelvis on the seat) transmits a wrench `w_i = (f_i, tau_i)` about its frame, bounded by the
   contact wrench cone of its rectangle: friction, center of pressure inside the rectangle and torsional friction, as
   `ContactWrenchConeConstraint` already writes it, but in the patch frame instead of the world frame.
 
@@ -121,7 +121,7 @@ polygon.
 - A scenario's `support_polygon: "refined"` (`"sampled"` by default) has the certifier and planner B grow that hull: one
   more LP along the outward normal of each edge, until no support point lies more than 0.1 mm beyond its edge or 32 more
   points were added (`SupportPolygon::kRefined`, Bretl and Lall's projection). The refined hull contains the sampled one
-  and is still inside the polygon. It matters for a thin polygon whose corner lies between two of the 16 directions: on
+  and is still inside the polygon. This refinement is needed for a thin polygon whose corner lies between two of the 16 directions: on
   the get-up from the back's roll (two pads along the torso box's edge, parallel to x, and a sole far ahead), the corner
   at the inner pad is a support point only along -y, where the LP's tie between the two pads decides whether the hull
   keeps it. The plan's knots kept it; the tracked trajectory, its edge a few milliradians off x, lost it, and the margin
@@ -159,7 +159,7 @@ planned centroidal momentum rate.
    without it. This is the stance-sequence rule of Hauser, Bretl and Latombe: consecutive stances differ by one
    contact, and the transition happens in the smaller of the two.
 
-Condition 1 is stricter than climbing needs: a running jump onto a box fails it. It is the right first target because
+Condition 1 is stricter than climbing needs: a running jump onto a box fails it. It is a practical first target because
 it makes every plan tolerant of timing errors. The margin `delta_s` is a scenario parameter, and setting it to `-inf`
 leaves only condition 2.
 
@@ -172,7 +172,7 @@ The contact set is runtime data. Each candidate has:
 - a kind: `point` (3-DoF) or `surface` (6-DoF, with a rectangle);
 - a parent joint;
 - a local offset, plus the local normal of its contact pad;
-- the radius of the collision geometry it sits on.
+- the radius of the collision geometry it lies on.
 
 A 3-DoF contact's name is usually a new frame, which the MPC model adds at the parent joint plus the offset. It may
 instead be a frame the URDF already has, such as a quadruped's foot link, when that frame hangs from the configured
@@ -200,7 +200,7 @@ Notes:
 - The thigh capsule hangs from the hip pitch joint, so the thigh contact's parent joint is `l_leg_hpy` (the joint whose
   frame is `l_uleg`'s), not the knee.
 - The thigh capsules (radius 0.06 m from z = -0.066 m) reach below the pelvis box (bottom at z = -0.07 m), so a seated
-  Atlas rests on them, not on the box: the seat pad sits at z = -0.143 m, the height of the underside of the thighs
+  Atlas rests on them, not on the box: the seat pad is placed at z = -0.143 m, the height of the underside of the thighs
   with the hips flexed, rather than on the box's bottom face.
 - The set is `robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/contact_set.textproto`
   (`contact_set.proto`); a test checks every parent joint against `atlas.urdf`.
@@ -214,7 +214,7 @@ Notes:
 - A forearm resting along a box edge is closer to a line contact. Version 1 uses one point. Two points per forearm,
   which give it a moment, are a later option that needs no new kind.
 - The torso edge pads let the robot roll from its back onto its right side: a box edge is a line contact, so each
-  roll angle has two points, one near each end of the edge. The two angles' points sit at different heights along the
+  roll angle has two points, one near each end of the edge. The two angles' points are placed at different heights along the
   edge, because the planner drops a pad that coincides with another active pad as overlapping. The pads lie on the
   edge itself, so their geom radius is a token 1 mm.
 - A scenario lists which candidates it allows. Stairs allow the feet, optionally the hands. The box allows feet, knees,
@@ -222,7 +222,7 @@ Notes:
   edge pads, and getting up from the back allows all seventeen.
 
 With seventeen candidates there are 2^17 = 131072 contact modes. A mode number is the bitmask of the active contacts in
-contact-set order, which OCS2's `ModeSchedule` already carries. The biped's `FLY` / `RF` / `LF` / `STANCE` names remain
+contact-set order, which OCS2's `ModeSchedule` already supports. The biped's `FLY` / `RF` / `LF` / `STANCE` names remain
 the biped's.
 
 ### 3.2 The terrain model
@@ -259,7 +259,7 @@ MPC, the dummy sim and MuJoCo can never disagree about where the box is.
 
 ### 4.1 The paper's formulation
 
-Mordatch, Todorov and Popović optimize one vector `s` that holds the motion: the body's trajectory as splines over a
+Mordatch, Todorov and Popović optimize one vector `s` that represents the motion: the body's trajectory as splines over a
 sequence of `K` phases of fixed duration, plus, for each candidate contact `i` and phase `phi`, a scalar
 `c_{i,phi} >= 0` that says whether `i` should be in contact during `phi`. The objective is a sum of four terms:
 
@@ -282,7 +282,7 @@ L_CI(s) = sum_t sum_i c_{i,phi(t)} ( ||e_i(s, t)||^2 + ||e_dot_i(s, t)||^2 )
 
 The paper's soft physics is replaced by the centroidal dynamics with full kinematics that the centroidal MPC already
 models (Dai, Valenzuela and Tedrake). The planner is an OCS2 SQP problem, the same solver and the same CppAD
-machinery as the MPC, solved offline over the whole motion.
+machinery as the MPC, solved offline over the full motion.
 
 **State.** The centroidal MPC's state (centroidal momentum, base pose as a quaternion, joint positions), plus one
 contact variable `c_i` per candidate.
@@ -359,7 +359,7 @@ smooth surrogate, and the certifier checks the exact quantity:
   quaternion base and a Euclidean block for `c`, and adds the contact-invariant terms. The task cost is the MPC's
   terminal cost toward the goal pose; its running state cost, at 1 % of the task file's weights, is the posture
   regularization toward the guess. Where the task file is tuned for tracking a plan, planner A keeps its own values,
-  so that the plans do not move with that tuning: the base position weights (25, 25, 15; `plannerMpcConfigOf()`), the
+  so that the plans do not change with that tuning: the base position weights (25, 25, 15; `plannerMpcConfigOf()`), the
   wrench cones' barrier of solves 1 and 2 `(0.2, 5 N)`, and solve 3's settings below.
 - The contact features of every allowed candidate are one CppAD tape (`ContactFeatureFunction`,
   `RobotContactFeatures.h`, named by the scene's and the contact set's hashes): the pad's signed distance, its velocity
@@ -372,7 +372,7 @@ smooth surrogate, and the certifier checks the exact quantity:
   from the pre-computation. The non-convex Hessians of the first two in `(c, e)` and `(c, f)` are projected onto the
   positive semidefinite cone before the chain rule (`projectToPositiveSemidefinite()`); the gate clamps `c` into
   `[0, 1]`, the contact-invariant cost only from below, so that a `c` above 1 buys no force and still pays.
-- Inequality constraints are relaxed penalties: OCS2's SQP hands HPIPM its equality constraints only (it linearizes the inequality
+- Inequality constraints are relaxed penalties: OCS2's SQP passes HPIPM its equality constraints only (it linearizes the inequality
   collections for its metrics, not for the QP), so the "hard" constraints of section 4.2 are relaxed log barriers, as
   the MPC's cones are: the cones and the clearances of the pads and of the collision spheres (`TerrainClearanceConstraint`,
   every sphere of section 5.4 at margin 0, none exempt). `0 <= c <= 1` is a squared hinge (no push inside the box,
@@ -388,7 +388,7 @@ smooth surrogate, and the certifier checks the exact quantity:
   off last is kept until another has touched down), changes 0.25 s apart, one contact at a time, and every change
   delayed to the next multiple of 0.1 s, so that the tracking MPC's period (0.02 s on the Atlas), the plan's knots and
   the nodes of solves 1 and 2 all divide the times the stance changes at.
-- Solve 3 (`HardContactRefinement`) is the MPC of the task file tracking the thresholded plan over the whole
+- Solve 3 (`HardContactRefinement`) is the MPC of the task file tracking the thresholded plan over the full
   duration in one offline SQP (`CentroidalMpcInterface::Create()` with the plan in memory): the stances are the mode
   schedule, the solve-2 states the targets, the swings rebuilt by the generalized swing planner, every inactive
   force zero (`zero_wrench`) and every stance pad held (`zero_velocity`). On top of the MPC's terms it adds the
@@ -408,7 +408,7 @@ smooth surrogate, and the certifier checks the exact quantity:
   settings: the task file the dummy sim tracks the plan with keeps its online tuning.
 - The output is the plan of the solve-3 trajectory at the knots (`planOfTrajectory()`: one phase per run of active
   knots, until the knot that breaks it, on the patch under the run's mean pad), stamped and certified;
-  FailedPrecondition naming the first failing knots, NotFound when the goal stance, its primitives or the base region
+  FailedPrecondition reporting the first failing knots, NotFound when the goal stance, its primitives or the base region
   are not reached (`checkGoalReached()`).
 - In the combined planner (`stance_graph_then_contact_invariant`, `StanceGraphThenContactInvariantPlanner`, section
   5.2), planner B's certified sequence, retimed to the scenario's duration (`retimedPlan()`: every run of one stance
@@ -419,7 +419,7 @@ smooth surrogate, and the certifier checks the exact quantity:
 
 `CentroidalMpcInterface::Create()` takes a plan in memory, and the
 planned-motion reference manager starts a contact's later swings within the horizon at their own phase's pad instead
-of where the contact is now (an offline solve's horizon holds every swing of the plan; an online one rarely holds two
+of where the contact is now (an offline solve's horizon covers every swing of the plan; an online one rarely covers two
 of one contact).
 
 **Status (every scenario at `joint_limits: "position_only"`, section 11, decision 6).** Per scenario and
@@ -453,7 +453,7 @@ Two attempts did not help and were not kept:
   keeps have left the terrain in the solve-2 motion, so solve 3 starts from a guess whose stance pads are in the air,
   and the certifier's equilibrium LP of the five-contact stance fails (HPIPM MAX_ITER).
 
-The box climb now plans with planner B through the scenario's waypoints (section 5.5), and the scenario names
+The box climb now plans with planner B through the scenario's waypoints (section 5.5), and the scenario specifies
 `stance_graph`. That sequence as the seed of solve 3 (the combined planner, table above) still fails: retimed to the
 scenario's 12 s, 184 of 481 knots, and to 60 s, 868 of 2401, the hands' and soles' spheres and the static margin at
 the single-foot stances; the 60 s solve also met a wrench cone LP HPIPM stopped on, which the certifier now reports as
@@ -507,7 +507,7 @@ construction it satisfies all three conditions of section 2.
 
 The stance sequence fixes when each contact is active. Planner A's `c` is initialized to it, its state to the
 configurations, and solve 3 alone smooths the motion and redistributes the forces. Mordatch's method needs no
-initialization, so the two planners are useful separately:
+initialization, so each planner can be used on its own:
 - **Planner A alone** can find a contact sequence the grid would never sample, such as a forearm along an edge.
 - **Planner B alone** is complete up to its sampling resolution, and its failures are explicit: the node or edge that
   failed and why.
@@ -555,8 +555,8 @@ every link with `atlas.xml`). The Atlas model covers the pelvis and torso boxes,
 segments and the hands, the thighs, the shins and the four corner spheres of each sole: 83 spheres. A capsule gets
 spheres of its radius at most one radius apart; a box is filled with spheres of its smallest half extent on a grid of
 its other two axes, inside the box. A sphere is exempt when its center is closer than its radius plus 5 cm to an active
-pad's region (the pad's point, or a surface pad's rectangle), so a torso lying on its back face is exempt over the
-whole face. A point pad exempts only the spheres of its own link and the links below it (`exemptJointsOf()`): a knee
+pad's region (the pad's point, or a surface pad's rectangle), so a torso lying on its back face is exempt across the
+face. A point pad exempts only the spheres of its own link and the links below it (`exemptJointsOf()`): a knee
 exempts the shin and the foot, not the other leg or the arms. For the spheres of the link above it within
 the neighborhood (the end of the thigh at the knee joint, whose capsule has a larger radius than the shin's, so that a
 kneel on a flat top with the shin level keeps it about 5 mm in the surface), the scenario sets
@@ -566,7 +566,7 @@ thigh's end crosses) exempts them too; `"rests"` (the get-ups) lets them lie up 
 `CollisionModel::restingAllowance()`, in the certifier, the planner's checks and the stance IK alike). Exempting
 every link near the knee once let the planned kneels press the thigh 1-2 cm into the box; on the floor, the exempt
 thigh's end sank 1.2 cm under a kneel and lifting the knee then swept it 9 mm through the floor between two knots,
-which under `"rests"` cannot happen; counting it whole left no kneel on a flat top within the planner's tolerance.
+which under `"rests"` cannot happen; treating it as non-exempt left no kneel on a flat top within the planner's tolerance.
 A pad whose contact the plan does not count but which still rests on the terrain (its center within the 5 mm contact
 tolerance) treats the spheres as an active pad does, a sole exempting its foot only: at the knot that breaks a knee's
 contact the knee has not moved, and its tilted shin and the end of its thigh rest beside it as they did a knot
@@ -613,8 +613,8 @@ these choices:
   6 cm into it; the torque check had hidden this on the stairs by refusing the long single-leg swings that cause it. Without a static margin the CoM
   keeps 2 cm inside the polygon, room for the momentum rates of condition 2. An LP HPIPM cannot solve marks its stance
   infeasible instead of aborting the search.
-- The IK is not OCS2's SQP, but a dedicated trust-region SQP (`StanceInverseKinematics`) on Pinocchio and HPIPM's
-  dense QP, the solver of the certifier's LPs: one QP of the 36 velocity coordinates and one slack per inequality per
+- The IK uses a dedicated trust-region SQP (`StanceInverseKinematics`) on Pinocchio and HPIPM's
+  dense QP instead of OCS2's SQP, sharing the solver of the certifier's LPs: one QP of the 36 velocity coordinates and one slack per inequality per
   iteration. The held pads are equalities with an exact L1 penalty (1e5 per meter or radian), the CoM polygon, the
   clearances (spheres within 8 cm of the terrain, self-collision pairs within 5 cm) and the point pads' normal cones
   inequalities with a smaller one (1e3), the posture, the swinging pads and the CoM target least squares. A trial step
@@ -640,7 +640,7 @@ these choices:
   touches and within the 10 cm sample spacing of that pad, the pose's pad itself tried first; its changes are solved
   toward the pose as well as a quarter of the way to it, and, when they fail from the node's configuration, from the
   pose itself and from the pose of the waypoint the leg starts at (the change then moves there). A sole that swings
-  to a touch-down in a leg to a waypoint with a pose is held level with its target the whole way (a climb's free leg
+  to a touch-down in a leg to a waypoint with a pose is held level with its target throughout the swing (a climb's free leg
   folds far, and a free sole flipped its ankle by 0.7 rad on the way). The goal's leg is the search without
   waypoints, so the stairs, which has none, plans as before. The motions changed for the contacts the feet-only
   stairs never breaks: a pad that only lifts off (its contact is not the one the segment makes) is held level if it
@@ -698,22 +698,22 @@ these choices:
     end held a sole a millimeter above the box for nine seconds while the body moved 1 rad, and the MPC, which keeps a
     swinging sole's center off the terrain but not its heel, pressed the heel 1.3 cm into the box;
   - a plan whose knots fail condition 2 alone is retimed in the failing knots' segments only
-    (`RetimingScope::kFailingSegments`; the seed's `kWholePlan`): one fast fold no longer slows the whole climb 1.5 or
+    (`RetimingScope::kFailingSegments`; the seed's `kWholePlan`): one fast fold no longer slows the rest of the climb 1.5 or
     2.25 times.
 - Under the timing law (`PlanTiming.h`), every motion is quasi-static between rests: its knots are timed by a minimum-jerk
   profile `10 tau^3 - 15 tau^4 + 6 tau^5` of a path parameter that advances with each interval's "time at the speed
   limits" (CoM 0.15 m/s, base 0.2 m/s, any pad 0.3 m/s, any joint or the base turn 0.5 rad/s), over the longest of
   1.875 times that time (the profile's peak speed), `sqrt(5.774 L / 0.15 m/s^2)` for the CoM's path length `L` (its
-  peak acceleration) and 0.8 s. Every contact change sits in a 0.4 s dwell at rest; a contact is made at the last knot
+  peak acceleration) and 0.8 s. Every contact change occurs during a 0.4 s dwell at rest; a contact is made at the last knot
   of the motion that brings it, and broken after the dwell at the end of the motion before the one that lifts it, so
   condition 3 holds knot by knot. The velocities are central differences of the configurations, the momenta
   `A_G(q) v`, and the contact wrenches of a knot the torque LP's static forces (for playback). A plan shorter than the
   scenario's `duration` is stretched to it; one that fails condition 2 is retimed 1.5 times slower, at most four times
-  (the whole plan for the seed, the failing segments for planner B alone).
+  (the full plan for the seed, the failing segments for planner B alone).
 - The output plan is stamped with the scenario's hashes and certified by the scenario's certifier before it is
-  returned; a search that fails returns NotFound naming the stance nearest the goal and why its last changes failed
+  returned; a search that fails returns NotFound reporting the stance nearest the goal and why its last changes failed
   (the transition or the motion, the knot and the condition), and a plan the certifier refuses FailedPrecondition
-  naming its first failing knots.
+  reporting its first failing knots.
 
 **Status (every scenario at `joint_limits: "position_only"` but the box climb's and the get-ups'
 `"relaxed_position"`, section 11, decisions 6 and 8).** Planner B plans the stairs, and the box climb and both get-ups
@@ -739,11 +739,11 @@ where lifting the right foot needs the CoM 22 cm over, which the IK does not fin
 `get_up_prone` without its waypoints (9652) stop where they did in 40 min.
 <!-- LINT.ThenChange(//legged_nmpc/legged_multi_contact/app/BUILD.bazel:planner_scenarios) -->
 
-These are limits of the local IK and of the search, not proofs that the scenarios cannot be done: the transitions they
+These failures reflect limits of the local IK and search rather than infeasibility of the scenarios: the transitions they
 need are large motions of the whole body (a step onto a box at 68 % of the leg's length, sitting up from the back),
 which a projection from the previous configuration does not find. The arms of the DRC Atlas are weak for carrying the
 body (`l_arm_ely` 63 N m, `l_arm_shx` 99 N m), which the shipped scenarios now disregard (section 11, decision 6).
-Planner A (milestone 5, section 4.4), which optimizes the whole motion at once, plans the stairs in 8 s; posture seeds
+Planner A (milestone 5, section 4.4), which optimizes the full motion at once, plans the stairs in 8 s; posture seeds
 for the IK per kind of change are the next step for planner B; the box climb's waypoints are such seeds, written in
 the scenario. The three other planning tests are tagged `manual` until their scenarios plan.
 
@@ -758,9 +758,9 @@ the scenario. The three other planning tests are tagged `manual` until their sce
   pads, and its link; the clearance of every inactive candidate's pad geometry (a sphere of its geom radius); and the
   largest distance of an active pad to the terrain, which must be within 5 mm (condition 2).
 
-Each knot passes or fails conditions 1 to 3 of section 2, and, when the scenario names a collision model, fails when a
+Each knot passes or fails conditions 1 to 3 of section 2, and, when the scenario specifies a collision model, fails when a
 sphere penetrates the terrain by more than the 5 mm contact tolerance (`collision_free`). A knot whose support polygon,
-equilibrium or wrench cone LP HPIPM cannot solve fails, naming the LP, instead of ending the certification with an
+equilibrium or wrench cone LP HPIPM cannot solve fails and reports the LP instead of aborting certification with an
 error (solve 3 on the box climb's sequence hit one at MAX_ITER). Before that, an LP HPIPM stops on is solved again:
 once with 2000 iterations at 1e-8 (`solveLinearProgram()`), and then with every generator's scaling bounded by ten
 body weights (`StaticEquilibrium`'s `solveBoundedOnFailure()`). The LPs are degenerate: internal forces between two
@@ -768,7 +768,7 @@ contacts add scalings that change no wrench, so their optimal sets are unbounded
 1e-9 regularization alone, ran out of iterations on the static wrench of the box climb's two feet and one hand
 (`equilibrium_test` keeps that LP). The bound makes the set compact and excludes no force a stance can use; it changed
 ten LP failures of the box climb's earlier plan (of 4341 configurations certified between its knots) into passes. A
-static equilibrium LP that fails is named too (it failed condition 1 silently, at a margin of 5 cm).
+static equilibrium LP that fails is reported too (it failed condition 1 silently, at a margin of 5 cm).
 
 `certify_plan --between_knots=N` certifies N configurations between every two knots as well, interpolated as the MPC's
 reference interpolates the plan (`planBetweenKnots()`: the base position, the joints and the momenta linearly, the
@@ -788,8 +788,8 @@ holds by IK at the knots only, drift off their patches in between, and those fai
   removed (a rank-revealing QR), after a feasibility test.
 - **The torque LP** minimizes `u` subject to static equilibrium and `|tau_j| <= u effort_j` for every joint with a
   limit: `u` is the smallest fraction of the limits that holds the stance, and the stance is torque-feasible when `u`
-  is at most the scenario's `joint_torque_margin`. Under `joint_limits: "position_only"` the report carries `u` per knot for
-  information (absent where HPIPM cannot solve the LP, which then fails nothing), names the joint limits and no torque
+  is at most the scenario's `joint_torque_margin`. Under `joint_limits: "position_only"` the report includes `u` per knot for
+  information (absent where HPIPM cannot solve the LP, which then fails nothing), reports the joint limits and no torque
   margin, and condition 3 solves no torque LP.
 
 The momentum rate of a knot is the central difference of the plan's momenta. The certifier is used:
@@ -801,7 +801,7 @@ The momentum rate of a knot is the central difference of the plan's momenta. The
 
 ### 7.1 The plan file
 
-`MultiContactPlan` (new proto, `multi_contact_plan.proto`) holds:
+`MultiContactPlan` (new proto, `multi_contact_plan.proto`) contains:
 - the scenario name and the hashes of the contact set and the scene it was planned for (64-bit FNV-1a of the
   deterministic serialization of each message as its struct rewrites it, so a default spelled out or left out hashes
   alike);
@@ -839,7 +839,7 @@ of the plan's.
      `PointFrictionConeConstraint` for a 3-DoF one. `friction_force_cone`, `zero_wrench` and `zero_velocity` run on
      both (three translation rows for a point). `contact_moment_xy` is built for the 6-DoF contacts only. The
      initializer and the input reference share the weight among the active contacts.
-   - The terms that are biped by nature hold `BipedFeetArray`s and index the feet with `kContactLeftIndex` and
+   - The terms that are biped by nature store `BipedFeetArray`s and index the feet with `kContactLeftIndex` and
      `kContactRightIndex`. On any other contact set,
      `checkCentroidalContactSet()` refuses them by name before a model is built.
      <!-- LINT.IfChange(biped_only_terms) -->
@@ -889,7 +889,7 @@ of the plan's.
 3. `PlannedMotionReferenceManager`
    (`legged_centroidal_mpc/multi_contact/`) is selected by name with the existing selection field of where the mode
    schedule comes from, `contact_schedule_source: "multi_contact_plan"`, beside `gait_schedule` and
-   `contact_planner`. The task file's `multi_contact_plan` block names the scenario and the plan (the MPC node's and
+   `contact_planner`. The task file's `multi_contact_plan` block specifies the scenario and the plan (the MPC node's and
    the dummy simulator's `--multi_contact_scenario` and `--multi_contact_plan` replace them) and tunes the tracking. A
    plan whose hashes do not match the scenario's contact set and terrain is refused at start-up (FailedPrecondition).
    It does four things before every solve:
@@ -911,7 +911,7 @@ of the plan's.
      task file sets it) every 6-DoF contact also lands flat: over the last `landing_window` seconds of a
      swing, `z_c x n = 0` for its frame's z axis and the normal of the patch it lands on, under a quadratic penalty
      (`SwingLandingAlignmentConstraint`). Without it the Atlas's soles reached the stairs' steps pitched by up to 30
-     degrees, a heel or toe sphere first; its task file holds them flat over the whole swing (weight 3000, a 3 s
+     degrees, a heel or toe sphere first; its task file keeps them flat over the full swing (weight 3000, a 3 s
      window: the stairs' swings are shorter, and the get-up from prone's sole spends 2.9 s on its last step before it
      lands, where a 2 s window let its heel dip 6.5 mm into the floor), with 15 cm of swing clearance, the wrench cones' barrier `(1, 0.5 N)` and base position weights of 75
      along x and y, the settings with which the stairs plan's tracked trajectory certifies (section 9). With
@@ -920,7 +920,7 @@ of the plan's.
      follows the plan's own pad instead: straight segments between the pad's places in the plan at its knots, each
      timed by the same smoothstep (segments 0.25 s apart, following the kinematics of the interpolated configurations
      more closely, made the box climb's tracked trajectory fail the certifier at more samples, not fewer). The stance graph's quasi-static plans hold a hand or a knee in the air for
-     tens of seconds on a path they checked against the terrain knot by knot; an arc over that whole window pulled the
+     tens of seconds on a path they checked against the terrain knot by knot; an arc over that full window pulled the
      box climb's arms toward the box a minute early, against the plan's posture, and an arc over its last 2 s alone
      raised a foot stepping toward the box 15 cm and drove its thigh 3.6 cm into the box's front.
    - It answers each contact's patch frame (`getContactPatchFrame()`) from the plan's phase it rests in, or the one
@@ -944,7 +944,7 @@ stalled solve cannot skip one.
 
 ### 7.3 Playing a plan forward and in reverse
 
-The task file's `multi_contact_plan.playback` names how the tracked plan plays (`PlanPlayback.h`; the MPC node's and
+The task file's `multi_contact_plan.playback` selects how the tracked plan plays (`PlanPlayback.h`; the MPC node's and
 the dummy simulator's `--multi_contact_playback` replaces it):
 - `once`, the default: from the first knot to the last, then holding the last state, as section 7.2 describes;
 - `forward_and_reverse`: forward, `playback_dwell` seconds (default 1.5 s) standing at the end, the plan in reverse
@@ -971,7 +971,7 @@ Liftoffs become touchdowns and touchdowns liftoffs.
 at rest in the middle of the top dwell (the plan's last configuration, zero momenta, its last wrenches); the knots in
 reverse order at tau, their joint velocities and momenta negated; a knot at rest in the middle of the bottom dwell;
 and the first knot again at t0 + T, the period T = 2 (tN - t0) + 2 d. A knot's stance and wrenches hold from it to the
-next knot, so in reverse time they hold from it back to the knot before: the reversed knot of knot i carries the
+next knot, so in reverse time they hold from it back to the knot before: the reversed knot of knot i uses the
 active contacts and the wrenches of knot i - 1. The reversed mode schedule is then the exact mirror of the plan's, a
 change at t reversed at tau(t), and every contact phase [s, e] mirrors to [tau(e), tau(s)]; a phase that lasts to tN
 merges with its mirror through the top dwell, and the mirror of a phase from t0 lasts through the bottom dwell to
@@ -1081,7 +1081,7 @@ MuJoCo gantry and tilt catch (`sim_max_tiltangle_base_rt_world`) to be configure
     pad nor the thighs touch the floor when the back does, and the backs of the heels are no candidate;
   - face down: on the hands and knees, the arms straight below the shoulders. Atlas cannot lie flat on
     the chest face of its torso box: its head sphere (r 0.10 m about a point of the neck
-    joint, which sits 11.5 cm in front of the chest face) would be 16 cm into the floor, and no neck motion moves the
+    joint, which is 11.5 cm in front of the chest face) would be 16 cm into the floor, and no neck motion moves the
     joint itself; the collision spheres of section 5.4 caught it. The pose was found with the stance IK at the
     scenario's margins.
 - Goal: standing on both feet at the nominal pose, with no other contact.
@@ -1097,7 +1097,7 @@ Three things are new in this scenario:
   Euler display in Rerun pass through the singular point. The base-orientation reference comes from the plan as a
   quaternion, and the scenario's base-orientation weights are written isotropic, so that nothing depends on the Euler
   map near the singularity.
-- The early phases have the CoM about 0.15 m above the floor. The torque check of section 2 matters most here:
+- The early phases have the CoM about 0.15 m above the floor. The torque check of section 2 is most restrictive here:
   sitting up from the back takes most of the hip flexors' effort, and the planner must find the hands' push that
   relieves them.
 - MuJoCo's tilt catch fires at once unless disarmed: it catches a robot whose base tilts past `sim_max_tiltangle_base_rt_world`, which a
@@ -1145,7 +1145,7 @@ a scenario runs `robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/multi_co
 
 A Bazel genrule generates `atlas_<scenario>.xml` from `atlas.xml` and the scenario's `TerrainScene`. It copies the
 robot and its `gantry` weld, and replaces the floor with the scene's primitives. The robot's `mjcf_file` in a scenario
-launch file names the generated scene. `test_robot_scene_gantry_hold` covers the generated scenes as it covers the
+launch file specifies the generated scene. `test_robot_scene_gantry_hold` covers the generated scenes as it covers the
 shipped ones.
 
 `CheaterSimContactEstimator` counts any contact between a contact point's body and a body outside the robot, so knees
@@ -1164,7 +1164,7 @@ New code ships with tests, and a new formulation ships with parity tests.
 - Static equilibrium:
   - On flat ground with two feet, the CoM region equals the convex hull of the foot rectangles (to the linearization of
     the cones).
-  - A hand on a wall widens it in the right direction.
+  - A hand on a wall widens it in the expected direction.
   - A single point contact admits equilibrium only with the CoM directly above it.
   - The margin's sign flips at the boundary.
   - Torque feasibility fails when the limits are scaled down.
@@ -1188,7 +1188,7 @@ tests.
 These solves take minutes, so they run in their own Bazel test targets with a timeout, in the CI batch for their
 package: `//legged_nmpc/legged_multi_contact/app:<planner>_<scenario>_test`, planner A
 (`contact_invariant_<scenario>_test`) and planner B on every shipped scenario and the combined planner on the scenarios
-that name it, each a certified plan to the goal (planner A's over the scenario's duration). Planner A's units have
+that select it, each a certified plan to the goal (planner A's over the scenario's duration). Planner A's units have
 tests of their own (`legged_multi_contact/planner/`): every term against finite differences of its value on a toy
 ball and on Atlas's multi-contact model, and the robot terms against the certifier's stance model
 (`contact_invariant_terms_test`, `robot_contact_invariant_terms_test`), the thresholding (`stance_thresholding_test`),
@@ -1274,7 +1274,7 @@ Implementation stages:
    goal, with the certifier passing on the tracked trajectory. `make launch-drc-atlas-stairs-dummy-sim` tracks `legged_nmpc/legged_multi_contact/plans/stairs.binpb`.
 5. Planner A (contact-invariant optimization), alone and initialized from planner B: `legged_multi_contact/planner/contact_invariant/` and the planners `contact_invariant`
    and `stance_graph_then_contact_invariant` (section 4.4); `make plan-drc-atlas-<scenario>` runs the scenario's own
-   planner (`MULTI_CONTACT_PLANNER=` overrides it); the stairs scenario names the combined planner, whose plan,
+   planner (`MULTI_CONTACT_PLANNER=` overrides it); the stairs scenario selects the combined planner, whose plan,
    `plans/stairs.binpb`, `test_multi_contact_plan_tracking` tracks to the goal in the dummy sim's loop with the
    certifier passing on the tracked trajectory, after the tracking task file's landing alignment
    (`SwingLandingAlignmentConstraint`, section 7.2) and settings. Planner A does not plan the box, egress and get-up scenarios yet
@@ -1301,13 +1301,13 @@ Implementation stages:
    at every knot. The enforcing policy, `"position_and_effort"`, stays the scenario's default for the hardware work: it
    restores the stance graph's torque check, solve 3's `QuasiStaticTorqueConstraint` and the certifier's torque
    condition with `joint_torque_margin`. No planner reads the URDF's joint velocity limits (6.3-100 rad/s on the Atlas) under
-   either policy: the timing law moves every joint at most 0.5 rad/s, and planner A's solves carry no velocity
+   either policy: the timing law moves every joint at most 0.5 rad/s, and planner A's solves enforce no velocity
    limit.
-7. The stairs dummy sim walks up and backward down, over and over (section 7.3). The descent is the ascent's plan
-   in reverse time, not a second plan: reversing time keeps every configuration and momentum rate, so the descent
-   certifies wherever the ascent does, and the robot keeps facing up the stairs. The loop is a playback of the tracked
-   plan, `multi_contact_plan.playback`, selected by name and off by default (`once`), not a longer plan file: it runs
-   forever, with a dwell of `playback_dwell` at the top and at the bottom. Only the stairs launch selects
+7. The stairs dummy sim walks up and backward down, over and over (section 7.3). The descent replays the ascent's plan
+   in reverse time: reversing time keeps every configuration and momentum rate, so the descent
+   certifies wherever the ascent does, and the robot keeps facing up the stairs. The loop is implemented as a playback mode
+   (`multi_contact_plan.playback`, selected by name and defaulting to `once`) rather than a longer plan file: it runs
+   indefinitely, with a dwell of `playback_dwell` at the top and at the bottom. Only the stairs launch selects
    `forward_and_reverse`.
 8. A dummy sim's plan may bend a joint slightly past its range: `joint_limits: "relaxed_position"` widens the
    URDF's position limits by the scenario's `joint_limit_relaxation` on both sides for the stance graph planner's
@@ -1330,7 +1330,7 @@ Implementation stages:
    kneeling on a flat top keeps the end of the thigh a few millimeters in the box beside the knee, and 0 mm left no
    kneel. Only planner B alone checks them; as planner A's seed it keeps the knots-only checks, which solve 3
    re-solves, so the stairs plan bit for bit as before.
-10. The end of the thigh at a kneeling knee is named per scenario: `point_pad_link_above: "exempt"`
+10. The end of the thigh at a kneeling knee is configured per scenario: `point_pad_link_above: "exempt"`
     (the default) keeps the box climb's kneels on the box's edge as they were planned and tracked; `"rests"` lets the
     sphere lie 6 mm in the terrain and no deeper, which the get-up from prone's kneels on the flat floor need (exempt,
     a lifting knee swept the thigh 9 mm through the floor between two knots). The get-up from the back rests too.

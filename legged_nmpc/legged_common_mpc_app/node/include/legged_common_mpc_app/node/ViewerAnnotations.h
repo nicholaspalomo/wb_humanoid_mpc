@@ -41,9 +41,9 @@ namespace ocs2::legged::node {
 
 /**
  * One foot's TargetContactPatch: where the contact planner wants its contact
- * frame on the ground. The patch carries a pose only when `desPoseFootRtWorld`
+ * frame on the ground. The patch includes a pose only when `desPoseFootRtWorld`
  * is valid and every value of it is finite (no pose: the viewer draws nothing
- * for the foot), and always its kind. Replaces whatever `patch` held.
+ * for the foot), and always its kind. Replaces whatever `patch` contained.
  */
 void targetContactPatchToProto(
     const TargetContactPose& desPoseFootRtWorld,

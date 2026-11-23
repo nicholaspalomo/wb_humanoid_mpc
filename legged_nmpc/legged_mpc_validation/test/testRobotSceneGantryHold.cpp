@@ -50,9 +50,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * Every robot configuration's MuJoCo scene against the gantry hold its task
- * file names, as the robot process starts them: the task file read by
+ * file specifies, as the robot process starts them: the task file read by
  * loadRobotProcessSettings(), the simulator created by the mujoco backend. A
- * task file that names weld_constraint over a scene without the gantry weld
+ * task file that specifies weld_constraint over a scene without the gantry weld
  * starts the simulator with an ERROR on kinematic_teleport, as both Unitree G1
  * configurations did until g1_29dof.xml declared the weld, and the Unitree R1
  * until R1.xml did.
@@ -104,8 +104,8 @@ std::string holdName(GantryHold hold) {
   return "an unknown gantry hold";
 }
 
-/** The gantry hold the task file of `configuration` names, as the robot process
- * reads it. */
+/** The gantry hold that the task file of `configuration` specifies, as the robot
+ * process reads it. */
 absl::StatusOr<GantryHold> taskFileHold(
     const RobotConfiguration& configuration) {
   const absl::StatusOr<RobotProcessSettings> settings =
