@@ -182,13 +182,14 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    *
    * This is the quantity that determines whether the gait can start without
    * clipping, and it is not obvious from the cadence. A robot standing still
-   * has its center of mass half a step width from either foot with no lateral velocity, so
-   * once the first foot leaves the ground it falls sideways fast: at the
-   * shipped height it reaches the pre-impact instant far outside the orbit, and
-   * catching it takes a step much wider than the nominal one. If that step does
-   * not fit inside `hlip.maxPosLfootRtRfootEwrtHeadingY` it is clipped, and a
-   * clipped step is no longer the deadbeat step. What happens next depends on
-   * how much was cut: the lateral pendulum amplifies the residual by cosh(omega
+   * has its center of mass half a step width from either foot with no lateral
+   * velocity, so once the first foot leaves the ground it falls sideways fast:
+   * at the shipped height it reaches the pre-impact instant far outside the
+   * orbit, and catching it takes a step much wider than the nominal one. If
+   * that step does not fit inside `hlip.maxPosLfootRtRfootEwrtHeadingY` it is
+   * clipped, and a clipped step is no longer the deadbeat step. What happens
+   * next depends on how much was cut: the lateral pendulum amplifies the
+   * residual by cosh(omega
    * * sspDuration) every step, and the gait either recovers within a few steps
    * or locks into an alternating wide and narrow limit cycle it can never leave
    * (the feet come together, the robot walks itself sideways and falls).

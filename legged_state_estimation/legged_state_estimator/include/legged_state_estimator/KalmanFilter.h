@@ -291,10 +291,10 @@ class KalmanFilter {
    * Fails without changing the estimate before reset(), and when a measurement
    * has an empty or repeated name, an empty or non-finite value, no observation
    * block, a block that references an unknown state channel or has the wrong
-   * size, or a missing or invalid noise covariance (checked as in predict()). It also
-   * fails when S is not numerically positive definite, i.e. when a Cholesky
-   * pivot of S falls below machine epsilon times its largest variance, which
-   * takes a noise-free measurement of a direction the estimate is already
+   * size, or a missing or invalid noise covariance (checked as in predict()).
+   * It also fails when S is not numerically positive definite, i.e. when a
+   * Cholesky pivot of S falls below machine epsilon times its largest variance,
+   * which takes a noise-free measurement of a direction the estimate is already
    * certain of.
    */
   virtual absl::Status correct(

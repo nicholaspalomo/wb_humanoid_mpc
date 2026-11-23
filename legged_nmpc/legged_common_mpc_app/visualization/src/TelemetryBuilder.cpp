@@ -392,8 +392,8 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config,
              addGroup("joints/velocity/target", jointNames),
              addGroup("joints/effort/measured", jointNames),
              addGroup("joints/effort/target", jointNames)};
-  // The display coordinates represent the base's Euler angles; v and the forces dual
-  // to it the base's twist.
+  // The display coordinates represent the base's Euler angles; v and the forces
+  // dual to it the base's twist.
   std::vector<std::string> dofNames = getBaseDofNames();
   dofNames.insert(dofNames.end(), modelSettings().mpcModelJointNames.begin(),
                   modelSettings().mpcModelJointNames.end());

@@ -375,8 +375,8 @@ TEST(ContactPlanNodeLookup, theBeforeLookupsAreEmptyOnAnInvalidPlan) {
 // describe(): the length of every step, the line planner.logPlans writes.
 //
 // The step used to be measured from the LIFT-OFF node
-// (desPosFeetRtWorldEwrtWorldXyTraj[end] - desPosFeetRtWorldEwrtWorldXyTraj[k]),
-// which is the same off-by-one
+// (desPosFeetRtWorldEwrtWorldXyTraj[end] -
+// desPosFeetRtWorldEwrtWorldXyTraj[k]), which is the same off-by-one
 // getPrevDesPosFootRtWorldEwrtWorldXy() exists to keep callers out of. Under
 // the shipped `hlip` planner the lift-off node already stores the swing's
 // LANDING position, and so does the touch-down node, so the difference was

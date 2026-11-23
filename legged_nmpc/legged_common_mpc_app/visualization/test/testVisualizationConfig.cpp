@@ -75,8 +75,8 @@ class VisualizationConfigTest : public ::testing::Test {
     robot_ = nullptr;
   }
 
-  /** `text`, below the header that specifies the schema, written to a task file of
-   * its own in the test's temporary directory; its path. */
+  /** `text`, below the header that specifies the schema, written to a task file
+   * of its own in the test's temporary directory; its path. */
   static std::string writeTaskFile(absl::string_view text) {
     const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
     const std::string file =
@@ -94,7 +94,8 @@ class VisualizationConfigTest : public ::testing::Test {
                                    robot_->modelSettings());
   }
 
-  /** `text` refused by the conversion, identifying the task file and `field`. */
+  /** `text` refused by the conversion, identifying the task file and `field`.
+   */
   void expectRefused(absl::string_view text, absl::string_view field) const {
     const absl::StatusOr<VisualizationConfig> config = load(text);
     ASSERT_FALSE(config.ok()) << text;

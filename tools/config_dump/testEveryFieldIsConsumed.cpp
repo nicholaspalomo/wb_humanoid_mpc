@@ -397,8 +397,8 @@ absl::StatusOr<Files> loadFiles(
 /**
  * Weighs every joint of the whole-body MPC's model with 1 in `files`'
  * joint_torque_weights where the file weighs none: the shipped file does not
- * list joint_torque_cost, and a block that specifies no joint is refused before its
- * scaling is read, so the walk could not see the scaling reach the weights.
+ * list joint_torque_cost, and a block that specifies no joint is refused before
+ * its scaling is read, so the walk could not see the scaling reach the weights.
  */
 absl::Status weighEveryJointTorque(
     const validation::RobotConfiguration& configuration, Files& files) {

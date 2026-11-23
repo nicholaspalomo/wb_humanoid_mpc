@@ -171,8 +171,8 @@ void BaseVelocityVisualization::addArrows(const mjModel* absl_nonnull model,
   if (model->nq < kMjFreeJointQposSize || model->nbody < kMinBodies) return;
 
   // Center of mass of the robot: its root's subtree, NOT body 0's. The world's
-  // subtree also includes the thrown ball, which would drag the arrows away from
-  // the robot - by meters, for a 5 kg ball parked out of play.
+  // subtree also includes the thrown ball, which would drag the arrows away
+  // from the robot - by meters, for a 5 kg ball parked out of play.
   const RobotCentroidalState robot = robotCentroidalState(model, data);
   if (!robot.valid) return;
   const double* absl_nonnull posComRtWorldEwrtWorld =

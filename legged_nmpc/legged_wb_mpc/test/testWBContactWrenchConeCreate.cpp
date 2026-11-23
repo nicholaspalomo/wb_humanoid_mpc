@@ -72,8 +72,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * were assert()s that the optimized build compiles out: a cone with two
  * friction facets, a negative friction coefficient or a NaN offset was built
  * and enforced. Create() now refuses it with the InvalidArgument of
- * ContactWrenchConeConstraint::validateConfig(), identifying the task-file field to
- * change (testContactWrenchConeBasisMatrix pins validateConfig() itself).
+ * ContactWrenchConeConstraint::validateConfig(), identifying the task-file
+ * field to change (testContactWrenchConeBasisMatrix pins validateConfig()
+ * itself).
  */
 namespace ocs2::legged {
 namespace {
@@ -94,11 +95,11 @@ std::string withoutCaseAndUnderscores(absl::string_view text) {
 }
 
 /**
- * Whether `message` identifies the field `field` of the contact wrench cone block of
- * the task file (contacts.contact_wrench_cone_soft_constraint). The test pins
- * that the refusal identifies the field, not how it spells it: compared without case
- * and underscores, frictionCoefficient and friction_coefficient are the same
- * field.
+ * Whether `message` identifies the field `field` of the contact wrench cone
+ * block of the task file (contacts.contact_wrench_cone_soft_constraint). The
+ * test pins that the refusal identifies the field, not how it spells it:
+ * compared without case and underscores, frictionCoefficient and
+ * friction_coefficient are the same field.
  */
 bool namesConeField(absl::string_view message, absl::string_view field) {
   return absl::StrContains(

@@ -77,8 +77,8 @@ TEST(LoopTimingStatsTest,
       closingCycles.push_back(k);
     }
     if (k == 50) {
-      // The first window contains the cycles that started at 0 ms through 100 ms:
-      // 51 cycles and 50 periods.
+      // The first window contains the cycles that started at 0 ms through 100
+      // ms: 51 cycles and 50 periods.
       const LoopTimingSnapshot& first = stats.lastSnapshot();
       EXPECT_EQ(first.window, 1u);
       EXPECT_EQ(first.windowCycles, 51u);

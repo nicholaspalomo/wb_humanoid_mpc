@@ -92,10 +92,10 @@ CameraDragFractions cameraDragFractions(double dxPixels,
  * projectile), which the render thread must not read.
  *
  * start() launches the render thread and returns without waiting: the window,
- * the OpenGL context and every MuJoCo rendering structure reside on that thread.
- * Where the viewer cannot start - no display, no window, no OpenGL - it logs
- * why and stops, ok() turns false, and the simulation runs on without it. The
- * other methods may be called from any thread.
+ * the OpenGL context and every MuJoCo rendering structure reside on that
+ * thread. Where the viewer cannot start - no display, no window, no OpenGL - it
+ * logs why and stops, ok() turns false, and the simulation runs on without it.
+ * The other methods may be called from any thread.
  */
 class GlfwMujocoViewer final : public MujocoViewer {
  public:

@@ -485,11 +485,11 @@ ContactWrenchConeRows buildFrictionPyramidRows(
  *
  * `config` must pass ContactWrenchConeConstraint::validateConfig() and the
  * footprint validateFootprint(), which every factory of the two checks and
- * reports as a Status identifying the task-file key; a config that bypassed them
- * CHECK-fails here with the same message. Cost: the torsion rows are enumerated
- * from the C(4N, 5) five-generator subsets of cornerContactWrenchGenerators(),
- * a few milliseconds at N = 4 and well under a second at N = 8; call it once
- * per foot.
+ * reports as a Status identifying the task-file key; a config that bypassed
+ * them CHECK-fails here with the same message. Cost: the torsion rows are
+ * enumerated from the C(4N, 5) five-generator subsets of
+ * cornerContactWrenchGenerators(), a few milliseconds at N = 4 and well under a
+ * second at N = 8; call it once per foot.
  */
 ContactWrenchConeRows buildLocalWrenchConeRows(
     const ContactWrenchConeConstraint::Config& config,

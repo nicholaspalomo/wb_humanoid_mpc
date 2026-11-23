@@ -67,9 +67,9 @@ class MujocoSimInterface;
 /**
  * The `web` viewer: the simulation in a browser tab. A render thread of its own
  * draws the simulator's newest snapshot offscreen through EGL (no X server:
- * Mesa's llvmpipe, or a GPU), encodes it as JPEG and passes it to an HTTP server
- * (robot_runtime/web_viewer) that browsers pull frames from and send their
- * camera input to, at http://<options.address>:<options.port>/. Nothing a
+ * Mesa's llvmpipe, or a GPU), encodes it as JPEG and passes it to an HTTP
+ * server (robot_runtime/web_viewer) that browsers pull frames from and send
+ * their camera input to, at http://<options.address>:<options.port>/. Nothing a
  * browser sends reaches the physics, the controller or the gantry.
  *
  * Rendering is demand-driven: with no browser watching, nothing is drawn. The

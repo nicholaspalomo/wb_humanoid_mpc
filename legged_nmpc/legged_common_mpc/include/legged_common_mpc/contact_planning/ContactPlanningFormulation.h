@@ -135,8 +135,8 @@ const std::vector<TermKind>& allTermKinds();
 std::string termKindName(TermKind kind);
 /** Returns the ContactPlanningFile block that stores the parameters of the term
  * `name`, a registry name: the name itself, or the name with `_parameters`
- * where it contains a frame-dependent quantity word (`yaw_torque_regularization`;
- * legged_nmpc/docs/frame_naming). */
+ * where it contains a frame-dependent quantity word
+ * (`yaw_torque_regularization`; legged_nmpc/docs/frame_naming). */
 std::string termBlockName(absl::string_view name);
 /** Canonical names of every term of a kind, in the order of the default
  * formulation. */

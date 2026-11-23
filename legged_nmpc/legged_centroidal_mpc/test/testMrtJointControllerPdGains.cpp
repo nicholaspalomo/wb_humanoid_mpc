@@ -297,7 +297,8 @@ TEST(MrtJointControllerPdGains,
   refused[1].default_gains.kp = std::numeric_limits<double>::quiet_NaN();
   refused[2].joint_gains.push_back(
       refused[2].joint_gains.front());           // the same joint twice
-  refused[3].joint_gains.front().joint.clear();  // an entry that specifies no joint
+  refused[3].joint_gains.front().joint.clear();  // an entry that specifies no
+                                                 // joint
   refused[4].joint_gains.front().joint =
       "left_knee_joint";  // another robot's file (the Unitree R1's knee)
   // refused[5] sets nothing: the controller has no gains of its own to fill it
@@ -408,9 +409,9 @@ TEST(MrtJointControllerPdGains,
 }
 
 // At start-up there are no gains in use to keep: Create() refuses a gains file
-// it cannot use, with a Status reporting the file and the field, so the controller
-// does not start. It used to leave every joint the file did not reach on the
-// hard-coded 500 N*m torque limit.
+// it cannot use, with a Status reporting the file and the field, so the
+// controller does not start. It used to leave every joint the file did not
+// reach on the hard-coded 500 N*m torque limit.
 TEST(MrtJointControllerPdGains, CreateReturnsTheRefusalOfAGainsFileAsAStatus) {
   const std::string file =
       absl::StrCat(::testing::TempDir(),

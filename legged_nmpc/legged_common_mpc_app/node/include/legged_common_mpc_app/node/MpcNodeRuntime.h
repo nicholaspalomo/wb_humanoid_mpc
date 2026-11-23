@@ -118,9 +118,9 @@ absl::Status applyWalkingVelocityCommand(
  * reference manager and its synchronized modules are driven from the solver
  * thread only, from start() to stop().
  *
- * LIFETIME. Everything Components references must outlive the runtime. The runtime
- * owns the bus; stop() (and the destructor) stops the solver thread first, then
- * the bus.
+ * LIFETIME. Everything Components references must outlive the runtime. The
+ * runtime owns the bus; stop() (and the destructor) stops the solver thread
+ * first, then the bus.
  */
 class MpcNodeRuntime {
  public:

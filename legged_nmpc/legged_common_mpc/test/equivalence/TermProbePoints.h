@@ -282,12 +282,12 @@ std::vector<std::string> coverageFindings(
 
 /**
  * Which terms a term test checked only against zeros: one finding for every
- * label of `expected` that is in `checked` but not in `nonZero` (its `quantity`,
- * the reported first derivative or the reported Hessian, was zero at every
- * point it was checked at) and that no exemption lists; one for every exemption
- * whose term was non-zero after all; and one for every exemption that matches
- * no label of `expected`. Empty when every checked term was checked where it is
- * not zero.
+ * label of `expected` that is in `checked` but not in `nonZero` (its
+ * `quantity`, the reported first derivative or the reported Hessian, was zero
+ * at every point it was checked at) and that no exemption lists; one for every
+ * exemption whose term was non-zero after all; and one for every exemption that
+ * matches no label of `expected`. Empty when every checked term was checked
+ * where it is not zero.
  */
 std::vector<std::string> nonZeroFindings(
     absl::Span<const std::string> expected,

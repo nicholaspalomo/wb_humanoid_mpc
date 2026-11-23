@@ -169,7 +169,8 @@ std::optional<double> maxUnitQuaternionNormDeviationOf(
  * recovery (the runner drives the modes and the gantry itself), the
  * visualization, telemetry, the operator's parameter and PD-gain messages. The
  * robot process's state estimator is the runner's (LockstepClosedLoop,
- * createRobotProcessStateEstimator()), which passes the controller its estimate.
+ * createRobotProcessStateEstimator()), which passes the controller its
+ * estimate.
  *
  * This base class stores what both formulations share;
  * CentroidalClosedLoopDriver and WholeBodyClosedLoopDriver add their
@@ -233,9 +234,9 @@ class ClosedLoopDriver {
    * cmd_linvel_base_rt_world_ewrt_heading_y,
    * cmd_pos_base_rt_surface_ewrt_world_z,
    * cmd_angvel_base_rt_world_ewrt_world_z): the MPC node's
-   * node::applyWalkingVelocityCommand() passes it to the motion manager, clamped
-   * and scaled, and the next solve reads it. A message the node refuses (a
-   * value that is not finite) is logged and changes nothing.
+   * node::applyWalkingVelocityCommand() passes it to the motion manager,
+   * clamped and scaled, and the next solve reads it. A message the node refuses
+   * (a value that is not finite) is logged and changes nothing.
    */
   void setGuiVelocityCommand(const Eigen::Vector4d& message);
   /**
@@ -423,8 +424,8 @@ class ClosedLoopDriver {
    * The procedural motion manager behind the velocity command, with
    * `calculator` building its targets, and the GUI's command scaling
    * (commandLimits(), defaultPelvisHeight()) of the reference file:
-   * InvalidArgument identifying the file for a scaling guiCommandScalingFromConfig()
-   * refuses.
+   * InvalidArgument identifying the file for a scaling
+   * guiCommandScalingFromConfig() refuses.
    */
   absl::Status initializeCommandPath(
       std::unique_ptr<TargetTrajectoriesCalculatorBase> calculator,

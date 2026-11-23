@@ -74,8 +74,8 @@ constexpr std::array<IntegratorType, 5> kRolloutIntegrators = {
     IntegratorType::MODIFIED_MIDPOINT, IntegratorType::RK4};
 // LINT.ThenChange(//legged_nmpc/legged_mpc_config/rollout_settings_config.proto:integrator_names)
 
-/** The sensitivity integrator named `name`; InvalidArgument specifying the field
- * and listing the integrators otherwise. */
+/** The sensitivity integrator named `name`; InvalidArgument specifying the
+ * field and listing the integrators otherwise. */
 absl::StatusOr<SensitivityIntegratorType> sensitivityIntegratorNamed(
     absl::string_view name) {
   for (const SensitivityIntegratorType type : kSensitivityIntegrators) {
@@ -93,8 +93,8 @@ absl::StatusOr<SensitivityIntegratorType> sensitivityIntegratorNamed(
           })));
 }
 
-/** The rollout integrator named `name`; InvalidArgument specifying the field and
- * listing the integrators otherwise. */
+/** The rollout integrator named `name`; InvalidArgument specifying the field
+ * and listing the integrators otherwise. */
 absl::StatusOr<IntegratorType> rolloutIntegratorNamed(absl::string_view name) {
   for (const IntegratorType type : kRolloutIntegrators) {
     if (integrator_type::toString(type) == name) {

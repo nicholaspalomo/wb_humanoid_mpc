@@ -254,7 +254,8 @@ class ActionRecorder {
   std::unique_ptr<CentroidalMpcMrtJointController> controller_;
 };
 
-/** The full contents of the file at `path`, or nullopt when it cannot be read. */
+/** The full contents of the file at `path`, or nullopt when it cannot be read.
+ */
 std::optional<std::string> readFile(absl::string_view path) {
   std::ifstream file{std::filesystem::path(path)};
   if (!file.is_open()) return std::nullopt;

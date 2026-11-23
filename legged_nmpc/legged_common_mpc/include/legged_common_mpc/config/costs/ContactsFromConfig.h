@@ -115,8 +115,8 @@ absl::Status validateSurfacePads(const mpc_config::ContactsConfig& contacts,
  * five geometry fields are required.
  *
  * @return InvalidArgument reporting a field that is missing, a
- * num_basis_vectors below 3, or what ContactWrenchConeConstraint::validateConfig()
- * refuses.
+ * num_basis_vectors below 3, or what
+ * ContactWrenchConeConstraint::validateConfig() refuses.
  */
 absl::StatusOr<ContactWrenchConeConstraint::Config>
 contactWrenchConeConfigFromConfig(const mpc_config::ContactsConfig& contacts);

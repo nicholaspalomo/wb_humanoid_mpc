@@ -103,13 +103,13 @@ absl::StatusOr<GoldenProvenance> makeGoldenProvenance(
 
 /**
  * The text of `golden`. InvalidArgument for a label that is empty, contains
- * whitespace or repeats, and for a provenance field or note that contains a line
- * break (a note key also must not contain whitespace or ':').
+ * whitespace or repeats, and for a provenance field or note that contains a
+ * line break (a note key also must not contain whitespace or ':').
  */
 absl::StatusOr<std::string> formatGoldenFile(const GoldenFile& golden);
 
-/** Parses formatGoldenFile()'s text; InvalidArgument identifying the line of the
- * first error. */
+/** Parses formatGoldenFile()'s text; InvalidArgument identifying the line of
+ * the first error. */
 absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text);
 
 /** formatGoldenFile() into `path`, creating its directory; the errors of

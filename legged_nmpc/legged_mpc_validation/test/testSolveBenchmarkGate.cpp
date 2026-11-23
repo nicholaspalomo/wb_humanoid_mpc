@@ -47,11 +47,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The real-time gate of section 4.6 (compareSolveBenchmarks), on synthetic
  * documents matching runSolveBenchmark()'s format: a document passes against
- * itself (one that specifies no toolchain compares its tape counts only), each criterion
- * fails on its own when breached, only the libraries both documents count are
- * compared one by one, and a solve time of another machine or toolchain is
- * refused while the tape counts are still compared. Also: the solve benchmark's
- * default recorded states exist for every robot.
+ * itself (one that specifies no toolchain compares its tape counts only), each
+ * criterion fails on its own when breached, only the libraries both documents
+ * count are compared one by one, and a solve time of another machine or
+ * toolchain is refused while the tape counts are still compared. Also: the
+ * solve benchmark's default recorded states exist for every robot.
  */
 
 namespace ocs2::legged::validation {

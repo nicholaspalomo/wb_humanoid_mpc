@@ -433,9 +433,9 @@ TEST_F(
 }
 
 // The joints outside the MPC hold one target in every mode that holds them
-// (JOINT_PD, the hold of WB_MPC, the execution of a policy and GRAVITY_COMP): the
-// nominal posture. WB_MPC used to send them to 0, so that the hand-over from
-// JOINT_PD swung them from the nominal posture to the zero posture in one
+// (JOINT_PD, the hold of WB_MPC, the execution of a policy and GRAVITY_COMP):
+// the nominal posture. WB_MPC used to send them to 0, so that the hand-over
+// from JOINT_PD swung them from the nominal posture to the zero posture in one
 // cycle.
 TEST_F(PolicyExecution,
        TheJointsOutsideTheMpcHoldTheNominalPostureAcrossEveryHandOver) {

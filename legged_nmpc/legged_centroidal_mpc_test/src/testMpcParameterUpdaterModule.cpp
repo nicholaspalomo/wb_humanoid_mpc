@@ -260,8 +260,8 @@ TEST_F(MpcParameterUpdaterModuleTest,
   }
 
   // A value that does not parse refuses the file, with an error that
-  // reports the file and the position, where a `get` with a default used to apply
-  // the default in its place without a word.
+  // reports the file and the position, where a `get` with a default used to
+  // apply the default in its place without a word.
   {
     absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
     EXPECT_CALL(

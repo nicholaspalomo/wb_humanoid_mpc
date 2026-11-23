@@ -56,11 +56,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotState.h"
 
 /*
- * What the simulator passes to the controller and takes from it, against MuJoCo's
- * own physics: the free joint's state in the robot state's frames, the scene's
- * joints and actuators at their own addresses whatever their order, and the
- * impact of the dodgeball when no ball is compiled into the scene. Headless, on
- * minimal scenes in zero gravity, stepped by the test.
+ * What the simulator passes to the controller and takes from it, against
+ * MuJoCo's own physics: the free joint's state in the robot state's frames, the
+ * scene's joints and actuators at their own addresses whatever their order, and
+ * the impact of the dodgeball when no ball is compiled into the scene.
+ * Headless, on minimal scenes in zero gravity, stepped by the test.
  */
 
 namespace robot::mujoco_sim_interface {
@@ -177,9 +177,9 @@ ForwardState forwardSnapshot(const MujocoSimInterface& sim) {
 
 // MuJoCo's free joint stores the quaternion w first, the linear velocity of the
 // body frame's origin in the WORLD frame and the angular velocity in the BODY
-// frame; the robot state stores the orientation, and both velocities in the base
-// frame. Pinned against MuJoCo's integration of them, at an attitude far from
-// the identity: a convention swapped anywhere (x-first quaternion, a
+// frame; the robot state stores the orientation, and both velocities in the
+// base frame. Pinned against MuJoCo's integration of them, at an attitude far
+// from the identity: a convention swapped anywhere (x-first quaternion, a
 // world-frame angular velocity, an unrotated linear one) is an error of the
 // order of the speeds.
 TEST(SimFreeJoint, TheReportedBaseVelocitiesAreTheOnesMujocoIntegrates) {

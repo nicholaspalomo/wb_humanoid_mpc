@@ -534,8 +534,8 @@ absl::Status validateTargetTrajectories(
 absl::Status validatePostEventIndices(const IndexField& indices, int nodes) {
   for (int i = 0; i < indices.size(); ++i) {
     const uint64_t index = indices.Get(i);
-    // A post-event index identifies the node after its pre-event node, so it is a
-    // node of the policy: at most nodes - 1.
+    // A post-event index identifies the node after its pre-event node, so it is
+    // a node of the policy: at most nodes - 1.
     if (index < 1 || index >= static_cast<uint64_t>(nodes)) {
       return absl::InvalidArgumentError(
           absl::StrCat(kPolicy, ".post_event_indices[", i, "] is ", index,

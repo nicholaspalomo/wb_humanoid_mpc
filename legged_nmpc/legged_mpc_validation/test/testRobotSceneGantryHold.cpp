@@ -104,8 +104,8 @@ std::string holdName(GantryHold hold) {
   return "an unknown gantry hold";
 }
 
-/** The gantry hold that the task file of `configuration` specifies, as the robot
- * process reads it. */
+/** The gantry hold that the task file of `configuration` specifies, as the
+ * robot process reads it. */
 absl::StatusOr<GantryHold> taskFileHold(
     const RobotConfiguration& configuration) {
   const absl::StatusOr<RobotProcessSettings> settings =

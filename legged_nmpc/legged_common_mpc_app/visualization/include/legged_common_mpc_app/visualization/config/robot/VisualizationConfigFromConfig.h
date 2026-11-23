@@ -45,10 +45,10 @@ namespace ocs2::legged::visualization {
  * frame list the file leaves out, or lists empty, is `contactFrameNames`
  * (ModelSettings::contactNames).
  *
- * @return InvalidArgument identifying the field when rerun_scene_frequency is not a
- * positive finite number, or when a frame list names a frame twice or a frame
- * whose name is not made of letters, digits, '_', '-' and '.' (the characters
- * of an entity path of the Rerun bridge).
+ * @return InvalidArgument identifying the field when rerun_scene_frequency is
+ * not a positive finite number, or when a frame list names a frame twice or a
+ * frame whose name is not made of letters, digits, '_', '-' and '.' (the
+ * characters of an entity path of the Rerun bridge).
  */
 absl::StatusOr<VisualizationConfig> visualizationConfigFromConfig(
     const mpc_config::TaskFile& task,

@@ -65,8 +65,8 @@ bool legIsInSwingInMode(size_t modeNumber,
 /**
  * Returns the swing of the leg around `time`: from the event at which it last
  * lifted off to the event at which it next touches down. Empty while the leg is
- * in stance, and when the schedule contains no lift-off or no touch-down event for
- * that swing. Allocates nothing.
+ * in stance, and when the schedule contains no lift-off or no touch-down event
+ * for that swing. Allocates nothing.
  */
 std::optional<LegSwingWindow> legSwingWindowAtTime(
     const ModeSchedule& schedule,

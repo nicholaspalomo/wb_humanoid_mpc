@@ -91,13 +91,13 @@ class WBMpcInterface final : public RobotInterface {
    * The whole-body MPC of the task file `taskFile`, the URDF `urdfFile` and the
    * reference file `referenceFile`. Nothing of the two files is retained.
    *
-   * @return The interface, or InvalidArgument: identifying the field of a block that
-   * does not convert (state_weights.joint_positions, ...); identifying a formulation
-   * this MPC does not implement (the contact-implicit terms,
+   * @return The interface, or InvalidArgument: identifying the field of a block
+   * that does not convert (state_weights.joint_positions, ...); identifying a
+   * formulation this MPC does not implement (the contact-implicit terms,
    * com_and_acom_tracking_cost, dcm_terminal_cost,
    * contact_input_parameterization "basis_vectors" or contact_schedule_source
-   * "contact_planner", all of them the centroidal MPC's); identifying the URDF when
-   * it does not parse or its joints are not model_settings'; or with what
+   * "contact_planner", all of them the centroidal MPC's); identifying the URDF
+   * when it does not parse or its joints are not model_settings'; or with what
    * OCS2's CppAD code generation threw for a library it cannot build or load.
    * Nothing is thrown.
    */
@@ -111,9 +111,9 @@ class WBMpcInterface final : public RobotInterface {
    * `referenceFile`.
    *
    * @return NotFound identifying the path when one of the three files does not
-   * exist, checked before anything reads them; InvalidArgument identifying the file,
-   * line and column of a task or reference file that does not parse; and the
-   *         typed form's errors, prefixed with the file they are about.
+   * exist, checked before anything reads them; InvalidArgument identifying the
+   * file, line and column of a task or reference file that does not parse; and
+   * the typed form's errors, prefixed with the file they are about.
    */
   static absl::StatusOr<std::unique_ptr<WBMpcInterface>> Create(
       absl::string_view taskFile,
@@ -253,8 +253,8 @@ class WBMpcInterface final : public RobotInterface {
    * which checks its actuated joints against model_settings in order), the MPC
    * robot models, the reference manager on `gaitSchedule` and the swing
    * trajectory planner of `taskFile`, and the initial state. A model that does
-   * not match its settings is an InvalidArgument identifying the first joint that
-   * differs, returned rather than thrown.
+   * not match its settings is an InvalidArgument identifying the first joint
+   * that differs, returned rather than thrown.
    */
   absl::Status setupModels(const mpc_config::TaskFile& taskFile,
                            absl::string_view urdfFile,

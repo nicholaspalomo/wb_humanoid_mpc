@@ -81,8 +81,8 @@ absl::Status ParseTextprotoInto(
 
 /**
  * Whether `headerName`, the full name a `# proto-message:` header gives,
- * identifies the message `descriptor`: its full name, or, when the message's file sets
- * (nproto.former_package), the full name it had in that package
+ * identifies the message `descriptor`: its full name, or, when the message's
+ * file sets (nproto.former_package), the full name it had in that package
  * (`humanoid_mpc_config.TaskFile` for `legged_mpc_config.TaskFile`), so that a
  * file saved before a package rename still loads (tools/nproto/README.md,
  * "Renamed packages"). Any other name is another message.
@@ -103,8 +103,8 @@ std::string CanonicalHeaderText(absl::string_view text,
                                 const google::protobuf::Descriptor& descriptor);
 
 /**
- * Checks that the textproto `text` of a configuration file specifies its schema:
- * InvalidArgument
+ * Checks that the textproto `text` of a configuration file specifies its
+ * schema: InvalidArgument
  * "<sourceName>:1:1: <sourceName> names no schema: ..." when its leading
  * comment block has no `# proto-message:` line (tools/nproto/README.md,
  * "Textproto configuration files"); `descriptor` is the message the error

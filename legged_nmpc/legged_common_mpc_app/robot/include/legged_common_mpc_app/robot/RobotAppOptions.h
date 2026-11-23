@@ -63,8 +63,8 @@ struct ViewerFlagValues {
    * configuration's mujoco_viewer chooses (viewerNamesFromFlags()).
    */
   std::string viewer;
-  /** --plot_config: the plot configuration whose mujoco_viewer specifies the viewer
-   * when `viewer` is empty; empty: none. */
+  /** --plot_config: the plot configuration whose mujoco_viewer specifies the
+   * viewer when `viewer` is empty; empty: none. */
   std::string plotConfig;
   /** --web_viewer_address: the interface the web viewer binds. */
   std::string webViewerAddress;

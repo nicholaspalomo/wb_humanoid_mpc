@@ -424,18 +424,18 @@ class MpcRobotModelBase {
    * first sample, which the targets read and the gait switches do not
    * (ProceduralMpcMotionManager::observe(); design defects D1, D1b, D2).
    *
-   * A state that stores the base velocity is read, and `jointVelocities` is not:
-   * the whole-body w_W = R(xi) w_B. The centroidal state stores the normalized
-   * centroidal momentum h instead, and Pinocchio's centroidal momentum map m h
-   * = A_b(q) v_b + A_j(q) dq_j gives the base velocity v_b = A_b^-1 (m h - A_j
-   * dq_j) (CentroidalMpcRobotModel): pass the measured joint velocities,
-   * getJointVelocities() of the observation's state and input, which the MRT
-   * writes. Zero joint velocities do not give the base twist but the twist of
-   * the robot with its joints locked, w = I_G^-1 L, off from the base's by
-   * I_G^-1 (A_j dq_j)_ang, the joints' angular momentum over the locked
-   * inertia: on a walking humanoid more than the base's own yaw rate (design
-   * README section 2.9). One Pinocchio pass on the centroidal model, so call it
-   * once per solve, not per node. Double precision only.
+   * A state that stores the base velocity is read, and `jointVelocities` is
+   * not: the whole-body w_W = R(xi) w_B. The centroidal state stores the
+   * normalized centroidal momentum h instead, and Pinocchio's centroidal
+   * momentum map m h = A_b(q) v_b + A_j(q) dq_j gives the base velocity v_b =
+   * A_b^-1 (m h - A_j dq_j) (CentroidalMpcRobotModel): pass the measured joint
+   * velocities, getJointVelocities() of the observation's state and input,
+   * which the MRT writes. Zero joint velocities do not give the base twist but
+   * the twist of the robot with its joints locked, w = I_G^-1 L, off from the
+   * base's by I_G^-1 (A_j dq_j)_ang, the joints' angular momentum over the
+   * locked inertia: on a walking humanoid more than the base's own yaw rate
+   * (design README section 2.9). One Pinocchio pass on the centroidal model, so
+   * call it once per solve, not per node. Double precision only.
    */
   virtual vector6_t getTwistBaseRtWorldEwrtWorld(
       const vector_t& state, const vector_t& jointVelocities) const = 0;

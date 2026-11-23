@@ -139,8 +139,8 @@ class EndEffectorDynamicsFootCost final : public StateInputCostGaussNewtonAd {
    * with them would: they are parameters of the taped function. For the
    * parameter updater, between solves.
    *
-   * @return InvalidArgument identifying the first weight that is negative or not
-   * finite; the cost then keeps its weights.
+   * @return InvalidArgument identifying the first weight that is negative or
+   * not finite; the cost then keeps its weights.
    */
   absl::Status setWeights(const EndEffectorDynamicsWeights& weights);
 

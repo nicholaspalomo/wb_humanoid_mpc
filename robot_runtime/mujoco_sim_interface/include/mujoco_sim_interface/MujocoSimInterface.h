@@ -74,8 +74,8 @@ namespace robot::mujoco_sim_interface {
  * How the virtual gantry holds the floating base while it is locked.
  *
  * These are two different physical models rather than one feature switched on
- * and off, so the robot task file specifies the one it wants (`gantry_hold`) and
- * gantryHoldFromName resolves it.
+ * and off, so the robot task file specifies the one it wants (`gantry_hold`)
+ * and gantryHoldFromName resolves it.
  *
  * kWeldConstraint is what a real gantry does: a MuJoCo weld equality that the
  * constraint solver satisfies INSIDE mj_step, so the base is genuinely

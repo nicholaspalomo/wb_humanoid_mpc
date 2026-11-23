@@ -59,7 +59,8 @@ namespace ocs2::legged {
 /**
  * Solver synchronized module that runs the contact planner specified by
  * `planner.type` (ContactPlannerFactory: the closed-form H-LIP planner or the
- * mixed-integer one) and feeds its plans to the ContactPlanningReferenceManager.
+ * mixed-integer one) and feeds its plans to the
+ * ContactPlanningReferenceManager.
  *
  * Before every MPC solve the module snapshots the planner input (CoM state,
  * feet, applied contact phases, and the operator's command as the reference

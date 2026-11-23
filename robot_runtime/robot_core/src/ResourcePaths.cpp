@@ -99,7 +99,8 @@ absl::Status validateRepositoryRelativePath(absl::string_view path) {
  * The label of the Bazel package that `path` belongs to, as far as the path
  * shows it. The package ends before the first data directory
  * (kDataDirectories). Without one, the package is the path itself when the path
- * specifies a directory (no extension), or the file's parent directory otherwise.
+ * specifies a directory (no extension), or the file's parent directory
+ * otherwise.
  */
 std::string owningPackageLabel(absl::string_view path) {
   const std::vector<absl::string_view> components = absl::StrSplit(path, '/');

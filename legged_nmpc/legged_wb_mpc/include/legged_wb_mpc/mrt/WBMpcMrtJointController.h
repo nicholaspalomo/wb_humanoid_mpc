@@ -114,9 +114,9 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * InvalidArgument when `pdGainsFile` is empty, cannot be read or is refused
    * (a default_gains without kp, kd and max_joint_torque included), NotFound
    * when it does not exist - at start-up there are no gains in use to keep.
-   * NotFound identifying the joint when `modelSettings` specifies a joint (an MPC joint
-   * or a fixed one) that `robotDescription` does not have, and the error of
-   *         checkContactFramesExist() for contact frames the Pinocchio model
+   * NotFound identifying the joint when `modelSettings` specifies a joint (an
+   * MPC joint or a fixed one) that `robotDescription` does not have, and the
+   * error of checkContactFramesExist() for contact frames the Pinocchio model
    * does not have.
    */
   static absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> Create(

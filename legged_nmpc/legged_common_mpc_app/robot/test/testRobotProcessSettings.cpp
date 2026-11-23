@@ -90,8 +90,8 @@ constexpr absl::string_view kShippedTaskFiles[] = {
 };
 // LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/BUILD.bazel:shipped_task_files)
 
-/** The task file `content`, on the line below the header that specifies its schema,
- * written to `name` in the test's temporary directory; its path. */
+/** The task file `content`, on the line below the header that specifies its
+ * schema, written to `name` in the test's temporary directory; its path. */
 std::string writeTemporaryFile(absl::string_view name,
                                absl::string_view content) {
   const std::string file =

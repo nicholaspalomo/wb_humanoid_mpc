@@ -136,10 +136,10 @@ namespace ocs2::legged::ipc {
  * and changes nothing.
  *
  * LIFETIME. Create() registers the subscriptions and the periodic callback on a
- * bus that is not running yet; the caller starts it. The callbacks reference the
- * link only through a guard that the destructor clears, so a bus that outlives
- * the link calls nothing of it afterwards. The overload that takes BusOptions
- * creates, starts and owns its bus.
+ * bus that is not running yet; the caller starts it. The callbacks reference
+ * the link only through a guard that the destructor clears, so a bus that
+ * outlives the link calls nothing of it afterwards. The overload that takes
+ * BusOptions creates, starts and owns its bus.
  */
 class RemoteMpcLink final : public MRT_BASE {
  public:

@@ -128,10 +128,10 @@ class LockstepClosedLoop {
   LockstepClosedLoop(RobotConfiguration configuration, LockstepOptions options);
 
   /**
-   * Runs `scenario` once on a fresh MPC and simulator. `info` identifies the run in
-   * the metrics document; its formulation, robot, scenario and settings are
-   * filled in here. The error of a driver or simulator that cannot be built, or
-   * of an entry into WB_MPC that does not end.
+   * Runs `scenario` once on a fresh MPC and simulator. `info` identifies the
+   * run in the metrics document; its formulation, robot, scenario and settings
+   * are filled in here. The error of a driver or simulator that cannot be
+   * built, or of an entry into WB_MPC that does not end.
    */
   absl::StatusOr<LockstepResult> run(const ClosedLoopScenario& scenario,
                                      ClosedLoopRunInfo info) const;
@@ -144,8 +144,8 @@ class LockstepClosedLoop {
 /**
  * The total feedback torque (JointAction::getTotalFeedbackJointTorque()) that
  * `action` commands at `state` for each of `joints`, in their order: what a
- * control cycle of the run records. An internal error identifies the first joint
- * `action` has no action for.
+ * control cycle of the run records. An internal error identifies the first
+ * joint `action` has no action for.
  */
 absl::StatusOr<Eigen::VectorXd> jointFeedbackTorques(
     const robot::model::RobotJointAction& action,

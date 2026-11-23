@@ -122,8 +122,8 @@ struct ControllerSettingsUpdate {
  * MpcParameterUpdate or JointPdGainsUpdate of another schema fingerprint, an
  * MpcParameterUpdate whose task file is another robot's (Config::robotName) and
  * one of another configuration (Config::taskFileIdentity,
- * Config::pdGainsFileIdentity) are refused completely, logged and counted: a GUI
- * built from another version, or pointed at another robot or configuration,
+ * Config::pdGainsFileIdentity) are refused completely, logged and counted: a
+ * GUI built from another version, or pointed at another robot or configuration,
  * applies nothing.
  */
 class OperatorCommandMailbox {
@@ -276,13 +276,14 @@ class OperatorCommandMailbox {
    * realtime thread (the task-file watcher and onMpcParameters()), treating the
    * settings as those of a complete task file
    * (legged_nmpc/legged_mpc_config/README.md, "Live updates"): the file's
-   * contact estimator (the schema's default when the file specifies none) and its
-   * contact wrench gate, the instantaneous gate (ContactWrenchGate::Config{})
-   * when the file has no contact_wrench_gate block. An unknown estimator name
-   * is logged with the available ones and leaves the estimator as it is; the
-   * gate still goes through. A gate controllerSideSettingsFromConfig() refused
-   * (one of `settings.problems`) is logged and leaves the gate as it is.
-   * `source` identifies the file or the topic for the log.
+   * contact estimator (the schema's default when the file specifies none) and
+   * its contact wrench gate, the instantaneous gate
+   * (ContactWrenchGate::Config{}) when the file has no contact_wrench_gate
+   * block. An unknown estimator name is logged with the available ones and
+   * leaves the estimator as it is; the gate still goes through. A gate
+   * controllerSideSettingsFromConfig() refused (one of `settings.problems`) is
+   * logged and leaves the gate as it is. `source` identifies the file or the
+   * topic for the log.
    */
   void postControllerSettings(const ControllerSideConfig& settings,
                               absl::string_view source);

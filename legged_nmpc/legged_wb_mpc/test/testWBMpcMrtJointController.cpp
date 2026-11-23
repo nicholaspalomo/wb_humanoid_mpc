@@ -717,8 +717,9 @@ TEST(WBMpcMrtJointController, CreateRefusesALinkFactoryThatMakesNoLink) {
 }
 
 // Create() refuses a robot description that lacks a joint of the MPC model,
-// identifying the joint: the control cycle indexes the joints without a check, so
-// the constructor's check would otherwise end the process on a mismatched URDF.
+// identifying the joint: the control cycle indexes the joints without a check,
+// so the constructor's check would otherwise end the process on a mismatched
+// URDF.
 TEST(WBMpcMrtJointController,
      CreateRefusesAModelJointTheRobotDescriptionDoesNotHave) {
   const WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);

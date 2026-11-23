@@ -844,9 +844,10 @@ void ContactPlanningReferenceManager::modifyReferences(
   // zero-order-extrapolates past the last knot, so whenever the plan ended
   // before finalTime (any time the plan is older than plan horizon - MPC
   // horizon, the same regime as an expiring plan), the reference tail froze at
-  // the plan-end sample instead of following the command. The grid is now EXTENDED past the plan's end with the operator's knots, and
-  // with a final sample at finalTime when even those fall short, and the rules
-  // leave every knot outside the plan alone (planCoversTime).
+  // the plan-end sample instead of following the command. The grid is now
+  // EXTENDED past the plan's end with the operator's knots, and with a final
+  // sample at finalTime when even those fall short, and the rules leave every
+  // knot outside the plan alone (planCoversTime).
   //
   // And that extension read the LIVE target, which
   // ReferenceManager::preSolverRun keeps from the previous cycle - the copy the

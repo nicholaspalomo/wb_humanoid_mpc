@@ -63,8 +63,8 @@ struct GuiCommandScaling {
  * or the default base height or gives a value that is not finite.
  *
  * @param file The reference file (loadReferenceFile()).
- * @return The scaling; InvalidArgument identifying the field that is absent, not
- * finite or, for a command limit, not positive.
+ * @return The scaling; InvalidArgument identifying the field that is absent,
+ * not finite or, for a command limit, not positive.
  */
 absl::StatusOr<GuiCommandScaling> guiCommandScalingFromConfig(
     const mpc_config::ReferenceFile& file);

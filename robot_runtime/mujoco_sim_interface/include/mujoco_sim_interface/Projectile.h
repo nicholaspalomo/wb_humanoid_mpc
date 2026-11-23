@@ -122,8 +122,8 @@ double contactRestitutionForDampRatio(double dampRatio);
 /**
  * The damping ratio zeta whose contactRestitutionForDampRatio() is
  * `restitution`: the inverse of e(zeta), by bisection to round-off, so the task
- * file can specify the number an engineer knows (a rubber ball comes back at about
- * 0.8 of the speed it arrived at; e = 0.8 gives zeta = 0.0744).
+ * file can specify the number an engineer knows (a rubber ball comes back at
+ * about 0.8 of the speed it arrived at; e = 0.8 gives zeta = 0.0744).
  *
  * A restitution of 1 is a contact that never loses energy and never settles,
  * and no finite damping makes a one-sided spring-damper stop dead (e = 0):
@@ -344,9 +344,9 @@ inline constexpr double kProjectileSpawnClearance = 0.02;
  * this writes the ball geom's position in `data->geom_xpos`; the caller places
  * the ball for real afterwards, and the next mj_step recomputes it either way.
  *
- * Returns FailedPreconditionError, identifying the slider to change, when no point
- * in that window clears, and InvalidArgumentError when `projectileBodyId` is
- * not a projectile.
+ * Returns FailedPreconditionError, identifying the slider to change, when no
+ * point in that window clears, and InvalidArgumentError when `projectileBodyId`
+ * is not a projectile.
  */
 absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
     const mjModel* absl_nullable model,

@@ -104,9 +104,9 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
 
   /**
    * The name the CppAD library of the cost called `costName` is compiled and
-   * cached under. It includes the version of the taped inverse dynamics, so that
-   * a library taped from an earlier computeJointTorques (the one that left out
-   * the base coupling of the mass matrix) is never loaded from the cache in
+   * cached under. It includes the version of the taped inverse dynamics, so
+   * that a library taped from an earlier computeJointTorques (the one that left
+   * out the base coupling of the mass matrix) is never loaded from the cache in
    * its place (the robots ship model_settings.recompile_libraries_cpp_ad:
    * false).
    */

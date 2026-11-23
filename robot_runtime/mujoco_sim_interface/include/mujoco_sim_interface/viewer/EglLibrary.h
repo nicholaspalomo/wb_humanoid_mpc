@@ -43,7 +43,8 @@ namespace robot::mujoco_sim_interface {
 /**
  * The EGL library the web viewer renders through, loaded at run time with
  * dlopen() rather than linked, so that the robot binary needs no EGL (and no
- * Mesa) to start and a machine without EGL gets a Status that specifies the fix.
+ * Mesa) to start and a machine without EGL gets a Status that specifies the
+ * fix.
  *
  * Get() loads a library once per name and keeps it for the life of the process:
  * it is never dlclose()d, because glvnd and Mesa keep destructors and

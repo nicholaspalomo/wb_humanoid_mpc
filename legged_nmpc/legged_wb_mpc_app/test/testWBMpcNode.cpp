@@ -108,8 +108,8 @@ using node::test_support::ScriptedRobot;
 
 node::MpcFiles g1Files() {
   node::MpcFiles files;
-  // A file missing from the runfiles throws here, identifying the data dependency to
-  // add (robot::resolveResourcePath).
+  // A file missing from the runfiles throws here, identifying the data
+  // dependency to add (robot::resolveResourcePath).
   files.taskFile =
       robot::resolveResourcePath(
           "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto")
@@ -310,10 +310,11 @@ matrix_t stateWeightsOf(const legged_mpc_config::TaskFile& task,
 }
 
 /**
- * Expects every worker's running quadratic state cost to store the state weights
- * `expected` (Q of the tuning layout, which the cost's TuningLayoutDeviation
- * maps onto the quaternion state's tangent), and the swing foot's gains of
- * every worker's pre-computation to be the model settings'.
+ * Expects every worker's running quadratic state cost to store the state
+ * weights `expected` (Q of the tuning layout, which the cost's
+ * TuningLayoutDeviation maps onto the quaternion state's tangent), and the
+ * swing foot's gains of every worker's pre-computation to be the model
+ * settings'.
  */
 void expectRunningStateWeightsAndShippedFootGains(WBMpcNode& node,
                                                   const matrix_t& expected) {

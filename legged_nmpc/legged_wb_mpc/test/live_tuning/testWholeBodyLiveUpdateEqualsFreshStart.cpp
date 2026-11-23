@@ -74,13 +74,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * MPC of a task file, given an edit of the file's RELOAD_HOT fields through
  * its parameter updater before its first solve, solves exactly as the MPC built
  * from the edited file, block by block, on the shipped G1 file and on a variant
- * whose problem includes the terms the shipped one does not (variantTaskFile()),
- * and on the shipped file with every orientation row weighted, the yaw
- * included, which the block cases leave at the shipped 0 (LeafStep::kScaled
- * keeps a zero a zero). Every field the updater applies changes what the
- * running problem evaluates to, an updater fed nothing changes nothing, and a
- * reload of the file the MPC started from reproduces its problem. Every case
- * runs on the quaternion layout of the whole-body state
+ * whose problem includes the terms the shipped one does not
+ * (variantTaskFile()), and on the shipped file with every orientation row
+ * weighted, the yaw included, which the block cases leave at the shipped 0
+ * (LeafStep::kScaled keeps a zero a zero). Every field the updater applies
+ * changes what the running problem evaluates to, an updater fed nothing changes
+ * nothing, and a reload of the file the MPC started from reproduces its
+ * problem. Every case runs on the quaternion layout of the whole-body state
  * (expectQuaternionLayout()), and the orientation case's solves keep a unit
  * quaternion. The ground (pos_surface_rt_world_ewrt_world_z) is the one hot
  * field left out: its live change lifts the target in use once, which a fresh

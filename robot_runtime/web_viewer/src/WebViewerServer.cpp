@@ -283,8 +283,8 @@ absl::Status notAnAllowedHost(absl::string_view entry) {
 // "[FE80:0::1]" and "fe80::1" are "fe80::1". InvalidArgument for an entry with
 // a port
 // ("robot.lan:6090", "[fe80::1]:6090"), which no request's host name equals,
-// and for one that is empty, contains a '/' or a space, or brackets anything but
-// an IPv6 address.
+// and for one that is empty, contains a '/' or a space, or brackets anything
+// but an IPv6 address.
 absl::StatusOr<std::string> allowedHostnameOf(absl::string_view entry) {
   if (entry.empty() || absl::StrContains(entry, '/') ||
       absl::StrContains(entry, ' ')) {

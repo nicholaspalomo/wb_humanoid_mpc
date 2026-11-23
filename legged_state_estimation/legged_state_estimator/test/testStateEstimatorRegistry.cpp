@@ -28,9 +28,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // StateEstimatorRegistry and the two estimators behind it: an unknown name
-// lists the names, ground_truth passes the measured state itself on, and kalman,
-// fed the states a backend without a position sensor publishes (zero base
-// position and velocity), passes on the base of the walk.
+// lists the names, ground_truth passes the measured state itself on, and
+// kalman, fed the states a backend without a position sensor publishes (zero
+// base position and velocity), passes on the base of the walk.
 
 #include <algorithm>
 #include <cmath>

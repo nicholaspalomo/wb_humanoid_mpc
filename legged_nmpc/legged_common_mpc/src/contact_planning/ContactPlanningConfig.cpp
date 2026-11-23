@@ -351,9 +351,10 @@ absl::Status validatePlanner(const ContactPlanningConfig& config) {
   // and the parameter updater reports a reload that raised nothing as applied.
   // An unknown name used to be noticed only by the factory, one layer too late:
   // by then ContactPlannerModule had already stored the full new parameter set,
-  // rebuilt the execution rules and started or stopped the background worker. Rejecting the name here makes the reload fail atomically with the
-  // previous configuration still in force, and the message lists the planners
-  // that exist.
+  // rebuilt the execution rules and started or stopped the background worker.
+  // Rejecting the name here makes the reload fail atomically with the previous
+  // configuration still in force, and the message lists the planners that
+  // exist.
   if (canonicalPlannerName(p.type).empty()) {
     return invalidConfig(absl::StrCat(
         "unknown planner.type '", p.type,

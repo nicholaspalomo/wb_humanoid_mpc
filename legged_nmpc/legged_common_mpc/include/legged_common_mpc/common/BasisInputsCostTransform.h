@@ -68,10 +68,11 @@ namespace ocs2::legged {
  * the λ that produce a given wrench, the metric the optimizer sees on the
  * wrench becomes R + reg · (B Bᵀ)⁻¹, and with the DRC Atlas weights at the time
  * of writing (reg = 1e-4 against R entries of 1e-5 .. 2e-4) the second term
- * dominates, so R's moment and tangential weights have little effect. null_space S =
- * blkdiag(I - B_i⁺ B_i): only the λ that produce no wrench are penalized. The
- * metric on the wrench is then exactly R, and the λ block is still positive
- * definite whenever R is positive definite on the contact wrenches and reg > 0.
+ * dominates, so R's moment and tangential weights have little effect.
+ * null_space S = blkdiag(I - B_i⁺ B_i): only the λ that produce no wrench are
+ * penalized. The metric on the wrench is then exactly R, and the λ block is
+ * still positive definite whenever R is positive definite on the contact
+ * wrenches and reg > 0.
  *
  * See legged_nmpc/docs/contact_basis_vectors/README.md.
  */

@@ -50,8 +50,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // assigned in place.
 //
 // FromProto() fails only on an enum number its enum does not define. The errors
-// include the field path, "annotations.target_contact_patches[2].kind: 7 is not a
-// value of legged_mpc_msgs.TargetContactPatch.Kind", and building them
+// include the field path, "annotations.target_contact_patches[2].kind: 7 is not
+// a value of legged_mpc_msgs.TargetContactPatch.Kind", and building them
 // allocates, which only an error does.
 
 #pragma once

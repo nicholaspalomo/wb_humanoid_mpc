@@ -972,8 +972,9 @@ TEST(StanceFootOrientationRates,
     // point, M (and 1/2 n v') applied to the Jacobians of w and of alpha, as
     // the centroidal twist constraint keeps its map. Its state Jacobian lacks
     // the map's derivative. Its input Jacobian is the exact one: the state
-    // contains the velocities, so w reads no input and the rates read it through
-    // alpha alone, d(d2e/dt2 + 1/2 n v.alpha)/du = (M + 1/2 n v') d(alpha)/du.
+    // contains the velocities, so w reads no input and the rates read it
+    // through alpha alone, d(d2e/dt2 + 1/2 n v.alpha)/du = (M + 1/2 n v')
+    // d(alpha)/du.
     const FootKinematics kinematics =
         footKinematicsAt(*models, point.state, point.input);
     const matrix3_t map = frozenRateMap(kinematics.rotmatFootRtWorld);

@@ -50,9 +50,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotStateContactEstimator.h"
 
 /*
- * The contact flags the simulator passes to the controller: one per contact point
- * of the controller's set, so a controller of a set other than the biped's two
- * feet takes the simulator's estimate. Headless, on a four-footed scene.
+ * The contact flags the simulator passes to the controller: one per contact
+ * point of the controller's set, so a controller of a set other than the
+ * biped's two feet takes the simulator's estimate. Headless, on a four-footed
+ * scene.
  */
 
 namespace ocs2::legged {

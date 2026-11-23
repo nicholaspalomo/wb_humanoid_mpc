@@ -315,10 +315,10 @@ class ModelSettings {
    * with the other conversions of the typed task file's model and formulation.
    *
    * @return InvalidArgument identifying the URDF when it cannot be read, when
-   * every joint of the URDF is fixed, identifying model_settings.arm_joint_names
-   * when it lists a joint that is not an active MPC joint, or identifying
-   * model_settings.legs[i] (or the default biped legs) and what is wrong with
-   * the leg.
+   * every joint of the URDF is fixed, identifying
+   * model_settings.arm_joint_names when it lists a joint that is not an active
+   * MPC joint, or identifying model_settings.legs[i] (or the default biped
+   * legs) and what is wrong with the leg.
    */
   static absl::StatusOr<ModelSettings> Create(
       const mpc_config::TaskFile& taskFile,

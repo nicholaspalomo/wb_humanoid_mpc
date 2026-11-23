@@ -77,8 +77,8 @@ class EndEffectorDynamicsLinearAccConstraint final
    * @param [in] config: The constraint coefficients, g = Ax *
    * posEeRtWorldEwrtWorld + Av * linvelEeRtWorldEwrtWorld + Aa *
    * linaccEeRtWorldEwrtWorld + b
-   * @return InvalidArgument identifying the end effectors when `endEffectorDynamics`
-   * has other than one.
+   * @return InvalidArgument identifying the end effectors when
+   * `endEffectorDynamics` has other than one.
    */
   static absl::StatusOr<std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>>
   Create(const EndEffectorDynamics<scalar_t>& endEffectorDynamics,

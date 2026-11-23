@@ -97,12 +97,12 @@ struct ContactCandidate {
 class ContactSet {
  public:
   /**
-   * Validates `config`. InvalidArgument identifies the candidate and what is wrong:
-   * no candidate or more than kMaxContactCandidates, an empty or duplicate
-   * name, no kind, no parent joint, a vector of the wrong size, a pad normal
-   * that is not unit (within 1e-3, then normalized), a pad x axis that is not
-   * unit or not orthogonal to the normal, a rectangle missing from a surface or
-   * given to a point, an empty rectangle, or a negative geom radius.
+   * Validates `config`. InvalidArgument identifies the candidate and what is
+   * wrong: no candidate or more than kMaxContactCandidates, an empty or
+   * duplicate name, no kind, no parent joint, a vector of the wrong size, a pad
+   * normal that is not unit (within 1e-3, then normalized), a pad x axis that
+   * is not unit or not orthogonal to the normal, a rectangle missing from a
+   * surface or given to a point, an empty rectangle, or a negative geom radius.
    */
   static absl::StatusOr<ContactSet> Create(const config::ContactSet& config);
 

@@ -107,8 +107,8 @@ absl::Status prefaultStack(size_t bytes);
 /**
  * Pins the calling thread to `cores` (0-based CPU numbers).
  *
- * @return InvalidArgument when `cores` is empty or specifies a CPU that does not
- * exist or that the process may not use (a container's cpuset),
+ * @return InvalidArgument when `cores` is empty or specifies a CPU that does
+ * not exist or that the process may not use (a container's cpuset),
  * FailedPrecondition when the kernel left out some of the cores; the message
  * lists them.
  */
