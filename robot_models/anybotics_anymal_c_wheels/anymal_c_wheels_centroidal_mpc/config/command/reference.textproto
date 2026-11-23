@@ -3,8 +3,8 @@
 ref_speed_base_rt_world: 0.5
 ref_rate_yaw_base_rt_world: 0.5
 
-# The command limits are above the closed-loop validation's commands, a 0.5 m/s drive, a 0.5 rad/s turn in place and a
-# 0.2 m/s step sideways, so that none saturates. The wheel axles are across the base and none of them steers, so the
+# The command limits are at or above the closed-loop validation's commands, a 0.5 m/s drive, turns in place at 0.5 and
+# 1 rad/s, a 0.3 m/s arc at 0.3 rad/s and a 0.2 m/s step sideways, so that none saturates. The wheel axles are across the base and none of them steers, so the
 # wheels roll no lateral velocity: the robot steps sideways and to turn, where the lateral debt of its wheels reaches
 # its bound (wheeled_quadruped_gait.textproto, rolling_lateral_debt).
 cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.0

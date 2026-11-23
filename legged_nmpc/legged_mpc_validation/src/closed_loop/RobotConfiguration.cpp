@@ -101,14 +101,15 @@ constexpr char kWheeledQuadrupedGaitFile[] =
 /**
  * Returns `configuration` on the wheeled quadrupeds' gait file
  * (kWheeledQuadrupedGaitFile), running standing, walk_0p5 (a drive on the
- * wheels at 0.5 m/s, no steps), turn_in_place_720 and lateral_0p2 (both on the
- * event-driven steps of its rolling_lateral_debt) only: the other scenarios
- * push the robot or are tuned for the bipeds' gaits.
+ * wheels at 0.5 m/s, no steps), turn_in_place_720, lateral_0p2, turn_1radps
+ * (the command limit's yaw rate) and arc (all four on the event-driven steps of
+ * its rolling_lateral_debt) only: the other scenarios push the robot or are
+ * tuned for the bipeds' gaits.
  */
 RobotConfiguration onWheeledQuadrupedGait(RobotConfiguration configuration) {
   configuration.gaitFile = kWheeledQuadrupedGaitFile;
-  configuration.scenarios = {"standing", "walk_0p5", "turn_in_place_720",
-                             "lateral_0p2"};
+  configuration.scenarios = {"standing",    "walk_0p5",    "turn_in_place_720",
+                             "lateral_0p2", "turn_1radps", "arc"};
   return configuration;
 }
 

@@ -355,8 +355,8 @@ TEST(RobotConfigurations, TheWheeledRobotsDriveOnTheirWheeledGaitFiles) {
       {.name = "anymal_c_wheels",
        .gaitFile = "legged_nmpc/legged_common_mpc/config/command/"
                    "wheeled_quadruped_gait.textproto",
-       .scenarios = {"standing", "walk_0p5", "turn_in_place_720",
-                     "lateral_0p2"}}};
+       .scenarios = {"standing", "walk_0p5", "turn_in_place_720", "lateral_0p2",
+                     "turn_1radps", "arc"}}};
   for (const WheeledRobot& robot : wheeledRobots) {
     const std::string& name = robot.name;
     const absl::StatusOr<RobotConfiguration> wheeled =
