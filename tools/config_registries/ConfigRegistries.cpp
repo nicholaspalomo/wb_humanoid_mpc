@@ -193,7 +193,7 @@ std::string configRegistriesText(
       "#\n"
       "# The names each registry of the stack accepts: the choices the tuning "
       "GUI offers for a string field whose\n"
-      "# (legged_mpc_config.tuning) option names a registry. Written from "
+      "# (legged_mpc_config.tuning) option specifies a registry. Written from "
       "the registries by\n"
       "# `bazel run //tools/config_registries:print_config_registries`; do not "
       "edit it by hand:\n"
