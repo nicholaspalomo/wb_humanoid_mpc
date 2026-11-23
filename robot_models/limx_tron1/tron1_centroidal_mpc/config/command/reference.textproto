@@ -4,12 +4,12 @@ ref_speed_base_rt_world: 0.5
 ref_rate_yaw_base_rt_world: 0.5
 
 # The command limits are above the closed-loop validation's commands, a 0.5 m/s drive and a 0.5 rad/s turn in place, so
-# that neither saturates. A two-wheeled robot cannot move sideways: the no-slip constraint of its wheels has no lateral
-# velocity to give, so a lateral command is not tracked. The lateral limit is still positive, as every command limit
-# must be (the GUI, the keyboard and the validation's driver send a command as its fraction of the limit), and small:
-# a full lateral stick asks for 0.05 m/s.
+# that neither saturates. The wheels roll no lateral velocity: the robot steps sideways, one wheel at a time, where the
+# lateral debt of a wheel reaches its bound (wheeled_gait.textproto, rolling_lateral_debt). The lateral limit is the
+# validation's sideways command: in the closed loop the robot went 0.31 m of the 0.4 m that 0.1 m/s for 4 s asks for,
+# and 0.19 m of the 0.8 m at 0.2 m/s, where the steps are as long as they get.
 cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.0
-cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.05
+cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.1
 cmd_max_err_pos_base_rt_surface_ewrt_world_z: 0.1
 cmd_max_angvel_base_rt_world_ewrt_world_z: 1.0
 # First-order low-pass filter on the operator's velocity command, run on the solver time ahead of the acceleration

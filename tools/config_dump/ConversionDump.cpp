@@ -87,6 +87,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "legged_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
 #include "legged_common_mpc/gait/ModeSequenceTemplate.h"
+#include "legged_common_mpc/gait/RollingStepScheduler.h"
 #include "legged_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "legged_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "legged_common_mpc/mrt/JointPdGains.h"
@@ -101,8 +102,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_common_mpc_app/visualization/VisualizationConfig.h"
 #include "legged_common_mpc_app/visualization/config/robot/VisualizationConfigFromConfig.h"
 #include "legged_mpc_config/contacts_config.nproto.h"
+#include "legged_mpc_config/gait_file.nproto.h"
 #include "legged_mpc_config/joint_weights.nproto.h"
 #include "legged_mpc_config/locomotion_heuristics_config.nproto.h"
+#include "legged_mpc_config/rolling_step_scheduler_config.nproto.h"
 #include "legged_mpc_config/task_file.nproto.h"
 #include "legged_wb_mpc/config/costs/EndEffectorDynamicsWeightsFromConfig.h"
 #include "legged_wb_mpc/cost/EndEffectorDynamicsCostHelpers.h"
@@ -559,6 +562,38 @@ void dumpHeuristics(ValueDump& dump,
                 heuristics->centripetalAccelerationParameters);
 }
 
+/** Dumps the gait scheduler of `gaitFile` and its rolling_lateral_debt block:
+ * the durations and the debt bound as RollingStepScheduler reads them, and the
+ * contacts of each step group, which only a contact set of rolling contacts
+ * resolves. */
+void dumpRollingSteps(ValueDump& dump, const mpc_config::GaitFile& gaitFile) {
+  const absl::StatusOr<GaitScheduler> scheduler =
+      gaitSchedulerFromName(gaitFile.gait_scheduler);
+  if (scheduler.ok()) {
+    dump.addInteger("gait_scheduler", static_cast<int64_t>(*scheduler));
+  } else {
+    addError(dump, "gait_scheduler", scheduler.status());
+  }
+  if (!gaitFile.rolling_lateral_debt.has_value()) return;
+  const mpc_config::RollingStepSchedulerConfig& block =
+      *gaitFile.rolling_lateral_debt;
+  const absl::StatusOr<RollingStepSchedulerSettings> timing =
+      rollingStepTimingFromConfig(block);
+  if (timing.ok()) {
+    dump.addDoubles("rolling_lateral_debt.timing",
+                    {timing->maxLateralDebt, timing->swingDuration,
+                     timing->minStanceDuration, timing->minLiftOffLead,
+                     timing->commitWindow});
+  } else {
+    addError(dump, "rolling_lateral_debt.timing", timing.status());
+  }
+  for (size_t group = 0; group < block.step_groups.size(); ++group) {
+    dump.addStrings(
+        absl::StrCat("rolling_lateral_debt.step_groups[", group, "]"),
+        block.step_groups[group].contacts);
+  }
+}
+
 void dumpReference(ValueDump& dump,
                    const ConversionInputs& inputs,
                    const ModelSettings* absl_nullable model) {
@@ -633,6 +668,7 @@ void dumpReference(ValueDump& dump,
   } else {
     addError(dump, "gait_switching", switching.status());
   }
+  dumpRollingSteps(dump, inputs.gait);
 }
 
 void dumpRobot(ValueDump& dump,

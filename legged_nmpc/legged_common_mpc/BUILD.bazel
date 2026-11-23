@@ -351,6 +351,7 @@ cc_library(
         "src/gait/GaitScheduleUpdater.cpp",
         "src/gait/LegSwingPhase.cpp",
         "src/gait/ModeScheduleSwitchTimes.cpp",
+        "src/gait/RollingStepScheduler.cpp",
         "src/swing_foot_planner/CubicSpline.cpp",
         "src/swing_foot_planner/SplineCpg.cpp",
         "src/swing_foot_planner/SwingTrajectoryPlanner.cpp",
@@ -1678,6 +1679,56 @@ cc_test(
         ":legged_common_mpc",
         ":legged_common_mpc_types",
         "//lib/ocs2:ocs2_core_types",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The event-driven steps of RollingStepScheduler on a quadruped's four parallel wheels and a biped's two coaxial ones:
+# where the lateral debt makes each group step, the order of the groups, committed swings and the mode schedule. Builds
+# no model.
+cc_test(
+    name = "testRollingStepScheduler",
+    size = "small",
+    srcs = ["test/testRollingStepScheduler.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":legged_common_mpc",
+        ":legged_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:btree",
+        "@abseil-cpp//absl/types:span",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The gait file's gait_scheduler and rolling_lateral_debt block on the shipped robots: the wheeled gait files step the
+# wheels of the LimX Tron1 and of the wheeled ANYmal C in their groups, and every malformed selection or block is
+# refused. Builds the robots' settings from their URDFs.
+cc_test(
+    name = "testRollingStepSchedulerConfig",
+    size = "small",
+    srcs = ["test/testRollingStepSchedulerConfig.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        ":wheeled_gait_config",
+        ":wheeled_quadruped_gait_config",
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
+    ],
+    deps = [
+        ":legged_common_mpc",
+        "//legged_nmpc/legged_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )

@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -62,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_common_mpc/config/reference/ReferenceSettings.h"
 #include "legged_common_mpc/gait/GaitSchedule.h"
 #include "legged_common_mpc/gait/ModeSequenceTemplate.h"
+#include "legged_common_mpc/gait/RollingStepScheduler.h"
 #include "legged_common_mpc/reference_manager/BreakFrequencyAlphaFilter.h"
 #include "legged_common_mpc/reference_manager/GaitSwitchingTable.h"
 #include "legged_common_mpc/reference_manager/StrideMotionHistory.h"
@@ -123,6 +125,14 @@ namespace ocs2::legged {
  * stride can differ from the template's cycle, and a sway of period P' leaks
  * into the mean by |sinc(pi W / P')| of its rate's amplitude
  * (StrideMotionHistory). No shipped robot runs the planner.
+ *
+ * The event-driven steps. A gait file whose gait_scheduler is
+ * "rolling_lateral_debt" has a RollingStepScheduler write the mode schedule in
+ * place of the gait switching table: every solve it plans the steps of the
+ * rolling contacts from the lateral debt the filtered command builds at each
+ * wheel (legged_nmpc/docs/rolling_contact/README.md, section 10), and the gait
+ * stays the table's first, "stance". The schedule a solve writes is the next
+ * solve's, as a gait the table inserts is.
  *
  * Added to the MPC as a SolverSynchronizedModule, whose preSolverRun() runs on
  * the solver thread, as observe() does. The velocity command is set from the
@@ -296,6 +306,14 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * ...). Solver thread. */
   const std::string& getCurrentGaitCommand() const {
     return currentGaitCommand_;
+  }
+
+  /** The event-driven steps of a gait file whose gait_scheduler is
+   * "rolling_lateral_debt"; null under the gait switching table. Solver
+   * thread. */
+  const RollingStepScheduler* absl_nullable rollingStepScheduler() const {
+    return rollingStepScheduler_.has_value() ? &*rollingStepScheduler_
+                                             : nullptr;
   }
 
   /** The gait switching table the manager selects gaits from, slowest first
@@ -509,6 +527,13 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * the stride the measured motion is averaged over. */
   scalar_t strideAt(scalar_t time) const;
 
+  /** Writes into the gait schedule the steps the rolling step scheduler plans
+   * for the horizon [initTime, finalTime] under the filtered command
+   * `velCommand` ([v_x, v_y, pelvis height, yaw rate]). */
+  void updateRollingSteps(scalar_t initTime,
+                          scalar_t finalTime,
+                          const vector4_t& velCommand);
+
   /** Appends the base pose of `initState` at `initTime` to the history and
    * returns its mean over the stride at initTime. */
   BasePlanarMotion updateMeasuredMotion(scalar_t initTime,
@@ -519,6 +544,9 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   BasePlanarMotion instantaneousMotionOf(scalar_t initTime,
                                          const vector_t& initState) const;
 
+  // The event-driven steps of gait_scheduler "rolling_lateral_debt"; nullopt
+  // under the gait switching table. Set by Create().
+  std::optional<RollingStepScheduler> rollingStepScheduler_;
   // The measured base poses of the solves; its retention, the longest cycle of
   // the gaits the manager selects, is set by Create().
   StrideMotionHistory strideMotion_{/*retention=*/1.0};

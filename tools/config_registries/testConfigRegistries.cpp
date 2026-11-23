@@ -57,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "legged_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "legged_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "legged_common_mpc/gait/RollingStepScheduler.h"
 #include "legged_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "legged_common_mpc/reference_manager/ArmSwing.h"
 #include "legged_common_mpc/reference_manager/LegJointReference.h"
@@ -205,6 +206,8 @@ absl::flat_hash_map<std::string, Accepts> acceptors() {
                     name, "task_space_foot_cost.active_phases")
              .ok();
        }},
+      {"gait_scheduler",
+       [](absl::string_view name) { return gaitSchedulerFromName(name).ok(); }},
       {"gantry_hold",
        [](absl::string_view name) {
          return robot::mujoco_sim_interface::gantryHoldFromName(name).ok();

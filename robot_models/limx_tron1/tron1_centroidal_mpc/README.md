@@ -23,8 +23,15 @@ a wheeled inverted pendulum: it pitches by moving the wheels under its center of
 different speeds.
 
 There is no gait file in this package. The shared
-`legged_nmpc/legged_common_mpc/config/command/wheeled_gait.textproto` has the two gaits a wheeled robot needs,
-stance and drive, both on every wheel, and a `gait_switching` table from stance to drive.
+`legged_nmpc/legged_common_mpc/config/command/wheeled_gait.textproto` has the gaits stance and drive, both on every
+wheel, and a `gait_switching` table from stance to drive, and it selects the event-driven steps of its
+`rolling_lateral_debt` block (`gait_scheduler`). A drive and a turn in place roll. A sideways command moves both wheels
+along their axle, which neither wheel rolls, so the robot steps
+([`rolling_contact`](../../../legged_nmpc/docs/rolling_contact/README.md), section 10): one wheel swings for 0.12 s
+where the command has moved its nominal place 4 cm sideways since it landed, the wheel on the side of the motion first,
+each swing followed by at least 0.2 s on both wheels. With a wheel in the air the robot is a point-foot biped that
+only the next step keeps from falling sideways, so the swings are short: swings of 0.25 s tilted the base by 0.78 rad
+in the closed loop and reset the MPC. A drive with a sideways command rolls and steps at once.
 
 The wheel joints are continuous: their position has no weight in `state_weights` and `final_state_weights` and no
 joint-limit row, and the input cost weighs their velocities at a hundredth of the leg joints' (10 against 1000,

@@ -1,0 +1,55 @@
+edition = "2023";
+
+package legged_mpc_config;
+
+import "legged_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The event-driven steps of a robot on rolling contacts, the gait file's rolling_lateral_debt block (gait_file.proto),
+// which the gait file's gait_scheduler: "rolling_lateral_debt" selects. A wheel rolls along its heading and cannot
+// slide along its axle, so the part of the commanded motion of its contact point along the axle is a lateral debt that
+// only a step clears. The scheduler integrates each wheel's debt from the commanded base twist since the wheel last
+// landed, plans a swing of the wheel's group where the debt reaches max_lateral_debt, and lands the wheel at its
+// nominal foothold, which clears the debt (legged_nmpc/docs/rolling_contact/README.md, section 10):
+//
+//   gait_scheduler: "rolling_lateral_debt"
+//   rolling_lateral_debt {
+//     step_groups { contacts: "LF_WHEEL" contacts: "RH_WHEEL" }
+//     step_groups { contacts: "RF_WHEEL" contacts: "LH_WHEEL" }
+//     max_lateral_debt: 0.05
+//     ...
+//   }
+//
+// RollingStepScheduler (legged_common_mpc/gait/RollingStepScheduler.h) reads it.
+// Next ID: 7
+message RollingStepSchedulerConfig {
+  option (nproto.generate_struct) = "ocs2::legged::mpc_config::RollingStepSchedulerConfig";
+
+  reserved 7 to max;
+
+  // Contacts that leave the ground together.
+  // Next ID: 2
+  message StepGroup {
+    reserved 2 to max;
+
+    // Rolling contacts of the task file's model_settings.contacts_rolling, each in one group only.
+    repeated string contacts = 1;
+  }
+
+  // The groups that step, one swing at a time. Every rolling contact of the contact set is in exactly one group, and
+  // the set has no other contacts.
+  repeated StepGroup step_groups = 1;
+  // [m] The lateral debt of a wheel at which its group steps; positive. A wheel whose commanded contact point moves
+  // along its heading only, as in a straight drive, builds no debt and never steps.
+  double max_lateral_debt = 2 [default = 0.05, (legged_mpc_config.tuning) = { unit: "m" }];
+  // [s] How long a group stays in the air; positive.
+  double swing_duration = 3 [default = 0.3, (legged_mpc_config.tuning) = { unit: "s" }];
+  // [s] The time on every contact between the touchdown of one swing and the lift-off of the next; positive.
+  double min_stance_duration = 4 [default = 0.15, (legged_mpc_config.tuning) = { unit: "s" }];
+  // [s] The earliest a swing planned by a solve lifts off after the solve's initial time; positive. The mode schedule a
+  // solve writes is the next solve's, so a swing planned for sooner would reach the solver late or not at all.
+  double min_lift_off_lead = 5 [default = 0.1, (legged_mpc_config.tuning) = { unit: "s" }];
+  // [s] A planned swing that lifts off within this time of a solve's initial time is committed: later solves keep its
+  // times whatever the command does. Not negative. Swings further ahead are planned again at every solve.
+  double commit_window = 6 [default = 0.25, (legged_mpc_config.tuning) = { unit: "s" }];
+}

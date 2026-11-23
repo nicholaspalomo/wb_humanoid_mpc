@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/synchronized_module/ReferenceManager.h"
@@ -52,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_common_mpc/contact_swing/ContactSwingPlanner.h"
 #include "legged_common_mpc/gait/GaitSchedule.h"
 #include "legged_common_mpc/gait/MotionPhaseDefinition.h"
+#include "legged_common_mpc/gait/RollingStepScheduler.h"
 #include "legged_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "legged_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "legged_common_mpc/reference_manager/ArmSwing.h"
@@ -312,6 +314,16 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * the model's data. Not thread-safe.
    */
   void configureNominalStance(const vector_t& nominalState);
+
+  /**
+   * The nominal place and the rolling direction of every rolling contact, in
+   * the heading frame, from configureNominalStance(); empty on a set without a
+   * rolling contact and until then. The event-driven steps
+   * (RollingStepScheduler) read their wheels' lateral debts off it.
+   */
+  absl::Span<const RollingContactGeometry> getRollingContactGeometry() const {
+    return rollingContactGeometry_;
+  }
 
   /**
    * Selects what getDesiredState() and getDesiredInput() regularize the leg
@@ -887,6 +899,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /// One entry per rolling contact, in contact order; empty on a set without
   /// one and until configureNominalStance().
   std::vector<RollingWheelReference> rollingWheelReferences_;
+  /// The geometry of rollingWheelReferences_, in the same order
+  /// (getRollingContactGeometry()).
+  std::vector<RollingContactGeometry> rollingContactGeometry_;
 
   /**
    * Returns the wheel joint velocity reference geometry of every rolling

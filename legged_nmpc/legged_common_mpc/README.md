@@ -146,6 +146,12 @@ the file but not a row of the table: between stance and trot it held a 0.5 m/s c
 until the stride-mean speed passed the trot row's threshold, and the walk averaged 0.38 m/s. The rest of that robot's
 tuning is in its task file and PD gains.
 
+A gait file's `gait_scheduler` names what writes the mode schedule: `gait_switching_table`, the default, inserts the
+gait the table selects; `rolling_lateral_debt` has `RollingStepScheduler` (`gait/RollingStepScheduler.h`) plan the steps
+of a robot on rolling contacts from the lateral debt of its wheels, the commanded motion along each wheel's axle that
+no rolling covers ([`rolling_contact`](../docs/rolling_contact/README.md), section 10). The table then selects no gait.
+`testRollingStepScheduler` covers the planning and `testRollingStepSchedulerConfig` the gait file's block.
+
 The wheeled bipeds use `config/command/wheeled_gait.textproto` (filegroup `:wheeled_gait_config`): the launch files
 of LimX Tron1 (`robot_models/limx_tron1/tron1_centroidal_mpc/launch/{mpc,dummy_sim}.textproto`) set their
 `gait_file` to it. Its contacts are the rolling contacts of the wheels (`model_settings.contacts_rolling`,
@@ -154,7 +160,9 @@ of LimX Tron1 (`robot_models/limx_tron1/tron1_centroidal_mpc/launch/{mpc,dummy_s
 constraint of each wheel turns the commanded base twist into wheel speeds. Its table goes from stance to drive on a
 command beyond 0.1 m/s or 0.1 rad/s, on the command alone, and back once the command is below 0.05 m/s and 0.05 rad/s
 and the stride-mean motion below 0.1 m/s and 0.1 rad/s. `testWheeledGaitFile` reads it on a two-wheel and a
-four-wheel layout and checks that a 0.5 m/s drive and a 0.5 rad/s turn select drive and rest selects stance.
+four-wheel layout and checks that a 0.5 m/s drive and a 0.5 rad/s turn select drive and rest selects stance. Its
+`rolling_lateral_debt` block, which `gait_scheduler` selects, names Tron1's wheels: the robot steps sideways one wheel at
+a time and rolls everything else.
 
 The wheeled quadrupeds use `config/command/wheeled_quadruped_gait.textproto` (filegroup
 `:wheeled_quadruped_gait_config`), which the launch files of the wheeled ANYmal C
@@ -165,7 +173,9 @@ drive and turning_trot: drive takes every linear command and a yaw-rate command 
 command switches to turning_trot, a trot of 0.30 s diagonal swings each followed by 0.15 s on all four wheels (LF_RH,
 STANCE, RF_LH, STANCE), with thresholds set on the wheeled ANYmal C (label `2026-11-12_anymal_c_wheels`,
 `legged_mpc_validation`). `testWheeledQuadrupedGaitFile` reads it on a four-wheel layout and checks the gait for a
-drive, a turn and rest.
+drive, a turn and rest. Its `rolling_lateral_debt` block, which `gait_scheduler` selects, steps the diagonal pairs to
+turn and to move sideways with the swing and stance durations of turning_trot, and the table is what
+`gait_scheduler: "gait_switching_table"` brings back.
 
 A new gait starts at the first event after 70 % of the horizon (`updateGaitSchedule()`, `gait/GaitScheduleUpdater.h`).
 When the phase that ends at that event has the mode the new gait starts its cycle with (`cycleStartMode()`: its first

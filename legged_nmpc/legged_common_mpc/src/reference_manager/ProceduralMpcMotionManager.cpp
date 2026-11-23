@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -66,8 +67,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_common_mpc/config/reference/GaitFromConfig.h"
 #include "legged_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "legged_common_mpc/config/reference/ReferenceSettings.h"
+#include "legged_common_mpc/gait/GaitSchedule.h"
 #include "legged_common_mpc/gait/GaitScheduleUpdater.h"
 #include "legged_common_mpc/gait/ModeSequenceTemplate.h"
+#include "legged_common_mpc/gait/MotionPhaseDefinition.h"
+#include "legged_common_mpc/gait/RollingStepScheduler.h"
 #include "legged_common_mpc/reference_manager/GaitSwitchingTable.h"
 #include "legged_common_mpc/reference_manager/StrideMotionHistory.h"
 #include "legged_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -106,6 +110,14 @@ ProceduralMpcMotionManager::Create(
       gaitMapFromConfig(gaitFile, manager->gaitSchedulePtr_->modeLayout()));
   ASSIGN_OR_RETURN(manager->gaitModeStates_,
                    gaitModeStatesFromConfig(gaitFile));
+  ASSIGN_OR_RETURN(std::optional<RollingStepSchedulerSettings> rollingSteps,
+                   rollingStepSchedulerSettingsFromConfig(
+                       gaitFile, mpcRobotModel.modelSettings));
+  if (rollingSteps.has_value()) {
+    const GaitModeLayout& layout = manager->gaitSchedulePtr_->modeLayout();
+    manager->rollingStepScheduler_.emplace(
+        *std::move(rollingSteps), layout.numContacts, layout.stanceMode);
+  }
   RETURN_IF_ERROR(checkEveryGaitIsLoaded(
       manager->gaitMap_, manager->gaitModeStates_,
       gaitFile.gait_switching.has_value()
@@ -299,6 +311,7 @@ void ProceduralMpcMotionManager::reset() {
       1, ScheduledGait{
              .startTime = std::numeric_limits<scalar_t>::lowest(),
              .cycleDuration = cycleDurationOf(gaitModeStates_[0].gaitCommand)});
+  if (rollingStepScheduler_.has_value()) rollingStepScheduler_->reset();
   hasObservation_ = false;
   measuredMotion_ = BasePlanarMotion{};
   measuredMotionWindow_ = 0.0;
@@ -474,6 +487,16 @@ BasePlanarMotion ProceduralMpcMotionManager::updateMeasuredMotion(
   return measuredMotion_;
 }
 
+void ProceduralMpcMotionManager::updateRollingSteps(
+    scalar_t initTime, scalar_t finalTime, const vector4_t& velCommand) {
+  const vector3_t cmdTwistBaseRtWorldEwrtHeading(
+      velCommand(0), velCommand(1),
+      velCommand(WalkingVelocityCommand::kAngularVelocityZIndex));
+  gaitSchedulePtr_->updateModeSchedule(rollingStepScheduler_->update(
+      initTime, finalTime, cmdTwistBaseRtWorldEwrtHeading,
+      switchedModelReferenceManagerPtr_->getRollingContactGeometry()));
+}
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -514,6 +537,13 @@ void ProceduralMpcMotionManager::preSolverRun(
       velocityCommandToTargetTrajectoriesFun_(
           filteredVelCommand, initTime, finalTime, initState, measuredMotion);
   switchedModelReferenceManagerPtr_->setTargetTrajectories(targetTrajectories);
+
+  // The event-driven steps write the schedule in place of the gait switching
+  // table, which then selects no gait.
+  if (rollingStepScheduler_.has_value()) {
+    updateRollingSteps(initTime, finalTime, filteredVelCommand);
+    return;
+  }
 
   // The thresholds of the gait the manager is in. This was a function-static
   // copy, initialized once process-wide and shared by every instance:
