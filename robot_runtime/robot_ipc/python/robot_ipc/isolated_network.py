@@ -48,7 +48,7 @@ def isolated_test_network(
     """A network of `node_names` on 127.0.0.1 that no other process joins.
 
     Its domain id and domain tag are drawn once per process, so the tests that Bazel runs at once never exchange
-    samples, while every bus of this process shares the domain's session. Hand it to a child process with
+    samples, while every bus of this process shares the domain's session. Pass it to a child process with
     format_network_config() to share it across processes.
 
     Args:
