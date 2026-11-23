@@ -42,9 +42,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 CentroidalDynamicsAD::CentroidalDynamicsAD(
     const PinocchioInterface& pinocchioInterface,
     const CentroidalModelInfo& info,
@@ -57,9 +54,6 @@ CentroidalDynamicsAD::CentroidalDynamicsAD(
                                      modelSettings.recompileLibrariesCppAd,
                                      modelSettings.verboseCppAd) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t CentroidalDynamicsAD::computeFlowMap(
     scalar_t time,
     const vector_t& state,
@@ -68,9 +62,6 @@ vector_t CentroidalDynamicsAD::computeFlowMap(
   return pinocchioCentroidalDynamicsAd_.getValue(time, state, input);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionLinearApproximation CentroidalDynamicsAD::linearApproximation(
     scalar_t time,
     const vector_t& state,

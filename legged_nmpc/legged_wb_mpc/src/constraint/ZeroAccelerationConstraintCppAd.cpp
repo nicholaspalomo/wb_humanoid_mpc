@@ -62,9 +62,6 @@ constexpr int kOrientationErrorRowStart = kPositionDim;
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 absl::StatusOr<std::unique_ptr<ZeroAccelerationConstraintCppAd>>
 ZeroAccelerationConstraintCppAd::Create(
     const SwitchedModelReferenceManager& referenceManager,
@@ -80,9 +77,6 @@ ZeroAccelerationConstraintCppAd::Create(
       referenceManager, std::move(eeAccelConstraint), contactPointIndex));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(
     const SwitchedModelReferenceManager& referenceManager,
     std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint>
@@ -93,9 +87,6 @@ ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(
       eeAccelConstraintPtr_(std::move(eeAccelConstraint)),
       contactPointIndex_(contactPointIndex) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(
     const ZeroAccelerationConstraintCppAd& rhs)
     : StateInputConstraint(rhs),
@@ -103,16 +94,10 @@ ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(
       eeAccelConstraintPtr_(rhs.eeAccelConstraintPtr_->clone()),
       contactPointIndex_(rhs.contactPointIndex_) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 bool ZeroAccelerationConstraintCppAd::isActive(scalar_t time) const {
   return referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 scalar_t ZeroAccelerationConstraintCppAd::groundTerm(scalar_t time) const {
   const matrix_t& positionGains = eeAccelConstraintPtr_->getConfig().Ax;
   if (positionGains.rows() <= kHeightRow ||
@@ -124,9 +109,6 @@ scalar_t ZeroAccelerationConstraintCppAd::groundTerm(scalar_t time) const {
              ->getDesPosFootRtWorldEwrtWorldZ(contactPointIndex_, time);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t ZeroAccelerationConstraintCppAd::getValue(
     scalar_t time,
     const vector_t& state,
@@ -137,9 +119,6 @@ vector_t ZeroAccelerationConstraintCppAd::getValue(
   return value;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionLinearApproximation
 ZeroAccelerationConstraintCppAd::getLinearApproximation(
     scalar_t time,
@@ -153,9 +132,6 @@ ZeroAccelerationConstraintCppAd::getLinearApproximation(
   return linearization;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 EndEffectorDynamicsAccelerationsConstraint::Config
 stanceFootAccelerationConstraintConfig(
     const ModelSettings::FootConstraintConfig& gains) {

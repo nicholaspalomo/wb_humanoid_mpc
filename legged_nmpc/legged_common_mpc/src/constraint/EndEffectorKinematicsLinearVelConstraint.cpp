@@ -42,9 +42,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 EndEffectorKinematicsLinearVelConstraint::
     EndEffectorKinematicsLinearVelConstraint(
         const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
@@ -59,9 +56,6 @@ EndEffectorKinematicsLinearVelConstraint::
          "single end-effector!";
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 EndEffectorKinematicsLinearVelConstraint::
     EndEffectorKinematicsLinearVelConstraint(
         const EndEffectorKinematicsLinearVelConstraint& rhs)
@@ -70,16 +64,10 @@ EndEffectorKinematicsLinearVelConstraint::
       numConstraints_(rhs.numConstraints_),
       config_(rhs.config_) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 void EndEffectorKinematicsLinearVelConstraint::configure(Config&& config) {
   config_ = std::move(config);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t EndEffectorKinematicsLinearVelConstraint::getValue(
     scalar_t /*time*/,
     const vector_t& state,
@@ -99,9 +87,6 @@ vector_t EndEffectorKinematicsLinearVelConstraint::getValue(
   return f;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionLinearApproximation
 EndEffectorKinematicsLinearVelConstraint::getLinearApproximation(
     scalar_t time,

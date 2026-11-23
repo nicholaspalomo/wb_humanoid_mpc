@@ -78,9 +78,6 @@ ContactArray<pinocchio::FrameIndex> contactFrameIndices(
 }
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 absl::Status CentroidalDynamicsBasisInputsAD::validate(
     const PinocchioInterface& pinocchioInterface,
     const CentroidalModelInfo& info,
@@ -135,9 +132,6 @@ absl::Status CentroidalDynamicsBasisInputsAD::validate(
   return absl::OkStatus();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>>
 CentroidalDynamicsBasisInputsAD::Create(
     const PinocchioInterface& pinocchioInterface,
@@ -155,9 +149,6 @@ CentroidalDynamicsBasisInputsAD::Create(
       pinocchioInterface, info, modelName, modelSettings, localBasisMatrices));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 CentroidalDynamicsBasisInputsAD::CentroidalDynamicsBasisInputsAD(
     const PinocchioInterface& pinocchioInterface,
     const CentroidalModelInfo& info,
@@ -185,15 +176,9 @@ CentroidalDynamicsBasisInputsAD::CentroidalDynamicsBasisInputsAD(
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 CentroidalDynamicsBasisInputsAD::CentroidalDynamicsBasisInputsAD(
     const CentroidalDynamicsBasisInputsAD& rhs) = default;
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::string CentroidalDynamicsBasisInputsAD::uniqueModelName(
     absl::string_view modelName,
     absl::Span<const matrix_t> localBasisMatrices) {
@@ -204,9 +189,6 @@ std::string CentroidalDynamicsBasisInputsAD::uniqueModelName(
                       basisInputsLibraryKey(localBasisMatrices));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> CentroidalDynamicsBasisInputsAD::toWrappedInput(
     const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
@@ -245,9 +227,6 @@ template ad_vector_t CentroidalDynamicsBasisInputsAD::toWrappedInput<
                  const CentroidalModelInfoTpl<ad_scalar_t>&,
                  const ad_vector_t&) const;
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 ad_vector_t CentroidalDynamicsBasisInputsAD::systemFlowMap(
     ad_scalar_t /*time*/,
     const ad_vector_t& state,

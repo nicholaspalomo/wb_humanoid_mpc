@@ -350,9 +350,6 @@ absl::Status checkWholeBodyFormulation(const MpcFormulationTasks& tasks,
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 WBMpcInterface::WBMpcInterface(ModelSettings modelSettings,
                                const SolverSettings& solverSettings)
     : modelSettings_(std::move(modelSettings)),
@@ -360,10 +357,6 @@ WBMpcInterface::WBMpcInterface(ModelSettings modelSettings,
       sqpSettings_(solverSettings.sqpSettings),
       rolloutSettings_(solverSettings.rolloutSettings),
       verbose_(solverSettings.verbose) {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::Create(
     const mpc_config::TaskFile& taskFile,
@@ -470,9 +463,6 @@ absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::build(
   return interface;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 absl::Status WBMpcInterface::setupModels(
     const mpc_config::TaskFile& taskFile,
     absl::string_view urdfFile,
@@ -535,10 +525,6 @@ absl::Status WBMpcInterface::setupModels(
   return absl::OkStatus();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::Status WBMpcInterface::setupOptimalControlProblem(
     const mpc_config::TaskFile& taskFile) {
   // Read before the factory is built: the factory needs to know whether the
@@ -589,10 +575,6 @@ absl::Status WBMpcInterface::setupOptimalControlProblem(
 
   return absl::OkStatus();
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 // LINT.IfChange(whole_body_cost_terms)
 absl::Status WBMpcInterface::addCostsAndStateConstraints(
@@ -648,10 +630,6 @@ absl::Status WBMpcInterface::addCostsAndStateConstraints(
   return absl::OkStatus();
 }
 // LINT.ThenChange(:whole_body_terms)
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 // LINT.IfChange(whole_body_contact_terms)
 absl::Status WBMpcInterface::addContactTerms(
@@ -793,10 +771,6 @@ absl::Status WBMpcInterface::addContactTerms(
 }
 // LINT.ThenChange(:whole_body_terms)
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::StatusOr<std::unique_ptr<StateInputConstraint>>
 WBMpcInterface::getStanceFootConstraint(
     const EndEffectorDynamics<scalar_t>& eeDynamics, size_t contactPointIndex) {
@@ -808,9 +782,6 @@ WBMpcInterface::getStanceFootConstraint(
   return constraint;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 absl::StatusOr<std::unique_ptr<StateInputConstraint>>
 WBMpcInterface::getNormalVelocityConstraint(
     const EndEffectorDynamics<scalar_t>& eeDynamics, size_t contactPointIndex) {
@@ -819,10 +790,6 @@ WBMpcInterface::getNormalVelocityConstraint(
                        *referenceManagerPtr_, eeDynamics, contactPointIndex));
   return constraint;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 absl::StatusOr<std::unique_ptr<StateInputCost>>
 WBMpcInterface::makeJointTorqueCost(

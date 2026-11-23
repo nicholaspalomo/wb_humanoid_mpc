@@ -136,19 +136,11 @@ CentroidalMpcTargetTrajectoriesCalculator::
       targetJointStateInterpolationTimeConstant_(
           targetJointStateInterpolationTimeConstant) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void CentroidalMpcTargetTrajectoriesCalculator::reset() {
   TargetTrajectoriesCalculatorBase::reset();
   filteredJointState_.resize(0);
   lastTime_ = 0.0;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 TargetTrajectories
 CentroidalMpcTargetTrajectoriesCalculator::poseCommandToTargetTrajectories(
@@ -194,10 +186,6 @@ CentroidalMpcTargetTrajectoriesCalculator::poseCommandToTargetTrajectories(
 
   return targetTrajectories;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 TargetTrajectories
 CentroidalMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(

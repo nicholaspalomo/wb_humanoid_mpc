@@ -51,10 +51,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::StatusOr<std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint>>
 EndEffectorDynamicsAccelerationsConstraint::Create(
     const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
@@ -105,10 +101,6 @@ EndEffectorDynamicsAccelerationsConstraint::Create(
       endEffectorDynamics, numConstraints, std::move(config)));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 EndEffectorDynamicsAccelerationsConstraint::
     EndEffectorDynamicsAccelerationsConstraint(
         const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
@@ -120,10 +112,6 @@ EndEffectorDynamicsAccelerationsConstraint::
       numConstraints_(numConstraints),
       config_(std::move(config)) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 EndEffectorDynamicsAccelerationsConstraint::
     EndEffectorDynamicsAccelerationsConstraint(
         const EndEffectorDynamicsAccelerationsConstraint& rhs)
@@ -133,17 +121,9 @@ EndEffectorDynamicsAccelerationsConstraint::
       numConstraints_(rhs.numConstraints_),
       config_(rhs.config_) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void EndEffectorDynamicsAccelerationsConstraint::configure(Config&& config) {
   config_ = std::move(config);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector_t EndEffectorDynamicsAccelerationsConstraint::getValue(
     scalar_t /*time*/,
@@ -180,10 +160,6 @@ vector_t EndEffectorDynamicsAccelerationsConstraint::getValue(
   }
   return f;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 VectorFunctionLinearApproximation
 EndEffectorDynamicsAccelerationsConstraint::getLinearApproximation(

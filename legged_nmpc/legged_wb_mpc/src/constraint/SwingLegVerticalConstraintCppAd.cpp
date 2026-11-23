@@ -49,10 +49,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::StatusOr<std::unique_ptr<SwingLegVerticalConstraintCppAd>>
 SwingLegVerticalConstraintCppAd::Create(
     const SwitchedModelReferenceManager& referenceManager,
@@ -66,10 +62,6 @@ SwingLegVerticalConstraintCppAd::Create(
       referenceManager, std::move(eeLinearConstraint), contactPointIndex));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(
     const SwitchedModelReferenceManager& referenceManager,
     std::unique_ptr<EndEffectorDynamicsLinearAccConstraint> eeLinearConstraint,
@@ -79,10 +71,6 @@ SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(
       eeLinearConstraintPtr_(std::move(eeLinearConstraint)),
       contactPointIndex_(contactPointIndex) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(
     const SwingLegVerticalConstraintCppAd& rhs)
     : StateInputConstraint(rhs),
@@ -90,16 +78,10 @@ SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(
       eeLinearConstraintPtr_(rhs.eeLinearConstraintPtr_->clone()),
       contactPointIndex_(rhs.contactPointIndex_) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 bool SwingLegVerticalConstraintCppAd::isActive(scalar_t time) const {
   return !referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t SwingLegVerticalConstraintCppAd::getValue(
     scalar_t time,
     const vector_t& state,
@@ -113,9 +95,6 @@ vector_t SwingLegVerticalConstraintCppAd::getValue(
   return eeLinearConstraintPtr_->getValue(time, state, input, preComp);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionLinearApproximation
 SwingLegVerticalConstraintCppAd::getLinearApproximation(
     scalar_t time,

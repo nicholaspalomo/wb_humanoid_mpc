@@ -99,9 +99,6 @@ EndEffectorKinematicsLinearVelConstraint::Config normalVelocityConstraintConfig(
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 LeggedPreComputation::LeggedPreComputation(
     PinocchioInterface pinocchioInterface,
     const SwingTrajectoryPlanner& swingTrajectoryPlanner,
@@ -136,10 +133,6 @@ LeggedPreComputation::LeggedPreComputation(
   }
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 LeggedPreComputation::LeggedPreComputation(const LeggedPreComputation& rhs)
     : pinocchioInterface_(rhs.pinocchioInterface_),
       swingTrajectoryPlannerPtr_(rhs.swingTrajectoryPlannerPtr_),
@@ -164,16 +157,9 @@ void LeggedPreComputation::setContactSwingPlanner(
       std::nullopt);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 LeggedPreComputation* absl_nonnull LeggedPreComputation::clone() const {
   return new LeggedPreComputation(*this);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void LeggedPreComputation::updatePinocchioModelKinematics(const vector_t& q) {
   const pinocchio::Model& model = pinocchioInterface_.getModel();
@@ -184,9 +170,6 @@ void LeggedPreComputation::updatePinocchioModelKinematics(const vector_t& q) {
   pinocchio::updateFramePlacements(model, data);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 void LeggedPreComputation::request(RequestSet request,
                                    scalar_t t,
                                    const vector_t& x,

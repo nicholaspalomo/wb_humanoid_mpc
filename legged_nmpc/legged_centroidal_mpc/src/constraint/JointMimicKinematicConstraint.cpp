@@ -48,10 +48,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::StatusOr<std::unique_ptr<JointMimicKinematicConstraint>>
 JointMimicKinematicConstraint::Create(
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
@@ -85,27 +81,16 @@ JointMimicKinematicConstraint::JointMimicKinematicConstraint(
       mpcRobotModelPtr_(&mpcRobotModel),
       config_(std::move(config)) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 // isActive_ is copied deliberately: the SQP solver clones the full problem
 // once per worker thread, and a copy constructor that dropped this flag
 // silently reverted a deactivated term to active.
 JointMimicKinematicConstraint::JointMimicKinematicConstraint(
     const JointMimicKinematicConstraint& rhs) = default;
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 bool JointMimicKinematicConstraint::isActive(scalar_t /*time*/) const {
   return isActive_;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t JointMimicKinematicConstraint::getValue(
     scalar_t /*time*/,
     const vector_t& state,
@@ -127,9 +112,6 @@ vector_t JointMimicKinematicConstraint::getValue(
   return value;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionLinearApproximation
 JointMimicKinematicConstraint::getLinearApproximation(
     scalar_t time,

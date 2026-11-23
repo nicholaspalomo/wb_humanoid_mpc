@@ -76,10 +76,6 @@ template void updateFramePlacements(
 template void updateFramePlacements(
     const vector_t& q, PinocchioInterfaceTpl<scalar_t>& pinocchioInterface);
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 template <typename SCALAR_T>
 void updateFramePlacements(const VECTOR_T<SCALAR_T>& q,
                            const pinocchio::ModelTpl<SCALAR_T>& model,
@@ -94,10 +90,6 @@ template void updateFramePlacements(
 template void updateFramePlacements(const vector_t& q,
                                     const pinocchio::ModelTpl<scalar_t>& model,
                                     pinocchio::DataTpl<scalar_t>& data);
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> computePosContactsRtWorldEwrtWorld(
@@ -116,10 +108,6 @@ template std::vector<VECTOR3_T<scalar_t>> computePosContactsRtWorldEwrtWorld(
     const VECTOR_T<scalar_t>& q,
     PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel);
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> getPosContactsRtWorldEwrtWorld(
@@ -161,10 +149,6 @@ template std::vector<VECTOR3_T<scalar_t>> getPosContactsRtWorldEwrtWorld(
     const PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> computePosLinksRtWorldEwrtWorld(
     const VECTOR_T<SCALAR_T>& q,
@@ -181,10 +165,6 @@ template std::vector<VECTOR3_T<scalar_t>> computePosLinksRtWorldEwrtWorld(
     const VECTOR_T<scalar_t>& q,
     PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
     absl::Span<const std::string> frameNames);
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> getPosLinksRtWorldEwrtWorld(
@@ -214,10 +194,6 @@ template std::vector<VECTOR3_T<ad_scalar_t>> getPosLinksRtWorldEwrtWorld(
 template std::vector<VECTOR3_T<scalar_t>> getPosLinksRtWorldEwrtWorld(
     const PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
     absl::Span<const std::string> frameNames);
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 scalar_t computeProxyPosComRtFeetmeanEwrtWorldZ(
     const vector_t& q,
@@ -320,10 +296,6 @@ scalar_t computePosComRtLowcontactEwrtWorldZ(
   return posComRtWorldEwrtWorldZ - minPosContactsRtWorldEwrtWorldZ;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 template <typename SCALAR_T>
 VECTOR6_T<SCALAR_T> computeBaseGeneralizedAcceleration(
     const MATRIX_T<SCALAR_T>& M,
@@ -389,10 +361,6 @@ template VECTOR6_T<ad_scalar_t> computeBaseGeneralizedAcceleration(
     const VECTOR_T<ad_scalar_t>& nle,
     const VECTOR_T<ad_scalar_t>& qdd_joints,
     const VECTOR_T<ad_scalar_t>& generalizedExternalForce);
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 namespace {
 
@@ -489,10 +457,6 @@ template VECTOR_T<ad_scalar_t> computeJointTorques(
     const ContactArray<pinocchio::FrameIndex>& contactFrames,
     PinocchioInterfaceTpl<ad_scalar_t>& pinocchioInterface);
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> computeBaseHeldJointTorques(
     const VECTOR_T<SCALAR_T>& q,
@@ -521,10 +485,6 @@ template VECTOR_T<scalar_t> computeBaseHeldJointTorques(
     const ContactArray<VECTOR6_T<scalar_t>>& wrenchContactsEwrtWorld,
     const ContactArray<pinocchio::FrameIndex>& contactFrames,
     PinocchioInterfaceTpl<scalar_t>& pinocchioInterface);
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 absl::Status checkContactFramesExist(
     const pinocchio::Model& model, absl::Span<const std::string> contactNames) {

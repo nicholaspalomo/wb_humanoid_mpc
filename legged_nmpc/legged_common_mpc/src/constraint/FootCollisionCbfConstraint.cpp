@@ -64,10 +64,6 @@ constexpr Eigen::Index kGammaParameter = 2;
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 FootCollisionCbfConstraint::FootCollisionCbfConstraint(
     const SwitchedModelReferenceManager& referenceManager,
     const PinocchioInterface& pinocchioInterface,
@@ -84,16 +80,8 @@ FootCollisionCbfConstraint::FootCollisionCbfConstraint(
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 FootCollisionCbfConstraint::FootCollisionCbfConstraint(
     const FootCollisionCbfConstraint& other) = default;
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 bool FootCollisionCbfConstraint::isActive(scalar_t time) const {
   // Off while both feet are in contact, as FootCollisionConstraint: it would
@@ -101,10 +89,6 @@ bool FootCollisionCbfConstraint::isActive(scalar_t time) const {
   const ContactMask contactFlags = referenceManagerPtr_->getContactFlags(time);
   return !(contactFlags[kContactLeftIndex] && contactFlags[kContactRightIndex]);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector_t FootCollisionCbfConstraint::getParameters(
     scalar_t /*time*/, const PreComputation& /*preComputation*/) const {
@@ -114,10 +98,6 @@ vector_t FootCollisionCbfConstraint::getParameters(
   parameters[kGammaParameter] = config_.gamma;
   return parameters;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 ad_vector_t FootCollisionCbfConstraint::constraintFunction(
     ad_scalar_t /*time*/,

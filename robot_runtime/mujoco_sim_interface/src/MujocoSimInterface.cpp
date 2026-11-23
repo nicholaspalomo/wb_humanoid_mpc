@@ -485,10 +485,6 @@ absl::StatusOr<std::unique_ptr<MujocoSimInterface>> MujocoSimInterface::Create(
       config, *std::move(robotDescription), *std::move(scene)));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 MujocoSimInterface::MujocoSimInterface(
     const MujocoSimConfig& config,
     robot::model::RobotDescription robotDescription,
@@ -652,9 +648,6 @@ void MujocoSimInterface::setupRenderBuffer() {
   }
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void MujocoSimInterface::enableTorques() {
   // First the latched action: an action applied before the torques went off
   // must never reach the actuators.
@@ -681,8 +674,6 @@ void MujocoSimInterface::applyJointTorqueSwitch() {
   ragdollDampingApplied_ = zeroJointTorque;
 }
 
-/******************************************************************************************************/
-
 MujocoSimInterface::~MujocoSimInterface() {
   terminate_.store(true);
   if (simulationThread_.joinable()) simulationThread_.join();
@@ -696,10 +687,6 @@ MujocoSimInterface::~MujocoSimInterface() {
   // mujocoData_ and mujocoModel_ go with the members, after every thread that
   // read them has stopped.
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void MujocoSimInterface::reset() {
   // mj_resetData clears everything a bad step can leave behind - accelerations,
@@ -768,10 +755,6 @@ void MujocoSimInterface::setBaseStateForTesting(
   restartAccelerometer();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void MujocoSimInterface::readLatestMjState(MjState& state) const {
   // Lock-free: acquire the latest published state from the triple buffer.
   // If new data is available, the internal read↔clean swap happens atomically.
@@ -786,14 +769,6 @@ void MujocoSimInterface::readLatestMjState(MjState& state) const {
   state.push = latest.push;
   // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoUtils.h:mj_state_fields)
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void MujocoSimInterface::printModelInfo() {
   LOG(INFO) << "timeStepMicro_: " << timeStepMicro_;
@@ -863,10 +838,6 @@ void MujocoSimInterface::printModelInfo() {
   LOG(INFO) << "Total MuJoCo model mass: " << totalMass;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void MujocoSimInterface::setSimState(const model::RobotState& robotState) {
   // Root Pose
   vector3_t posBaseRtWorldEwrtWorld = robotState.getPosBaseRtWorldEwrtWorld();
@@ -913,10 +884,6 @@ void MujocoSimInterface::restartAccelerometer() {
       vector3_t(mujocoData_->qvel[kXAxisIndex], mujocoData_->qvel[kYAxisIndex],
                 mujocoData_->qvel[kZAxisIndex]));
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void MujocoSimInterface::updateThreadSafeRobotState() {
   // Update mujoco joint angles
@@ -1010,10 +977,6 @@ vector3_t MujocoSimInterface::getMeasForceFootEwrtWorld(int sensorId) const {
                    measForceFootEwrtWorld[kZAxisIndex]);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void MujocoSimInterface::updateMetrics() {
   simFps_.tick();
 
@@ -1041,10 +1004,6 @@ void MujocoSimInterface::updateMetrics() {
                              ? (simElapsed / wallElapsed)
                              : 1.0;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void MujocoSimInterface::simulationStep() {
   // The torque switch of another thread takes effect here, on the thread that
@@ -1173,10 +1132,6 @@ void MujocoSimInterface::simulationStep() {
   }
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void MujocoSimInterface::simulationLoop() {
   simFps_.reset();
   metrics_.reset();
@@ -1215,10 +1170,6 @@ void MujocoSimInterface::simulationLoop() {
     }
   }
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void MujocoSimInterface::initSim() {
   simulationStep();

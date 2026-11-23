@@ -210,9 +210,7 @@ vector_t tuningVector(size_t dim,
   return vector;
 }
 
-/******************************************************************************************************/
-/* Euler angles and quaternions */
-/******************************************************************************************************/
+// Euler angles and quaternions
 
 TEST(EulerBoundary, QuaternionFromEulerZyxIsTheZyxProduct) {
   std::mt19937 generator(11);
@@ -471,9 +469,7 @@ TEST(EulerBoundary, LocalAngularVelocityJacobianMatchesFiniteDifferences) {
   }
 }
 
-/******************************************************************************************************/
-/* The tuning layout */
-/******************************************************************************************************/
+// The tuning layout
 
 TEST(EulerBoundaryTuningLayout, PlacementPutsTheBlocksConsecutivelyOnTheState) {
   const TuningLayout unplaced = unplacedCentroidalLayout();

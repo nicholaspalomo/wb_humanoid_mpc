@@ -43,9 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 CentroidalWeightCompInitializer::CentroidalWeightCompInitializer(
     CentroidalModelInfo info,
     const SwitchedModelReferenceManager& referenceManager,
@@ -56,25 +53,13 @@ CentroidalWeightCompInitializer::CentroidalWeightCompInitializer(
       referenceManagerPtr_(&referenceManager),
       extendMnormCmomComRtWorldEwrtWorld_(extendMnormCmomComRtWorldEwrtWorld) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 CentroidalWeightCompInitializer::CentroidalWeightCompInitializer(
     const CentroidalWeightCompInitializer& rhs) = default;
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 CentroidalWeightCompInitializer* absl_nonnull
 CentroidalWeightCompInitializer::clone() const {
   return new CentroidalWeightCompInitializer(*this);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void CentroidalWeightCompInitializer::compute(scalar_t time,
                                               const vector_t& state,

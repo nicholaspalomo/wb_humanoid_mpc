@@ -221,18 +221,10 @@ vector_t contactConePenaltyParameters(
       .finished();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void LeggedCostConstraintFactory::setBasisInputsCostTransform(
     BasisInputsCostTransformConfig config) {
   basisCostTransform_ = std::move(config);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 std::unique_ptr<StateInputConstraint>
 LeggedCostConstraintFactory::getZeroWrenchConstraint(
@@ -241,10 +233,8 @@ LeggedCostConstraintFactory::getZeroWrenchConstraint(
       *referenceManagerPtr_, contactPointIndex, *mpcRobotModelPtr_);
 }
 
-/******************************************************************************************************/
 /***************************** The terms of the typed task file (make*())
  * *****************************/
-/******************************************************************************************************/
 
 BasePoseWeights LeggedCostConstraintFactory::basePoseWeights() const {
   // With com_and_acom_tracking_cost listed the base pose is regulated in CoM

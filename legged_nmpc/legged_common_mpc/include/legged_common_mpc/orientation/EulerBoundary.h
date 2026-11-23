@@ -56,9 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/* Euler angles and quaternions */
-/******************************************************************************************************/
+// Euler angles and quaternions
 
 /**
  * xi = q_z(psi) (x) q_y(theta) (x) q_x(phi) for Theta = (psi, theta, phi), as
@@ -131,9 +129,7 @@ vector3_t eulerZyxRatesFromBodyRates(
 matrix3_t bodyRateEulerZyxJacobian(const vector3_t& eulerzyxLocalRtWorld,
                                    const vector3_t& rateEulerzyxLocalRtWorld);
 
-/******************************************************************************************************/
-/* The Euler tuning layout (design sections 2.3 and 2.10) */
-/******************************************************************************************************/
+// The Euler tuning layout (design sections 2.3 and 2.10)
 
 /**
  * What one block of the Euler tuning layout - a block of the task file's

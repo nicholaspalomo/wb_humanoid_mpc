@@ -614,5 +614,34 @@ class IfElseBracesTest(unittest.TestCase):
         )
 
 
+class SeparatorBannerTest(unittest.TestCase):
+    def test_flagged(self):
+        banner = "/" + "*" * 102 + "/"
+        source = f"int a;\n\n{banner}\n{banner}\n  {banner}\nvoid f();\n"
+        findings = style.check_separator_banner(source, "a.cpp")
+        self.assertEqual([f.line for f in findings], [3, 4, 5])
+
+    def test_accepted(self):
+        for source in [
+            "// Start indices\n",
+            "/* Start indices */\n",
+            "/** A doc comment. */\n",
+            "/" + "*" * 78 + "\n" + "*" * 78 + "/\n",  # a license block
+            "int x = 1; /" + "*" * 20 + "/\n",
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(
+                    style.check_separator_banner(source, "a.cpp"), []
+                )
+
+    def test_the_registry_runs_it(self):
+        check_test_support.assert_check_behaves(
+            self,
+            "separator-banner",
+            "int a;\n/" + "*" * 40 + "/\nvoid f();\n",
+            "src/a.cpp",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

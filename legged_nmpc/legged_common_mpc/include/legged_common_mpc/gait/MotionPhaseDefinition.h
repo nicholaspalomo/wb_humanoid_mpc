@@ -77,10 +77,6 @@ inline bool contactIsActiveInMode(size_t modeNumber,
   return ((modeNumber >> (numContacts - 1 - contactIndex)) & 1U) != 0;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 /**
  * The mode number in which contact `contactIndex` alone of a set of
  * `numContacts` contacts is active: bit numContacts - 1 - contactIndex
@@ -100,10 +96,6 @@ inline size_t contactModeBit(size_t contactIndex, size_t numContacts) {
 inline size_t numModeNumbersOf(size_t numContacts) {
   return size_t{1} << numContacts;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 // The spellings of the gait files' mode names (parseModeNumber()). FLY and
 // STANCE specify a mode on every contact set, LF and RF on a set whose stance

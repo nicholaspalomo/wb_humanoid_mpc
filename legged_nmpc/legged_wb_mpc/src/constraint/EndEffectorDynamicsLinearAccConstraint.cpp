@@ -48,9 +48,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 absl::StatusOr<std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>>
 EndEffectorDynamicsLinearAccConstraint::Create(
     const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
@@ -68,9 +65,6 @@ EndEffectorDynamicsLinearAccConstraint::Create(
       endEffectorDynamics, numConstraints, std::move(config)));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 EndEffectorDynamicsLinearAccConstraint::EndEffectorDynamicsLinearAccConstraint(
     const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
     size_t numConstraints,
@@ -80,9 +74,6 @@ EndEffectorDynamicsLinearAccConstraint::EndEffectorDynamicsLinearAccConstraint(
       numConstraints_(numConstraints),
       config_(std::move(config)) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 EndEffectorDynamicsLinearAccConstraint::EndEffectorDynamicsLinearAccConstraint(
     const EndEffectorDynamicsLinearAccConstraint& rhs)
     : StateInputConstraint(rhs),
@@ -90,16 +81,10 @@ EndEffectorDynamicsLinearAccConstraint::EndEffectorDynamicsLinearAccConstraint(
       numConstraints_(rhs.numConstraints_),
       config_(rhs.config_) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 void EndEffectorDynamicsLinearAccConstraint::configure(Config&& config) {
   config_ = std::move(config);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t EndEffectorDynamicsLinearAccConstraint::getValue(
     scalar_t /*time*/,
     const vector_t& state,
@@ -124,9 +109,6 @@ vector_t EndEffectorDynamicsLinearAccConstraint::getValue(
   return f;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionLinearApproximation
 EndEffectorDynamicsLinearAccConstraint::getLinearApproximation(
     scalar_t time,

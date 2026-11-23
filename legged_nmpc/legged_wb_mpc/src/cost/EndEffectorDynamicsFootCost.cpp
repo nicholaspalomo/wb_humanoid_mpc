@@ -97,10 +97,6 @@ absl::Status checkWeights(const EndEffectorDynamicsWeights& weights) {
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::StatusOr<std::unique_ptr<EndEffectorDynamicsFootCost>>
 EndEffectorDynamicsFootCost::Create(
     const SwitchedModelReferenceManager& referenceManager,
@@ -128,20 +124,12 @@ EndEffectorDynamicsFootCost::Create(
       contactIndex, modelName, modelSettings));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::Status EndEffectorDynamicsFootCost::setWeights(
     const EndEffectorDynamicsWeights& weights) {
   RETURN_IF_ERROR(checkWeights(weights));
   sqrtWeights_ = weights.toVector().cwiseSqrt();
   return absl::OkStatus();
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(
     const SwitchedModelReferenceManager& referenceManager,
@@ -168,10 +156,6 @@ EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(
             << weights.toVector().transpose();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 // LINT.IfChange(foot_cost_names)
 std::string EndEffectorDynamicsFootCost::termName(absl::string_view footName) {
   return absl::StrCat(footName, "_TaskSpaceTrackingCost");
@@ -184,10 +168,6 @@ std::string EndEffectorDynamicsFootCost::libraryModelName(
 }
 // LINT.ThenChange(//legged_nmpc/legged_wb_mpc/test/testJointTorqueCostLibraryName.cpp:term_and_library_names)
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(
     const EndEffectorDynamicsFootCost& other)
     : StateInputCostGaussNewtonAd(other),
@@ -197,10 +177,6 @@ EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(
       frameID_(other.frameID_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       mpcRobotModelPtr_(other.mpcRobotModelPtr_->clone()) {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 ad_vector_t EndEffectorDynamicsFootCost::costVectorFunction(
     ad_scalar_t /*time*/,
@@ -265,10 +241,6 @@ ad_vector_t EndEffectorDynamicsFootCost::costVectorFunction(
   return errors.cwiseProduct(sqrtWeightParams) * impactProximityScaler;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 vector_t EndEffectorDynamicsFootCost::getParameters(
     scalar_t time,
     const TargetTrajectories& /*targetTrajectories*/,
@@ -309,8 +281,4 @@ vector_t EndEffectorDynamicsFootCost::getParameters(
 
   return parameters;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 }  // namespace ocs2::legged

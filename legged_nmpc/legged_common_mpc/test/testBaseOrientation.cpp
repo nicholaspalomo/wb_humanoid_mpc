@@ -209,9 +209,7 @@ bool allFinite(const matrix_t& matrix) {
   return matrix.allFinite();
 }
 
-/******************************************************************************************************/
-/* Safe normalization, rate matrix and tangent lift */
-/******************************************************************************************************/
+// Safe normalization, rate matrix and tangent lift
 
 TEST(BaseOrientation,
      SafeNormalizationIsTheUnitQuaternionAndKeepsTheZeroQuaternion) {
@@ -312,9 +310,7 @@ TEST(BaseOrientation, ConfigurationTangentLiftIsTheLeftInverseOfTheTangentMap) {
             0.0);
 }
 
-/******************************************************************************************************/
-/* Heading, heading quaternion, swing and tilt */
-/******************************************************************************************************/
+// Heading, heading quaternion, swing and tilt
 
 TEST(BaseOrientation, HeadingOfALevelAttitudeIsItsYawWrapped) {
   for (const scalar_t yaw :
@@ -537,9 +533,7 @@ TEST(BaseOrientation, AQuaternionWithANaNIsNotReadAsTheIdentity) {
             headingTiltResidual(vector4_t(0.0, 0.0, 0.0, 1.0), reference));
 }
 
-/******************************************************************************************************/
-/* The closed-form Jacobian */
-/******************************************************************************************************/
+// The closed-form Jacobian
 
 TEST(BaseOrientation, JacobianMatchesFiniteDifferencesInTheBodyTangent) {
   int checked = 0;
@@ -621,9 +615,7 @@ TEST(BaseOrientation, HeadingTiltErrorIsTheResidualAndTheJacobian) {
   }
 }
 
-/******************************************************************************************************/
-/* The property table of design section 2.8.1 */
-/******************************************************************************************************/
+// The property table of design section 2.8.1
 
 TEST(BaseOrientationProperties, JacobianAtALevelAttitudeIsThePermutation) {
   // J_HT(q_z(psi)) = P_3, so J_HT T_B(0) = I: at a level state (whatever the

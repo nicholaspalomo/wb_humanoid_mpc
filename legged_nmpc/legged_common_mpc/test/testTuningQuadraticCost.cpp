@@ -873,10 +873,7 @@ INSTANTIATE_TEST_SUITE_P(
       return std::string(info.param.name);
     });
 
-/******************************************************************************************************/
-/*                     The block assembly against the dense products, on dense
- * blocks                 */
-/******************************************************************************************************/
+// The block assembly against the dense products, on dense blocks
 
 /** A dense `rows` x `cols` block of random entries. */
 matrix_t randomBlock(Eigen::Index rows,

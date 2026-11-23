@@ -209,10 +209,6 @@ void MpcParameterUpdaterModule::addReferenceFileReloader(
   referenceFileReloaders_.push_back(std::move(reloader));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void MpcParameterUpdaterModule::preSolverRun(
     scalar_t /*initTime*/,
     scalar_t /*finalTime*/,
@@ -370,10 +366,6 @@ void MpcParameterUpdaterModule::enqueueParameterUpdate(
   pendingUpdate_ = update;
   hasPendingUpdate_.store(true, std::memory_order_release);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void MpcParameterUpdaterModule::reportStartUpChanges(
     const mpc_config::TaskFile& task, absl::string_view source) const {

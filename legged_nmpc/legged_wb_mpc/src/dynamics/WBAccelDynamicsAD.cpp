@@ -44,9 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 WBAccelDynamicsAD::WBAccelDynamicsAD(
     const PinocchioInterface& pinocchioInterface,
     const WBAccelMpcRobotModel<ad_scalar_t>* absl_nonnull mpcRobotModel,
@@ -60,19 +57,10 @@ WBAccelDynamicsAD::WBAccelDynamicsAD(
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 ad_vector_t WBAccelDynamicsAD::systemFlowMap(ad_scalar_t /*time*/,
                                              const ad_vector_t& state,
                                              const ad_vector_t& input) const {
   return computeStateDerivative<ad_scalar_t>(state, input, pinInterfaceCppAd_,
                                              *mpcRobotModel_);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 }  // namespace ocs2::legged

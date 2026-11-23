@@ -327,10 +327,6 @@ absl::Status addPointContactFrame(const ModelSettings::PointContact& contact,
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 PinocchioInterface createDefaultPinocchioInterface(
     absl::string_view urdfFilePath) {
   // A continuous joint is built with one coordinate and no position bound
@@ -346,10 +342,6 @@ PinocchioInterface createDefaultPinocchioInterface(
   return getPinocchioInterfaceFromUrdfFile(std::string(urdfFilePath),
                                            getBaseJointcomposite());
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 namespace {
 

@@ -87,9 +87,6 @@ constexpr scalar_t kMissingObservationWarningPeriod = 5.0;
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>>
 ProceduralMpcMotionManager::Create(
     const mpc_config::GaitFile& gaitFile,
@@ -214,10 +211,6 @@ scalar_t ProceduralMpcMotionManager::strideAt(scalar_t time) const {
   return scheduledGaits_.front().cycleDuration;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::Status ProceduralMpcMotionManager::setVelocityCommandAccelerationLimits(
     scalar_t cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
     scalar_t cmdMaxAngaccBaseRtWorldEwrtWorldZ) {
@@ -269,10 +262,6 @@ vector4_t ProceduralMpcMotionManager::rateLimitVelocityCommand(
   }
   return limited;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 absl::Status ProceduralMpcMotionManager::applyCommandLimits(
     const ReferenceSettings& settings) {
@@ -342,10 +331,6 @@ ProceduralMpcMotionManager::getScaledWalkingVelocityCommand() {
   return velocityCommand_;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 WalkingVelocityCommand ProceduralMpcMotionManager::scaleWalkingVelocityCommand(
     const NormalizedWalkingVelocityCommand& lnormVelocityCommand) const {
   return WalkingVelocityCommand(
@@ -357,10 +342,6 @@ WalkingVelocityCommand ProceduralMpcMotionManager::scaleWalkingVelocityCommand(
       lnormVelocityCommand.cmd_lnorm_angvel_base_rt_world_ewrt_world_z *
           cmdMaxAngvelBaseRtWorldEwrtWorldZ_);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 bool ProceduralMpcMotionManager::transitionToFasterGait(
     const vector4_t& velCommandVec,
@@ -397,10 +378,6 @@ bool ProceduralMpcMotionManager::transitionToFasterGait(
   return fasterGaitRequested && withinMaxSpeedErrorThreshold;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 bool ProceduralMpcMotionManager::transitionToSlowerGait(
     const vector4_t& velCommandVec,
     const BasePlanarMotion* absl_nullable strideMeanMotion,
@@ -435,10 +412,6 @@ bool ProceduralMpcMotionManager::transitionToSlowerGait(
                cfg.maxErrAngvelBaseRtWorldEwrtWorldZ);
   return slowerGaitRequested && baseSpeedSlowEnough;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 BasePlanarMotion ProceduralMpcMotionManager::instantaneousMotionOf(
     scalar_t initTime, const vector_t& initState) const {
@@ -496,10 +469,6 @@ void ProceduralMpcMotionManager::updateRollingSteps(
       initTime, finalTime, cmdTwistBaseRtWorldEwrtHeading,
       switchedModelReferenceManagerPtr_->getRollingContactGeometry()));
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void ProceduralMpcMotionManager::preSolverRun(
     scalar_t initTime,

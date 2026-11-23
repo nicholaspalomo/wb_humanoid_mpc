@@ -49,10 +49,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::StatusOr<std::unique_ptr<JointMimicDynamicsConstraint>>
 JointMimicDynamicsConstraint::Create(
     const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel,
@@ -87,19 +83,11 @@ JointMimicDynamicsConstraint::Create(
       new JointMimicDynamicsConstraint(mpcRobotModel, std::move(config)));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 JointMimicDynamicsConstraint::JointMimicDynamicsConstraint(
     const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel, Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
       wbAccelMpcRobotModelPtr_(&mpcRobotModel),
       config_(std::move(config)) {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 // isActive_ is copied deliberately: the SQP solver clones the problem
 // once per worker thread, and a copy constructor that dropped this flag
@@ -107,17 +95,10 @@ JointMimicDynamicsConstraint::JointMimicDynamicsConstraint(
 JointMimicDynamicsConstraint::JointMimicDynamicsConstraint(
     const JointMimicDynamicsConstraint& rhs) = default;
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 bool JointMimicDynamicsConstraint::isActive(scalar_t /*time*/) const {
   return isActive_;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t JointMimicDynamicsConstraint::getValue(
     scalar_t /*time*/,
     const vector_t& state,
@@ -145,9 +126,6 @@ vector_t JointMimicDynamicsConstraint::getValue(
   return value;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionLinearApproximation
 JointMimicDynamicsConstraint::getLinearApproximation(
     scalar_t time,

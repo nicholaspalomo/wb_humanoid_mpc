@@ -45,10 +45,6 @@ vector12_t EndEffectorKinematicsWeights::toVector() const {
   return weightVector;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 template <typename SCALAR_T>
 VECTOR12_T<SCALAR_T> computeTaskSpaceErrors(
     const EndEffectorKinematicsCostElement<SCALAR_T>& current,
@@ -81,10 +77,6 @@ template VECTOR12_T<scalar_t> computeTaskSpaceErrors(
 template VECTOR12_T<ad_scalar_t> computeTaskSpaceErrors(
     const EndEffectorKinematicsCostElement<ad_scalar_t>& current,
     const EndEffectorKinematicsCostElement<ad_scalar_t>& reference);
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 template <typename SCALAR_T>
 VECTOR3_T<SCALAR_T> tiltAngleToPlane(

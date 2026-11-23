@@ -248,10 +248,6 @@ WBMpcMrtJointController::WBMpcMrtJointController(
   nominalJointPositions_.reserve(robotDescription.getNumJoints());
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::StatusOr<WBMpcMrtJointController::InitialPdGains>
 WBMpcMrtJointController::loadInitialPdGains(const ModelSettings& modelSettings,
                                             absl::string_view pdGainsFile) {
@@ -337,10 +333,6 @@ void WBMpcMrtJointController::pollPdGainsFile() {
   postPdGains(**std::move(loaded), pdGainsFile_, ticket).IgnoreError();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 WBMpcMrtJointController::~WBMpcMrtJointController() {
   // Stop the solver before anything its reset target reads is destroyed. Its
   // thread used to loop on `while (true)` and ignore the stop flag, so the join
@@ -348,20 +340,12 @@ WBMpcMrtJointController::~WBMpcMrtJointController() {
   if (mpcLink_ != nullptr) mpcLink_->stop();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void WBMpcMrtJointController::startMpcThread(
     const ::robot::model::RobotState& initRobotState) {
   updateMpcObservation(currentMpcObservation_, initRobotState);
   // Set observation to MPC and start serving policies.
   mpcLink_->start(currentMpcObservation_);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void WBMpcMrtJointController::updateMpcState(
     vector_t& mpcState, const ::robot::model::RobotState& robotState) {
@@ -380,10 +364,6 @@ void WBMpcMrtJointController::updateMpcState(
       robotState.getAngvelBaseRtWorldEwrtBase(), mpcJointVelocities_,
       mpcState.tail(mpcRobotModel_.getVelocityDim()));
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void WBMpcMrtJointController::updateMpcObservation(
     ocs2::SystemObservation& mpcObservation,
@@ -404,10 +384,6 @@ void WBMpcMrtJointController::updateMpcObservation(
   mpcObservation.mode = measuredContactFlags_.modeNumber();
   contactWrenchGate_.update(mpcObservation.time, measuredContactFlags_);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void WBMpcMrtJointController::setContactWrenchGateConfig(
     const ContactWrenchGate::Config& config) {
@@ -434,10 +410,6 @@ void WBMpcMrtJointController::postEvent(ControllerEventCode code,
       makeControllerEvent(code, kControllerName, value0, value1, text));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void WBMpcMrtJointController::setContactEstimator(
     std::shared_ptr<::robot::model::ContactEstimator> contactEstimator) {
   contactEstimator_ =
@@ -449,10 +421,6 @@ void WBMpcMrtJointController::setContactEstimator(
   postEvent(ControllerEventCode::kContactEstimatorChanged, /*value0=*/0.0,
             /*value1=*/0.0, name);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void WBMpcMrtJointController::setControlMode(absl::string_view mode) {
   // Called every cycle; compared and assigned through string_views, so that
@@ -505,10 +473,6 @@ void WBMpcMrtJointController::handleClockRewind(scalar_t rewind) {
   // that is left to arm.
   armHold(/*holdGravityComp=*/false);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 const vector_t& WBMpcMrtJointController::computeGravityCompensation(
     const ::robot::model::RobotState& robotState) {
@@ -686,10 +650,6 @@ void WBMpcMrtJointController::fillHoldAction(
   }
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void WBMpcMrtJointController::computeJointControlAction(
     scalar_t /*time*/,
     const ::robot::model::RobotState& robotState,
@@ -813,10 +773,6 @@ void WBMpcMrtJointController::computeJointControlAction(
   previousObservationTime_ = currentMpcObservation_.time;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void WBMpcMrtJointController::executePolicy(
     const vector_t& mpcPolicyState,
     const vector_t& mpcPolicyInput,
@@ -861,10 +817,6 @@ void WBMpcMrtJointController::executePolicy(
         clampedMpcJointFeedforward(i, mpcJointTorques[joint]);
   }
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void WBMpcMrtJointController::fillPolicyCoordinates(const vector_t& state) {
   const Eigen::Index configurationDim =
@@ -927,10 +879,6 @@ void WBMpcMrtJointController::fillWeightCompensationAction(
   }
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 TargetTrajectories WBMpcMrtJointController::currentObservationToResetTrajectory(
     const SystemObservation& currentObservation) {
   // The one definition of the reset target, which the MPC node serves its
@@ -948,10 +896,6 @@ TargetTrajectories WBMpcMrtJointController::currentObservationToResetTrajectory(
   }
   return resetTargetTrajectories;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 std::optional<ContactMask> WBMpcMrtJointController::getPlannedContactFlags(
     scalar_t time) const {

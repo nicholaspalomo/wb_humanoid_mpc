@@ -138,15 +138,7 @@ void TargetTrajectoriesCalculatorBase::applyCommandLimits(
   // LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/config/reference/ReferenceFromConfig.cpp:hot_reference_file_fields)
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void TargetTrajectoriesCalculatorBase::reset() {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void TargetTrajectoriesCalculatorBase::setSourcePosSurfaceRtWorldEwrtWorldZ(
     absl::AnyInvocable<scalar_t() const> sourcePosSurfaceRtWorldEwrtWorldZ) {
@@ -171,10 +163,6 @@ scalar_t TargetTrajectoriesCalculatorBase::computeRefPosBaseRtWorldEwrtWorldZ(
           : nomPosBaseRtSurfaceEwrtWorldZ_.load();
   return getPosSurfaceRtWorldEwrtWorldZ() + refPosBaseRtSurfaceEwrtWorldZ;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector6_t TargetTrajectoriesCalculatorBase::getFinalPoseeulerzyxBaseRtWorld(
     const vector4_t& poseCommand,
@@ -219,10 +207,6 @@ vector6_t TargetTrajectoriesCalculatorBase::getFinalPoseeulerzyxBaseRtWorld(
   return finalPoseeulerzyxBaseRtWorld;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 vector6_t TargetTrajectoriesCalculatorBase::getPoseeulerzyxHeadingRtWorld(
     const vector_t& state) const {
   // Level: the target trajectories start from the current position and heading,
@@ -233,10 +217,6 @@ vector6_t TargetTrajectoriesCalculatorBase::getPoseeulerzyxHeadingRtWorld(
       mpcRobotModelPtr_->getYawBaseRtWorld(state), 0.0, 0.0;
   return poseeulerzyxHeadingRtWorld;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector4_t TargetTrajectoriesCalculatorBase::rotateVelocityCommandToWorld(
     const vector4_t& commandHeadingFrame, scalar_t yawBaseRtWorld) {
@@ -252,10 +232,6 @@ vector4_t TargetTrajectoriesCalculatorBase::rotateVelocityCommandToWorld(
       cmdLinvelBaseRtWorldEwrtWorldXy(1);
   return velocityCommandWorld;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector6_t TargetTrajectoriesCalculatorBase::integrateRefPoseeulerzyxBaseRtWorld(
     const vector6_t& initPoseeulerzyxBaseRtWorld,
@@ -483,10 +459,6 @@ TargetTrajectoriesCalculatorBase::velocityCommandKnots(
   }
   return knots;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 scalar_t TargetTrajectoriesCalculatorBase::estimateTimeToTarget(
     const vector_t& errPoseeulerzyxBaseRtWorld) const {

@@ -241,10 +241,6 @@ inline size_t numberOfLegsInContacts(const BipedFeetArray<bool>& contactFlags) {
   return numStanceLegs;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 ///
 /// @brief The magnitude g [m/s^2] of the gravity of `model`
 /// (pinocchio::Model::gravity): the gravity the robot's dynamics use, and the
@@ -379,10 +375,6 @@ inline vector_t weightCompensatingInput(
   return input;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 template <typename SCALAR_T>
 inline pinocchio::FrameIndex getContactFrameIndex(
     const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
@@ -391,10 +383,6 @@ inline pinocchio::FrameIndex getContactFrameIndex(
   return pinocchioInterface.getModel().getFrameId(
       mpcRobotModel.modelSettings.contactNames[contactIndex]);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 template <typename SCALAR_T>
 inline std::vector<pinocchio::FrameIndex> getContactFrameIndices(
@@ -446,10 +434,6 @@ inline ContactArray<pinocchio::FrameIndex> getContactFrameIndexArray(
 absl::Status checkContactFramesExist(
     const pinocchio::Model& model, absl::Span<const std::string> contactNames);
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 ///
 /// @brief Computes the position of a contact's center of pressure (CoP) in the
 /// world, from the state-aware world-frame wrench accessor, which is
@@ -491,10 +475,6 @@ inline VECTOR3_T<SCALAR_T> computePosCopRtWorldEwrtWorld(
   return transformPointLocalToWorld(posCopRtContactEwrtContact,
                                     pinocchioInterface.getData(), frameIndex);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 ///
 /// @brief Computes the base acceleration

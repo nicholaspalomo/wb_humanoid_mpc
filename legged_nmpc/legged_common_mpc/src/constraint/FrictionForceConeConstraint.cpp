@@ -111,9 +111,6 @@ matrix_t computeBlockInputJacobianForceContactEwrtParam(
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 FrictionForceConeConstraint::FrictionForceConeConstraint(
     const SwitchedModelReferenceManager& referenceManager,
     Config config,
@@ -200,19 +197,12 @@ FrictionForceConeConstraint::withoutAdhesion(Config config) {
   return config;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 // Copies every member, isActive_ included: a hand-written copy that dropped it
 // made every per-thread copy the SQP solver makes of the problem revert a
 // deactivated cone to active.
 FrictionForceConeConstraint::FrictionForceConeConstraint(
     const FrictionForceConeConstraint& rhs) = default;
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 bool FrictionForceConeConstraint::isActive(scalar_t time) const {
   if (!isActive_) return false;
   // Under the contact-implicit formulation the mode schedule no longer decides
@@ -228,9 +218,6 @@ matrix3_t FrictionForceConeConstraint::getRotmatWorldRtSurface(
       .rotmatWorldRtSurface;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 FrictionForceConeConstraint::ForceContactEwrtSurface
 FrictionForceConeConstraint::computeForceContactEwrtSurface(
     scalar_t time,
@@ -282,9 +269,6 @@ FrictionForceConeConstraint::computeForceContactEwrtSurface(
   return forceContactEwrtSurface;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t FrictionForceConeConstraint::getValue(
     scalar_t time,
     const vector_t& state,
@@ -295,9 +279,6 @@ vector_t FrictionForceConeConstraint::getValue(
                             .value);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionLinearApproximation
 FrictionForceConeConstraint::getLinearApproximation(
     scalar_t time,
@@ -330,9 +311,6 @@ FrictionForceConeConstraint::getLinearApproximation(
   return linearApproximation;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionQuadraticApproximation
 FrictionForceConeConstraint::getQuadraticApproximation(
     scalar_t time,
@@ -395,9 +373,6 @@ FrictionForceConeConstraint::getQuadraticApproximation(
   return quadraticApproximation;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 matrix_t FrictionForceConeConstraint::computeInputJacobianStateDerivative(
     const matrix_t& dCone_dF,
     const ForceContactEwrtSurface& forceContactEwrtSurface) const {
@@ -420,9 +395,6 @@ matrix_t FrictionForceConeConstraint::computeInputJacobianStateDerivative(
   return derivative;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 FrictionForceConeConstraint::LocalForceDerivatives
 FrictionForceConeConstraint::computeInputJacobianForceContactEwrtSurface(
     const matrix3_t& rotmatParamRtSurface) const {
@@ -437,9 +409,6 @@ FrictionForceConeConstraint::computeInputJacobianForceContactEwrtSurface(
   return inputJacobianForceContactEwrtSurface;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 FrictionForceConeConstraint::ConeLocalDerivatives
 FrictionForceConeConstraint::computeConeLocalDerivatives(
     const vector3_t& forceContactEwrtSurface) const {
@@ -502,9 +471,6 @@ FrictionForceConeConstraint::computeConeLocalDerivatives(
   return coneDerivatives;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t FrictionForceConeConstraint::coneConstraint(
     const vector3_t& forceContactEwrtSurface) const {
   const scalar_t F_tangent_square =
@@ -532,9 +498,6 @@ vector_t FrictionForceConeConstraint::coneConstraint(
       .finished();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 FrictionForceConeConstraint::ConeDerivatives
 FrictionForceConeConstraint::computeConeConstraintDerivatives(
     const ConeLocalDerivatives& coneLocalDerivatives,
@@ -555,9 +518,6 @@ FrictionForceConeConstraint::computeConeConstraintDerivatives(
   return coneDerivatives;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 matrix_t FrictionForceConeConstraint::frictionConeInputDerivative(
     size_t inputDim, const ConeDerivatives& coneDerivatives) const {
   matrix_t dhdu = matrix_t::Zero(coneDerivatives.dCone_du.rows(), inputDim);
@@ -567,9 +527,6 @@ matrix_t FrictionForceConeConstraint::frictionConeInputDerivative(
   return dhdu;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 matrix_t FrictionForceConeConstraint::frictionConeSecondDerivativeInput(
     size_t inputDim, const matrix_t& d2Cone_du2) const {
   matrix_t ddhdudu = matrix_t::Zero(inputDim, inputDim);
@@ -581,9 +538,6 @@ matrix_t FrictionForceConeConstraint::frictionConeSecondDerivativeInput(
   return ddhdudu;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 matrix_t FrictionForceConeConstraint::frictionConeSecondDerivativeState(
     size_t stateDim) const {
   matrix_t ddhdxdx = matrix_t::Zero(stateDim, stateDim);

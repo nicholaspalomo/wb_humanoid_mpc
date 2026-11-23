@@ -232,10 +232,6 @@ void logConfig(const CentroidalMpcConfig& config) {
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 CentroidalMpcInterface::CentroidalMpcInterface(CentroidalMpcConfig config,
                                                ModelSettings modelSettings,
                                                SolverSettings solverSettings,
@@ -245,10 +241,6 @@ CentroidalMpcInterface::CentroidalMpcInterface(CentroidalMpcConfig config,
       solverSettings_(std::move(solverSettings)),
       urdfFile_(std::move(urdfFile)),
       verbose_(solverSettings_.verbose) {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 absl::Status CentroidalMpcInterface::setupModels() {
   // PinocchioInterface: a model whose actuated joints are not model_settings'
@@ -340,10 +332,6 @@ absl::Status CentroidalMpcInterface::setupModels() {
                "nom_pos_com_rt_feetmean_ewrt_world_z left out stands for).";
   return absl::OkStatus();
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
 CentroidalMpcInterface::Create(absl::string_view taskFile,
@@ -438,10 +426,6 @@ CentroidalMpcInterface::build(
   }));
   return interface;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 namespace {
 
@@ -595,10 +579,6 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
   return absl::OkStatus();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 std::string cppAdModelFolderKey(CentroidalModelType centroidalModelType,
                                 absl::string_view inputParameterizationKey) {
   if (centroidalModelType == CentroidalModelType::FullCentroidalDynamics) {
@@ -627,10 +607,6 @@ void CentroidalMpcInterface::keyCppAdModelFolder(absl::string_view libraryKey) {
   LOG(INFO) << "[CentroidalMpcInterface] CppAD model folder: "
             << modelSettings_.modelFolderCppAd;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 absl::Status CentroidalMpcInterface::setupReferenceManager() {
   // Swing trajectory planner
@@ -819,10 +795,6 @@ absl::Status CentroidalMpcInterface::setupPlannedMotionReferenceManager(
   return absl::OkStatus();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::Status CentroidalMpcInterface::setupLocomotionHeuristics() {
   // The reference-shaping layer of Bledt's Regularized Predictive Control
   // heuristics (legged_nmpc/docs/locomotion_heuristics/README.md).
@@ -885,10 +857,6 @@ absl::Status CentroidalMpcInterface::setupLocomotionHeuristics() {
   }
   return absl::OkStatus();
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 // What setupOptimalControlProblem() builds every contact's terms from: pointers
 // to its locals, which outlive the per-contact helpers it is passed to. No
@@ -1790,10 +1758,6 @@ absl::Status CentroidalMpcInterface::addContactHardConstraintsAndFootCosts(
   return absl::OkStatus();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 std::string CentroidalMpcInterface::stanceConstraintTermName(
     size_t contactPointIndex) const {
   const std::string& contactName =
@@ -1838,9 +1802,6 @@ CentroidalMpcInterface::getStanceFootConstraint(
   return std::unique_ptr<StateInputConstraint>(std::move(constraint));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::unique_ptr<StateInputConstraint>
 CentroidalMpcInterface::getNormalVelocityConstraint(
     const EndEffectorKinematics<scalar_t>& eeKinematics,
@@ -1849,9 +1810,6 @@ CentroidalMpcInterface::getNormalVelocityConstraint(
       *referenceManagerPtr_, eeKinematics, contactPointIndex);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 absl::Status CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
     const PinocchioStateInputMapping<ad_scalar_t>& pinocchioMappingCppAd,
     const PinocchioEndEffectorKinematicsCppAd::
@@ -1895,10 +1853,6 @@ absl::Status CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
   return absl::OkStatus();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 std::vector<std::string> CentroidalMpcInterface::getCostNames() const {
   std::vector<std::string> costNames;
   for (const std::pair<const std::string, size_t>& term :
@@ -1908,10 +1862,6 @@ std::vector<std::string> CentroidalMpcInterface::getCostNames() const {
   return costNames;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 std::vector<std::string> CentroidalMpcInterface::getTerminalCostNames() const {
   std::vector<std::string> terminalCostNames;
   for (const std::pair<const std::string, size_t>& term :
@@ -1920,10 +1870,6 @@ std::vector<std::string> CentroidalMpcInterface::getTerminalCostNames() const {
   }
   return terminalCostNames;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 std::vector<std::string> CentroidalMpcInterface::getStateSoftConstraintNames()
     const {
@@ -1935,10 +1881,6 @@ std::vector<std::string> CentroidalMpcInterface::getStateSoftConstraintNames()
   return costNames;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 std::vector<std::string> CentroidalMpcInterface::getSoftConstraintNames()
     const {
   std::vector<std::string> costNames;
@@ -1948,10 +1890,6 @@ std::vector<std::string> CentroidalMpcInterface::getSoftConstraintNames()
   }
   return costNames;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 std::vector<std::string> CentroidalMpcInterface::getEqualityConstraintNames()
     const {

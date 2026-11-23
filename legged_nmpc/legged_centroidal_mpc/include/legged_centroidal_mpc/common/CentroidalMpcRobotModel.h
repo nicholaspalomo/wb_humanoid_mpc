@@ -60,7 +60,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
 /* State Vector definition
 
   Define the state vector x = [h, q_b, q_j]^T (13 + nj entries; its tangent has
@@ -73,9 +72,7 @@ namespace ocs2::legged {
   q_j
 
 */
-/******************************************************************************************************/
 
-/******************************************************************************************************/
 /* Input Vector definition
 
   Define the input vector u = [f_1, ..., f_n3, W_1, ..., W_n6, q_dot_j]^T
@@ -88,7 +85,6 @@ namespace ocs2::legged {
   in the order of ModelSettings::contactNames, CentroidalModelInfo's layout.
 
 */
-/******************************************************************************************************/
 
 /**
  * The state and input layout of the centroidal MPC defined above, for the
@@ -155,9 +151,7 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   CentroidalMpcRobotModel(CentroidalMpcRobotModel&&) = delete;
   CentroidalMpcRobotModel& operator=(CentroidalMpcRobotModel&&) = delete;
 
-  /******************************************************************************************************/
-  /*                                          Start indices */
-  /******************************************************************************************************/
+  // Start indices
 
   size_t getBaseStartindex() const override {
     return centroidal_model::kBasePositionStartInState;
@@ -195,9 +189,7 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   }
   // LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/config/weights/StateInputWeightsFromConfig.cpp:input_offsets)
 
-  /******************************************************************************************************/
-  /*                                     Generalized coordinates */
-  /******************************************************************************************************/
+  // Generalized coordinates
 
   /** q = [p_W, xi_hat, q_j] with the quaternion safely normalized
    * (CentroidalModelPinocchioMapping::getPinocchioJointPosition()). */
@@ -292,10 +284,7 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
         errPosBaseRtWorldEwrtWorldZ;
   }
 
-  /******************************************************************************************************/
-  /*                   Layout-agnostic accessors (MpcRobotModelBase), the
-   * quaternion layout             */
-  /******************************************************************************************************/
+  // Layout-agnostic accessors (MpcRobotModelBase), the quaternion layout
 
   VECTOR4_T<SCALAR_T> getQuatBaseRtWorldXyzw(
       const VECTOR_T<SCALAR_T>& state) const override {
@@ -518,9 +507,7 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     v.tail(this->modelSettings.mpc_joint_dim) = jointVelocities;
   }
 
-  /******************************************************************************************************/
-  /*                                          Contacts */
-  /******************************************************************************************************/
+  // Contacts
 
   // A 3-DoF contact's wrench is its force with a zero moment, and a moment
   // written to it is dropped: a point carries none.
@@ -578,9 +565,7 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
                   kTorqueDim) = torqueContactEwrtParam;
   }
 
-  /******************************************************************************************************/
-  /*                                    Custom Centroidal Methods */
-  /******************************************************************************************************/
+  // Custom Centroidal Methods
 
   VECTOR_T<SCALAR_T> getMnormCmomComRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& state) const {

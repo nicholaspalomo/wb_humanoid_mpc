@@ -223,9 +223,7 @@ std::string libraryFolder() {
   return absl::StrCat(testing::TempDir(), "cppad_quaternion_root_joint");
 }
 
-/******************************************************************************************************/
-/* Quaternion algebra and the safe normalization of design section 2.6 */
-/******************************************************************************************************/
+// Quaternion algebra and the safe normalization of design section 2.6
 
 /** G(xi) with xi (x) (w, 0) = G(xi) w, for coefficients (x, y, z, w) (design
  * section 2.1). */
@@ -309,9 +307,7 @@ pinocchio::JointModelComposite translationSphericalRoot() {
   return root;
 }
 
-/******************************************************************************************************/
-/* The computations the MPCs tape, written once for double and AD scalars */
-/******************************************************************************************************/
+// The computations the MPCs tape, written once for double and AD scalars
 
 template <typename Derived>
 void append(const Eigen::MatrixBase<Derived>& block,
@@ -426,9 +422,7 @@ VECTOR_T<Scalar> computeFrameMotions(
   return toVector<Scalar>(values);
 }
 
-/******************************************************************************************************/
-/* Taped functions, their double-precision references, and the G1 models */
-/******************************************************************************************************/
+// Taped functions, their double-precision references, and the G1 models
 
 /** One computation: taped on AD scalars from an input x, and the same
  * computation in double precision. */
@@ -732,9 +726,7 @@ const G1Models& g1() {
   return *kModels;
 }
 
-/******************************************************************************************************/
-/* Inputs */
-/******************************************************************************************************/
+// Inputs
 
 struct Attitude {
   std::string label;
@@ -805,9 +797,7 @@ vector_t withQuaternionCoefficients(const vector_t& x,
   return result;
 }
 
-/******************************************************************************************************/
-/* Taping and code generation */
-/******************************************************************************************************/
+// Taping and code generation
 
 struct TapeSize {
   size_t operations = 0;
@@ -876,9 +866,7 @@ std::unique_ptr<CppAdInterface> generate(
   return library;
 }
 
-/******************************************************************************************************/
-/* Comparisons */
-/******************************************************************************************************/
+// Comparisons
 
 /** max |a - b| relative to the largest entry of b (at least one). */
 scalar_t relativeError(const vector_t& a, const vector_t& b) {
@@ -965,9 +953,7 @@ const CppAdInterface& momentumInversePathModel(NormGuard guard) {
                                         : *kSquaredNormGuardLibrary;
 }
 
-/******************************************************************************************************/
-/* Tests */
-/******************************************************************************************************/
+// Tests
 
 TEST(QuaternionRootJointModel, IsTheProductionRobotWithAQuaternionRoot) {
   const pinocchio::Model& model = g1().model();

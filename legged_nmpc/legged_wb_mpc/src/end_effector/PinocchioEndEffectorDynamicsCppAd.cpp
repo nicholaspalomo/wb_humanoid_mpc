@@ -345,10 +345,6 @@ ad_vector_t computeXeeSecondRates(PinocchioInterfaceCppAd& pinocchioInterface,
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
     const PinocchioInterface& pinocchioInterface,
     WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
@@ -477,9 +473,6 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
   }
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
     const PinocchioEndEffectorDynamicsCppAd& rhs)
     : EndEffectorDynamics<scalar_t>(rhs),
@@ -497,25 +490,16 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
           *rhs.xeeSecondRateCppAdInterfacePtr_)),
       endEffectorIds_(rhs.endEffectorIds_) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 PinocchioEndEffectorDynamicsCppAd* absl_nonnull
 PinocchioEndEffectorDynamicsCppAd::clone() const {
   return new PinocchioEndEffectorDynamicsCppAd(*this);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 const std::vector<std::string>& PinocchioEndEffectorDynamicsCppAd::getIds()
     const {
   return endEffectorIds_;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector3_t>
 PinocchioEndEffectorDynamicsCppAd::getPosEesRtWorldEwrtWorld(
     const vector_t& state) const {
@@ -531,9 +515,6 @@ PinocchioEndEffectorDynamicsCppAd::getPosEesRtWorldEwrtWorld(
   return posEesRtWorldEwrtWorld;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::vector<VectorFunctionLinearApproximation>
 PinocchioEndEffectorDynamicsCppAd::getLinearApproximationPosEesRtWorldEwrtWorld(
     const vector_t& state) const {
@@ -557,9 +538,6 @@ PinocchioEndEffectorDynamicsCppAd::getLinearApproximationPosEesRtWorldEwrtWorld(
   return approxPosEesRtWorldEwrtWorld;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector3_t>
 PinocchioEndEffectorDynamicsCppAd::getLinvelEesRtWorldEwrtWorld(
     const vector_t& state, const vector_t& input) const {
@@ -578,9 +556,6 @@ PinocchioEndEffectorDynamicsCppAd::getLinvelEesRtWorldEwrtWorld(
   return linvelEesRtWorldEwrtWorld;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::vector<VectorFunctionLinearApproximation>
 PinocchioEndEffectorDynamicsCppAd::
     getLinearApproximationLinvelEesRtWorldEwrtWorld(
@@ -612,10 +587,6 @@ PinocchioEndEffectorDynamicsCppAd::
   return approxLinvelEesRtWorldEwrtWorld;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector3_t>
 PinocchioEndEffectorDynamicsCppAd::getTiltEesRtSurfaceEwrtWorld(
     const vector_t& state,
@@ -638,10 +609,6 @@ PinocchioEndEffectorDynamicsCppAd::getTiltEesRtSurfaceEwrtWorld(
   }
   return tiltEesRtSurfaceEwrtWorld;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 std::vector<VectorFunctionLinearApproximation>
 PinocchioEndEffectorDynamicsCppAd::
@@ -675,9 +642,6 @@ PinocchioEndEffectorDynamicsCppAd::
   return approxTiltEesRtSurfaceEwrtWorld;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector3_t>
 PinocchioEndEffectorDynamicsCppAd::getLinaccEesRtWorldEwrtWorld(
     const vector_t& state, const vector_t& input) const {
@@ -696,9 +660,6 @@ PinocchioEndEffectorDynamicsCppAd::getLinaccEesRtWorldEwrtWorld(
   return linaccEesRtWorldEwrtWorld;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::vector<VectorFunctionLinearApproximation>
 PinocchioEndEffectorDynamicsCppAd::
     getLinearApproximationLinaccEesRtWorldEwrtWorld(
@@ -730,9 +691,6 @@ PinocchioEndEffectorDynamicsCppAd::
   return approxLinaccEesRtWorldEwrtWorld;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector6_t>
 PinocchioEndEffectorDynamicsCppAd::getXeeRate(
     const vector_t& state,
@@ -744,9 +702,6 @@ PinocchioEndEffectorDynamicsCppAd::getXeeRate(
                    endEffectorIds_.size());
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector6_t>
 PinocchioEndEffectorDynamicsCppAd::getXeeSecondRate(
     const vector_t& state,
@@ -758,9 +713,6 @@ PinocchioEndEffectorDynamicsCppAd::getXeeSecondRate(
                    endEffectorIds_.size());
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::vector<VectorFunctionLinearApproximation>
 PinocchioEndEffectorDynamicsCppAd::getLinearApproximationXeeRate(
     const vector_t& state,
@@ -771,9 +723,6 @@ PinocchioEndEffectorDynamicsCppAd::getLinearApproximationXeeRate(
                                  endEffectorIds_.size());
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::vector<VectorFunctionLinearApproximation>
 PinocchioEndEffectorDynamicsCppAd::getLinearApproximationXeeSecondRate(
     const vector_t& state,

@@ -106,9 +106,7 @@ constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 constexpr Eigen::Index kBaseOrientationStartIndex = 9;
 constexpr Eigen::Index kJointAnglesStartIndex = 13;
 
-/******************************************************************************************************/
-/*                                       File location helpers */
-/******************************************************************************************************/
+// File location helpers
 
 struct AtlasFiles {
   std::string taskFile;
@@ -130,9 +128,7 @@ AtlasFiles locateAtlasFiles() {
           "reference.textproto"))};
 }
 
-/******************************************************************************************************/
-/*                                     The configuration of a mode */
-/******************************************************************************************************/
+// The configuration of a mode
 
 /**
  * The Atlas configuration for the requested input formulation.
@@ -184,9 +180,7 @@ matrix_t wrenchModeInputWeights(const CentroidalMpcConfig& config,
   return R.ok() ? *R : matrix_t();
 }
 
-/******************************************************************************************************/
-/*                                         Numerical helpers */
-/******************************************************************************************************/
+// Numerical helpers
 
 /** Central finite-difference Jacobian of f around v. */
 template <typename Func>
@@ -247,9 +241,7 @@ vector_t makeRandomBasisInput(size_t numBasisInputs,
   return u;
 }
 
-/******************************************************************************************************/
-/*                                            Test fixture */
-/******************************************************************************************************/
+// Test fixture
 
 class BasisInputsFormulationTest : public ::testing::Test {
  protected:
@@ -349,9 +341,7 @@ BasisInputsFormulationTest::InterfaceHolder
 BasisInputsFormulationTest::InterfaceHolder
     BasisInputsFormulationTest::wrenchModeHolder_;
 
-/******************************************************************************************************/
-/* (1) Dimensions and wiring of the basis-vector formulation */
-/******************************************************************************************************/
+// (1) Dimensions and wiring of the basis-vector formulation
 TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(h.interface) << "Failed to construct the basis-mode interface: "
@@ -447,10 +437,7 @@ TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
   EXPECT_DOUBLE_EQ((config->basisGeneratorMap - M).norm(), 0.0);
 }
 
-/******************************************************************************************************/
-/* (2) Basis dynamics == wrench dynamics evaluated on the world-frame-rotated
- * wrench                   */
-/******************************************************************************************************/
+// (2) Basis dynamics == wrench dynamics evaluated on the world-frame-rotated wrench
 TEST_F(BasisInputsFormulationTest,
        BasisDynamicsMatchesWrenchDynamicsWithRotatedWrench) {
   InterfaceHolder& hBasis = holder(/*useBasisInputs=*/true);
@@ -583,12 +570,10 @@ TEST_F(BasisInputsFormulationTest,
   EXPECT_GT((fBasis - fNaive).norm(), 1.0e-6);
 }
 
-/******************************************************************************************************/
 /* The center of pressure under basis-vector inputs: the input stores each
  * contact's wrench in its own contact frame, so the CoP must come from that
  * wrench directly, not from a second rotation of it (a regression of the
  * input-only CoP that treated the param frame as the world). */
-/******************************************************************************************************/
 TEST_F(BasisInputsFormulationTest, CenterOfPressureUsesTheContactFrameWrench) {
   InterfaceHolder& hBasis = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(hBasis.interface)
@@ -630,10 +615,7 @@ TEST_F(BasisInputsFormulationTest, CenterOfPressureUsesTheContactFrameWrench) {
   }
 }
 
-/******************************************************************************************************/
-/* (3) CppAD linear approximation of the basis dynamics vs central finite
- * differences                 */
-/******************************************************************************************************/
+// (3) CppAD linear approximation of the basis dynamics vs central finite differences
 TEST_F(BasisInputsFormulationTest,
        BasisDynamicsLinearApproximationMatchesFiniteDifferences) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/true);
@@ -695,10 +677,7 @@ TEST_F(BasisInputsFormulationTest,
             1.0e-6);
 }
 
-/******************************************************************************************************/
-/* (4) The quadratic input cost is R_basis = M^T R_wrench M + reg * blkdiag(S,
- * 0), S the λ regularization */
-/******************************************************************************************************/
+// (4) The quadratic input cost is R_basis = M^T R_wrench M + reg * blkdiag(S, 0), S the λ regularization
 TEST_F(BasisInputsFormulationTest, InputCostIsTransformedWithRegularization) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(h.interface) << "Failed to construct the basis-mode interface: "
@@ -787,10 +766,7 @@ TEST_F(BasisInputsFormulationTest, InputCostIsTransformedWithRegularization) {
   EXPECT_LE(unregularizedSolver.eigenvalues().minCoeff(), 1.0e-12);
 }
 
-/******************************************************************************************************/
-/* (5) ZeroWrenchConstraint on the effective (basis) model: Jacobian vs finite
- * differences            */
-/******************************************************************************************************/
+// (5) ZeroWrenchConstraint on the effective (basis) model: Jacobian vs finite differences
 TEST_F(BasisInputsFormulationTest,
        ZeroWrenchConstraintConstrainsTheBasisScalingsDirectly) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/true);
@@ -896,10 +872,7 @@ TEST_F(BasisInputsFormulationTest,
   }
 }
 
-/******************************************************************************************************/
-/* (5b) Every basis generator lies inside the wrench cone the wrench-space
- * formulation enforces        */
-/******************************************************************************************************/
+// (5b) Every basis generator lies inside the wrench cone the wrench-space formulation enforces
 // Soundness only. The shipped conservative_inner_approximation set does not
 // span all of that cone (it is a strict inner approximation); what it
 // covers, and the exact_wrench_cone set that covers all of it, are tested in
@@ -949,10 +922,7 @@ TEST_F(BasisInputsFormulationTest, BasisGeneratorsStayInsideTheWrenchCone) {
   }
 }
 
-/******************************************************************************************************/
-/* (5c) Every CppAD library is keyed by the contact input parameterization and
- * by the basis           */
-/******************************************************************************************************/
+// (5c) Every CppAD library is keyed by the contact input parameterization and by the basis
 // Findings A73/A81. Only the dynamics library used to include the basis; every
 // other taped term (end-effector kinematics, the external-torque cost, ...)
 // kept one name for both input dimensions in one folder, so a library built for
@@ -1002,10 +972,7 @@ TEST_F(BasisInputsFormulationTest,
       << wrenchFolder;
 }
 
-/******************************************************************************************************/
-/* (5d) The λ ≥ 0 barrier belongs to the parameterization, not to the
- * soft-constraint lists          */
-/******************************************************************************************************/
+// (5d) The λ ≥ 0 barrier belongs to the parameterization, not to the soft-constraint lists
 // Findings A76/A84. The barrier used to be built only when
 // `contact_wrench_cone` was listed, so a basis-mode task file without it
 // (legitimate in wrench mode) loaded with no bound on the scalings at all:
@@ -1043,9 +1010,7 @@ TEST_F(BasisInputsFormulationTest,
   }
 }
 
-/******************************************************************************************************/
-/* (5e) contacts.basisRegularization reaches the OCP's input cost at start-up */
-/******************************************************************************************************/
+// (5e) contacts.basisRegularization reaches the OCP's input cost at start-up
 TEST_F(BasisInputsFormulationTest,
        TheNamedRegularizationShapesTheStartUpInputCost) {
   const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> variant =
@@ -1098,9 +1063,7 @@ TEST_F(BasisInputsFormulationTest,
   EXPECT_GE(numCostsChecked, 1u) << "No quadratic input cost found in the OCP";
 }
 
-/******************************************************************************************************/
-/* (6) The wrench-space formulation is unchanged */
-/******************************************************************************************************/
+// (6) The wrench-space formulation is unchanged
 TEST_F(BasisInputsFormulationTest, WrenchModeUnchanged) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/false);
   ASSERT_TRUE(h.interface) << "Failed to construct the wrench-mode interface: "

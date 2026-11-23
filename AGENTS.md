@@ -175,6 +175,8 @@ Enforced by:
   - quoted non-system includes (`include-style`);
   - class comments (`class-comment`);
   - braces around `if ... else` (`if-else-braces`);
+  - no `/*****/` separator banners between definitions; a section title is a plain `//` comment
+    (`separator-banner`);
   - the `TODO` format (`todo-format`);
   - inclusive language (`inclusive-language`);
   - the license block (`license-header`);

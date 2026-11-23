@@ -234,10 +234,6 @@ rollingStepSchedulerSettingsFromConfig(const mpc_config::GaitFile& gaitFile,
   return settings;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 RollingStepScheduler::RollingStepScheduler(
     RollingStepSchedulerSettings settings,
     size_t numContacts,

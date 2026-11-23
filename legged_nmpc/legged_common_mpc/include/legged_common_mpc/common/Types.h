@@ -88,13 +88,11 @@ using ad_matrix3_t = MATRIX3_T<ad_scalar_t>;
 using ad_matrix6_t = MATRIX6_T<ad_scalar_t>;
 using ad_quaternion_t = QUATERNION_T<ad_scalar_t>;
 
-/******************************************************************************************************/
 /* Contacts definition
 
   Contact wrench F = [f_x, f_y, f_z, M_x, M_y, M_z]^T
 
 */
-/******************************************************************************************************/
 
 // One value per contact of a set and its active contacts:
 // common/ContactArray.h and common/ContactMask.h; the biped's two feet:
@@ -112,7 +110,6 @@ inline constexpr size_t kWrenchTorqueYIndex = kForceDim + kYAxisIndex;
 
 namespace legged {
 
-/******************************************************************************************************/
 /* Floating base & generalized coordinates definition
    The floating base is Pinocchio's Composite(Translation, Spherical) root
    joint: its configuration is the position (x, y, z) and the unit quaternion
@@ -121,7 +118,6 @@ namespace legged {
    base degrees of freedom. The display keeps the Euler angles (yaw, pitch,
    roll) of the orientation (getBaseDofNames()).
 */
-/******************************************************************************************************/
 
 inline constexpr size_t kBasePosZIndex = kZAxisIndex;
 

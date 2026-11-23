@@ -42,9 +42,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 ZeroWrenchConstraint::ZeroWrenchConstraint(
     const SwitchedModelReferenceManager& referenceManager,
     size_t contactPointIndex,
@@ -61,27 +58,17 @@ ZeroWrenchConstraint::ZeroWrenchConstraint(
   numConstraints_ = mpcRobotModel.getContactInputDim(contactPointIndex);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 // The copy borrows the model, exactly as the primary constructor does. Cloning
 // it would leak, since the member is a raw non-owning pointer; the model
 // outlives every constraint and its accessors are const and thread safe.
 ZeroWrenchConstraint::ZeroWrenchConstraint(const ZeroWrenchConstraint& rhs) =
     default;
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 bool ZeroWrenchConstraint::isActive(scalar_t time) const {
   if (!isActive_) return false;
   return !referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t ZeroWrenchConstraint::getValue(
     scalar_t /*time*/,
     const vector_t& /*state*/,
@@ -92,9 +79,6 @@ vector_t ZeroWrenchConstraint::getValue(
   return input.segment(contactBlockStart_, numConstraints_);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionLinearApproximation ZeroWrenchConstraint::getLinearApproximation(
     scalar_t time,
     const vector_t& state,

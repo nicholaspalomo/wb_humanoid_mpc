@@ -57,6 +57,8 @@ Each check cites the guide section it enforces:
   `tuple` of one. Use `absl::NoDestructor<T>`, `constexpr`, or `static const T& x = *new T(...)`.
 - `class-comment` (Class comments): a namespace-scope class or struct defined in a header without a comment above it.
 - `if-else-braces` (Looping and branching statements): an `if ... else` without braces.
+- `separator-banner` (AGENTS.md): a line of nothing but a `/*****/` comment, the banner OCS2 puts between definitions.
+  A section title is a plain `//` comment.
 """
 
 import re
@@ -1192,6 +1194,29 @@ def check_if_else_braces(source: str, path: str) -> list[check_types.Finding]:
     return findings
 
 
+SEPARATOR_BANNER = "separator-banner"
+_SEPARATOR_BANNER = re.compile(
+    r"^[ \t]*/\*{10,}/[ \t]*(?://.*)?$", re.MULTILINE
+)
+
+
+def check_separator_banner(
+    source: str, path: str
+) -> list[check_types.Finding]:
+    """Lines that hold nothing but a `/*****/` separator comment."""
+    return [
+        check_types.Finding(
+            path,
+            source.count("\n", 0, match.start()) + 1,
+            1,
+            SEPARATOR_BANNER,
+            "separator banner: delete it, and write a section title as a"
+            " plain `//` comment (AGENTS.md).",
+        )
+        for match in _SEPARATOR_BANNER.finditer(source)
+    ]
+
+
 NON_TEST = lint_files.Scope.FIRST_PARTY_NON_TEST
 FIRST_PARTY = lint_files.Scope.FIRST_PARTY
 
@@ -1346,5 +1371,12 @@ CHECKS = [
             "an `if ... else` always has braces (AGENTS.md; G: Looping and"
             " branching statements)."
         ),
+    ),
+    check_types.Check(
+        name=SEPARATOR_BANNER,
+        languages=CPP,
+        scope=FIRST_PARTY,
+        check_source=check_separator_banner,
+        description="no `/*****/` separator banners (AGENTS.md).",
     ),
 ]

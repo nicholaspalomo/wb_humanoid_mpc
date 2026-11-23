@@ -1085,9 +1085,7 @@ TEST(WeightSchemaTest,
   }
 }
 
-/******************************************************************************************************/
-/* The shipped task files on the quaternion layout */
-/******************************************************************************************************/
+// The shipped task files on the quaternion layout
 
 /** A shipped MPC's task file and the URDF its ModelSettings are made of, from
  * the repository root. */

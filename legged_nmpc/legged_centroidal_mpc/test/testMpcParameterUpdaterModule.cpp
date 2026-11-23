@@ -509,9 +509,7 @@ class MpcParameterUpdaterModuleTest : public ::testing::Test {
   Built atlas_;
 };
 
-/******************************************************************************************************/
 // Construction
-/******************************************************************************************************/
 
 TEST_F(MpcParameterUpdaterModuleTest,
        TheNodeWiringAppliesTheCentroidalFieldsAndANullApplierIsRefused) {
@@ -560,9 +558,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
       << "positive control: the basis-space dimension is accepted";
 }
 
-/******************************************************************************************************/
 // The weights of the costs
-/******************************************************************************************************/
 
 TEST_F(MpcParameterUpdaterModuleTest,
        StateWeightsAreAppliedInPlaceToEveryWorker) {
@@ -1148,9 +1144,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
   }
 }
 
-/******************************************************************************************************/
 // The input cost under basis-vector contact inputs
-/******************************************************************************************************/
 
 TEST_F(MpcParameterUpdaterModuleTest,
        AnUnchangedReloadReproducesTheFactorysBasisSpaceInputCost) {
@@ -1336,9 +1330,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
   }
 }
 
-/******************************************************************************************************/
 // The constraints
-/******************************************************************************************************/
 
 TEST_F(
     MpcParameterUpdaterModuleTest,
@@ -1588,9 +1580,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
   }
 }
 
-/******************************************************************************************************/
 // The contact-implicit terms and the ground
-/******************************************************************************************************/
 
 /** The Atlas configuration under the contact-implicit formulation, with every
  * contact_implicit field off its default. */
@@ -1821,9 +1811,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
          "the one the interface holds";
 }
 
-/******************************************************************************************************/
 // The solver, the references and the planner
-/******************************************************************************************************/
 
 TEST_F(MpcParameterUpdaterModuleTest,
        OnlyTheHotSettingsOfTheSqpSolverAreApplied) {
@@ -2076,9 +2064,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
   EXPECT_NEAR((*module)->getConfig().planner.maxSolveTime, 0.345, 1.0e-12);
 }
 
-/******************************************************************************************************/
 // The pathways: the enqueued update and the watched files
-/******************************************************************************************************/
 
 TEST_F(MpcParameterUpdaterModuleTest,
        EnqueuedUpdatesAreAppliedByTheNextSolveNewestFirst) {
@@ -2298,9 +2284,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
       << "the reloaded limits must be the ones the target is built from";
 }
 
-/******************************************************************************************************/
 // The wiring every node uses
-/******************************************************************************************************/
 
 TEST_F(
     MpcParameterUpdaterModuleTest,

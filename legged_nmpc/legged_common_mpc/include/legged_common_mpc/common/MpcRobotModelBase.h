@@ -173,9 +173,7 @@ class MpcRobotModelBase {
   MpcRobotModelBase& operator=(MpcRobotModelBase&&) = delete;
   virtual MpcRobotModelBase* absl_nonnull clone() const = 0;
 
-  /******************************************************************************************************/
-  /*                                           Dimensions */
-  /******************************************************************************************************/
+  // Dimensions
 
   /** Entries of the state vector: its ambient size nx. */
   size_t getStateDim() const { return state_dim; }
@@ -192,9 +190,7 @@ class MpcRobotModelBase {
   /** Entries of the Pinocchio velocity v, the tangent of q: nv. */
   size_t getVelocityDim() const { return velocityDim_; }
 
-  /******************************************************************************************************/
-  /*                                          Start indices */
-  /******************************************************************************************************/
+  // Start indices
 
   virtual size_t getBaseStartindex() const = 0;
   /**
@@ -228,9 +224,7 @@ class MpcRobotModelBase {
     return kContactWrenchDim;
   }
 
-  /******************************************************************************************************/
-  /*                                     Generalized coordinates */
-  /******************************************************************************************************/
+  // Generalized coordinates
 
   virtual VECTOR_T<SCALAR_T> getGeneralizedCoordinates(
       const VECTOR_T<SCALAR_T>& state) const = 0;
@@ -268,8 +262,6 @@ class MpcRobotModelBase {
   virtual VECTOR_T<SCALAR_T> getGeneralizedVelocities(
       const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) = 0;
 
-  /******************************************************************************************************/
-
   virtual void setGeneralizedCoordinates(
       VECTOR_T<SCALAR_T>& state,
       const VECTOR_T<SCALAR_T>& generalizedCorrdinates) const = 0;
@@ -302,9 +294,7 @@ class MpcRobotModelBase {
       VECTOR_T<SCALAR_T>& state,
       scalar_t errPosBaseRtWorldEwrtWorldZ) const = 0;
 
-  /******************************************************************************************************/
-  /*                                      Base orientation */
-  /******************************************************************************************************/
+  // Base orientation
 
   /**
    * The base orientation xi of `state`, as the quaternion coefficients (x, y,
@@ -335,10 +325,7 @@ class MpcRobotModelBase {
    */
   virtual scalar_t getYawBaseRtWorld(const vector_t& state) const = 0;
 
-  /******************************************************************************************************/
-  /*                  The Euler boundary (quaternion_base_orientation/README.md,
-   * section 4.2)           */
-  /******************************************************************************************************/
+  // The Euler boundary (quaternion_base_orientation/README.md, section 4.2)
 
   // NOLINTBEGIN(euler-boundary): Euler boundary accessor (design section 4.2)
   /**
@@ -368,10 +355,7 @@ class MpcRobotModelBase {
       vector_t& state, const vector3_t& eulerzyxBaseRtWorld) const = 0;
   // NOLINTEND(euler-boundary)
 
-  /******************************************************************************************************/
-  /*                       Base angular velocity (a state that holds the base
-   * velocity)                 */
-  /******************************************************************************************************/
+  // Base angular velocity (a state that holds the base velocity)
   /*
    * Only for a model whose state holds the base velocity: one whose
    * getTuningLayout() has a angvel_base_rt_world_ewrt_base block
@@ -408,10 +392,7 @@ class MpcRobotModelBase {
   virtual BaseAngularVelocityJacobian getJacobianAngvelBaseRtWorldEwrtBase(
       const vector_t& state) const = 0;
 
-  /******************************************************************************************************/
-  /*                    The base's motion and a target knot's command (double
-   * precision)                */
-  /******************************************************************************************************/
+  // The base's motion and a target knot's command (double precision)
 
   /**
    * The base twist [v_W, w_W] of `state` with the joints moving at
@@ -466,9 +447,7 @@ class MpcRobotModelBase {
    * the yaw rate. */
   static constexpr int kRefPlanarMotionYawRateIndex = 2;
 
-  /******************************************************************************************************/
-  /*                                 Tuning layout and state values */
-  /******************************************************************************************************/
+  // Tuning layout and state values
 
   /**
    * The tuning layout of the task file's state blocks (initial_state,
@@ -500,9 +479,7 @@ class MpcRobotModelBase {
   virtual absl::StatusOr<vector_t> tuningFromState(
       const vector_t& state) const = 0;
 
-  /******************************************************************************************************/
-  /*                                       Interpolation */
-  /******************************************************************************************************/
+  // Interpolation
 
   /** The desired state of `targets` at `time`: interpolateStateTrajectory() of
    * its knots. `targets` is not empty. */
@@ -532,9 +509,7 @@ class MpcRobotModelBase {
    * joint angles, the identity orientation. */
   virtual vector_t getNeutralState() const = 0;
 
-  /******************************************************************************************************/
-  /*                                         Tangent maps */
-  /******************************************************************************************************/
+  // Tangent maps
 
   /**
    * d(body rotation tangent) / d(the orientation slots): the 3 x 4 matrix J
@@ -554,9 +529,7 @@ class MpcRobotModelBase {
    */
   virtual matrix_t getPinocchioTangentJacobian(const vector_t& state) const = 0;
 
-  /******************************************************************************************************/
-  /*                                Realtime measurement helpers */
-  /******************************************************************************************************/
+  // Realtime measurement helpers
   /*
    * For the control thread: they write into the caller's preallocated buffers
    * and allocate, check, log and throw nothing. The sizes are the caller's
@@ -593,9 +566,7 @@ class MpcRobotModelBase {
       const vector_t& jointVelocities,
       Eigen::Ref<vector_t> v) const = 0;
 
-  /******************************************************************************************************/
-  /*                                          Contacts */
-  /******************************************************************************************************/
+  // Contacts
   /**
    * Input-only contact wrench accessors.
    *
@@ -627,8 +598,6 @@ class MpcRobotModelBase {
   virtual VECTOR3_T<SCALAR_T> getTorqueContactEwrtParam(
       const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
 
-  /******************************************************************************************************/
-
   virtual void setWrenchContactEwrtParam(
       VECTOR_T<SCALAR_T>& input,
       const VECTOR6_T<SCALAR_T>& wrenchContactEwrtParam,
@@ -644,9 +613,7 @@ class MpcRobotModelBase {
       const VECTOR3_T<SCALAR_T>& torqueContactEwrtParam,
       size_t contactIndex) const = 0;
 
-  /******************************************************************************************************/
-  /*                              State-aware world-frame contact accessors */
-  /******************************************************************************************************/
+  // State-aware world-frame contact accessors
 
   /**
    * Returns the contact wrench [f, tau] expressed in the world (inertial)
@@ -713,9 +680,7 @@ class MpcRobotModelBase {
     setForceContactEwrtParam(input, forceContactEwrtWorld, contactIndex);
   }
 
-  /******************************************************************************************************/
-  /*                                         Joint angle */
-  /******************************************************************************************************/
+  // Joint angle
 
   /** The index of `jointName` among the MPC joints, or NotFound when it is not
    * an active joint of the MPC model. */

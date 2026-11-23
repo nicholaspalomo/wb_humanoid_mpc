@@ -55,10 +55,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 FootCollisionConstraint::FootCollisionConstraint(
     const SwitchedModelReferenceManager& referenceManager,
     const PinocchioInterface& pinocchioInterface,
@@ -76,19 +72,12 @@ FootCollisionConstraint::FootCollisionConstraint(
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 // isActive_ is copied deliberately: the SQP solver clones the problem once per
 // worker thread, and a copy constructor that dropped this flag silently
 // reverted a deactivated term to active.
 FootCollisionConstraint::FootCollisionConstraint(
     const FootCollisionConstraint& other) = default;
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 bool FootCollisionConstraint::isActive(scalar_t time) const {
   if (!isActive_) return false;
 
@@ -97,10 +86,6 @@ bool FootCollisionConstraint::isActive(scalar_t time) const {
   const ContactMask contactFlags = referenceManagerPtr_->getContactFlags(time);
   return !(contactFlags[kContactLeftIndex] && contactFlags[kContactRightIndex]);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 ad_vector_t FootCollisionConstraint::constraintFunction(
     ad_scalar_t /*time*/,

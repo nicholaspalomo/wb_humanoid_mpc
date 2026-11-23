@@ -53,10 +53,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(
     const SwitchedModelReferenceManager& referenceManager,
     const ContactRectangle& contactRectangle,
@@ -78,9 +74,6 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(
              modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 // The copy keeps isActive_: a hand-written copy constructor once dropped it, so
 // every per-thread copy the SQP solver makes of the problem silently reverted a
@@ -88,9 +81,6 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(
 ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(
     const ContactMomentXYConstraintCppAd& other) = default;
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 bool ContactMomentXYConstraintCppAd::isActive(scalar_t time) const {
   if (!isActive_) return false;
   // Under the contact-implicit formulation the mode schedule no longer decides
@@ -99,10 +89,6 @@ bool ContactMomentXYConstraintCppAd::isActive(scalar_t time) const {
   if (!scheduleGated_) return true;
   return referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(
     ad_scalar_t /*time*/,
@@ -147,9 +133,4 @@ ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(
               forceContactEwrtContact.z();
   return constraintValue;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 }  // namespace ocs2::legged

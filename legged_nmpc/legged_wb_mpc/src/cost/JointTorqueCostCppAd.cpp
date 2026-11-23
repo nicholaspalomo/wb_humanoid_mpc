@@ -82,10 +82,6 @@ absl::Status checkWeights(const vector_t& weights, size_t numJoints) {
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::StatusOr<std::unique_ptr<JointTorqueCostCppAd>>
 JointTorqueCostCppAd::Create(
     const vector_t& weights,
@@ -98,10 +94,6 @@ JointTorqueCostCppAd::Create(
   return absl::WrapUnique(new JointTorqueCostCppAd(
       weights, pinocchioInterface, mpcRobotModel, costName, modelSettings));
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 JointTorqueCostCppAd::JointTorqueCostCppAd(
     const vector_t& weights,
@@ -121,17 +113,9 @@ JointTorqueCostCppAd::JointTorqueCostCppAd(
             << weights.transpose();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 std::string JointTorqueCostCppAd::libraryName(absl::string_view costName) {
   return absl::StrCat(costName, "_fullMassMatrix");
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 absl::Status JointTorqueCostCppAd::setWeights(const vector_t& weights) {
   RETURN_IF_ERROR(
@@ -140,19 +124,11 @@ absl::Status JointTorqueCostCppAd::setWeights(const vector_t& weights) {
   return absl::OkStatus();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 JointTorqueCostCppAd::JointTorqueCostCppAd(const JointTorqueCostCppAd& other)
     : StateInputCostGaussNewtonAd(other),
       sqrtWeights_(other.sqrtWeights_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       mpcRobotModelPtr_(other.mpcRobotModelPtr_->clone()) {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 ad_vector_t JointTorqueCostCppAd::costVectorFunction(
     ad_scalar_t /*time*/,
@@ -163,8 +139,4 @@ ad_vector_t JointTorqueCostCppAd::costVectorFunction(
              state, input, pinocchioInterfaceCppAd_, *mpcRobotModelPtr_)
       .cwiseProduct(parameters);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 }  // namespace ocs2::legged

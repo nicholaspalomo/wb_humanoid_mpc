@@ -88,10 +88,6 @@ constexpr int kHasYawReferenceIndex = kYawReferenceIndex + 1;
 static_assert(static_cast<size_t>(kHasYawReferenceIndex) + 1 == kNumParameters);
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
     const SwitchedModelReferenceManager& referenceManager,
     const TaskSpaceFootCostSettings& settings,
@@ -134,10 +130,6 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
             << settings.swingVelocityReferenceWeight;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
     const CentroidalMpcEndEffectorFootCost& other)
     : StateInputCostGaussNewtonAd(other),
@@ -157,10 +149,6 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       mpcRobotModelAdPtr_(other.mpcRobotModelAdPtr_->clone()) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 vector12_t CentroidalMpcEndEffectorFootCost::contactWeights(
     const vector12_t& weights) const {
   if (!pointContact_) return weights;
@@ -173,10 +161,6 @@ vector12_t CentroidalMpcEndEffectorFootCost::contactWeights(
       .setZero();
   return pointWeights;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(
     ad_scalar_t /*time*/,
@@ -249,10 +233,6 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(
 
   return errors.cwiseProduct(sqrtWeightParams);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector_t CentroidalMpcEndEffectorFootCost::getParameters(
     scalar_t time,
@@ -341,8 +321,4 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(
   }
   return parameters;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 }  // namespace ocs2::legged

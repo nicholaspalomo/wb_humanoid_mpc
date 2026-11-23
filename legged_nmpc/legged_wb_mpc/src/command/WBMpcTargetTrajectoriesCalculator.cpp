@@ -132,10 +132,6 @@ WBMpcTargetTrajectoriesCalculator::WBMpcTargetTrajectoriesCalculator(
     : TargetTrajectoriesCalculatorBase(
           referenceSettings, defaultJointState, mpcRobotModel, mpcHorizon) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 TargetTrajectories
 WBMpcTargetTrajectoriesCalculator::poseCommandToTargetTrajectories(
     const vector4_t& poseCommand,
@@ -176,10 +172,6 @@ WBMpcTargetTrajectoriesCalculator::poseCommandToTargetTrajectories(
 
   return targetTrajectories;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 TargetTrajectories
 WBMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(

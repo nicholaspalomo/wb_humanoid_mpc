@@ -608,9 +608,7 @@ size_t numberOfStanceFeet(const BipedFeetArray<bool>& flags) {
 
 }  // namespace
 
-/******************************************************************************************************/
-/*                                   PARITY: the shipped, empty lists */
-/******************************************************************************************************/
+// PARITY: the shipped, empty lists
 
 TEST_F(LocomotionHeuristicIntegrationTest,
        ShippedTaskFileBuildsAnEmptyLayerAndInstallsIt) {
@@ -970,9 +968,7 @@ TEST_F(
   EXPECT_EQ(referenceManager->getPhaseVariable(50.0), 0.0);
 }
 
-/******************************************************************************************************/
-/*                                     The base-pose seam */
-/******************************************************************************************************/
+// The base-pose seam
 
 TEST_F(LocomotionHeuristicIntegrationTest,
        TheShippedCoefficientsReachTheReferenceWhenAHeuristicIsListed) {
@@ -1546,9 +1542,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
       << "about the world y axis, nose down";
 }
 
-/******************************************************************************************************/
-/*                                       The wrench seam */
-/******************************************************************************************************/
+// The wrench seam
 
 TEST_F(
     LocomotionHeuristicIntegrationTest,
@@ -1842,9 +1836,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   }
 }
 
-/******************************************************************************************************/
-/*                                       The foothold seam */
-/******************************************************************************************************/
+// The foothold seam
 
 TEST_F(LocomotionHeuristicIntegrationTest,
        FootholdSeamHasNoOpinionBeforeTheFirstSolve) {
@@ -2459,9 +2451,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
       << "a symmetric robot has symmetric hips";
 }
 
-/******************************************************************************************************/
-/*                                 Rejected through the task file */
-/******************************************************************************************************/
+// Rejected through the task file
 
 TEST_F(LocomotionHeuristicIntegrationTest,
        UnknownNameInTheTaskFileIsRejectedWithAStatus) {

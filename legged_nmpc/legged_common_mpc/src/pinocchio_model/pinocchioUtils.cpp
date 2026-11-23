@@ -73,10 +73,6 @@ pinocchio::FrameIndex hipFrameIdOf(const pinocchio::Model& model,
   return model.getFrameId(name);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::Status checkPinocchioJointNaming(
     const PinocchioInterface& pinocchioInterface,
     const ModelSettings& modelSettings,
@@ -131,10 +127,6 @@ absl::Status checkPinocchioJointNaming(
   return absl::OkStatus();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 JointPositionLimits readPinocchioJointLimits(
     const PinocchioInterface& pinocchioInterface,
     const ModelSettings& modelSettings,
@@ -165,10 +157,6 @@ JointPositionLimits readPinocchioJointLimits(
   return JointPositionLimits{.lower = std::move(lower_limits),
                              .upper = std::move(upper_limits)};
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model,
                                 scalar_t targetRobotMass,

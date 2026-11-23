@@ -150,9 +150,6 @@ std::optional<size_t> mnormAngmomStartIndex(const TuningLayout& layout) {
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 SwitchedModelReferenceManager::SwitchedModelReferenceManager(
     std::shared_ptr<GaitSchedule> gaitSchedulePtr,
     std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
@@ -184,9 +181,6 @@ SwitchedModelReferenceManager::SwitchedModelReferenceManager(
       mpcRobotModel.modelSettings.posSurfaceRtWorldEwrtWorldZ;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 void SwitchedModelReferenceManager::reset() {
   ReferenceManager::reset();
   // The ground is configuration and stays where it was last set. A target
@@ -215,9 +209,6 @@ void SwitchedModelReferenceManager::resetRuntimeState() {
   inertiaComEwrtHeading_.setZero();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 ContactMask SwitchedModelReferenceManager::getContactFlags(
     scalar_t time) const {
   return ContactMask::fromModeNumber(this->getModeSchedule().modeAtTime(time),
@@ -230,10 +221,6 @@ ContactPatchFrame SwitchedModelReferenceManager::getContactPatchFrame(
                            .posSurfaceRtWorldEwrtSurfaceZ =
                                appliedPosSurfaceRtWorldEwrtWorldZ_.load()};
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 scalar_t SwitchedModelReferenceManager::getPhaseVariable(scalar_t time) const {
   const std::vector<scalar_t>::const_iterator it = std::upper_bound(
@@ -420,9 +407,6 @@ absl::Status SwitchedModelReferenceManager::configureLegJointReference(
       "[SwitchedModelReferenceManager] not a leg joint reference.");
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector3_t SwitchedModelReferenceManager::getSwingRefNormalSurfaceEwrtWorld(
     size_t contactIndex, scalar_t time) const {
   // A flat foot's normal is the world z axis.
@@ -468,9 +452,6 @@ vector3_t SwitchedModelReferenceManager::getSwingRefNormalSurfaceEwrtWorld(
                    std::cos(swingRefTiltangleFootRtSurface));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::optional<vector2_t>
 SwitchedModelReferenceManager::getSwingRefLinvelFootRtWorldEwrtWorldXy(
     size_t contactIndex, scalar_t time) const {
@@ -1024,9 +1005,6 @@ vector2_t SwitchedModelReferenceManager::getCmdLinvelBaseRtWorldEwrtWorldXy(
              : vector2_t::Zero();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 scalar_t SwitchedModelReferenceManager::applyPosSurfaceRtWorldEwrtWorldZ(
     TargetTrajectories& targetTrajectories,
     const vector_t& /*initState*/,
@@ -1065,10 +1043,6 @@ scalar_t SwitchedModelReferenceManager::applyPosSurfaceRtWorldEwrtWorldZ(
   refPosSurfaceRtWorldEwrtWorldZ_ = posSurfaceRtWorldEwrtWorldZ;
   return posSurfaceRtWorldEwrtWorldZ;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector_t SwitchedModelReferenceManager::getDesiredState(
     const TargetTrajectories& targetTrajectories,
@@ -1279,10 +1253,6 @@ SwitchedModelReferenceManager::computeOffsetAngvelBaseRtWorldEwrtWorld(
          bodyRatesFromEulerZyxRates(shapedEulerzyxBaseRtWorld,
                                     offsetRateEulerzyxBaseRtWorld);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector_t SwitchedModelReferenceManager::getDesiredInput(
     const TargetTrajectories& targetTrajectories,
@@ -1559,9 +1529,6 @@ vector_t SwitchedModelReferenceManager::getDesiredContactInput(
   return input;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 void SwitchedModelReferenceManager::modifyReferences(
     scalar_t initTime,
     scalar_t finalTime,

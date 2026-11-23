@@ -78,9 +78,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/* Safe normalization (design section 2.6) */
-/******************************************************************************************************/
+// Safe normalization (design section 2.6)
 
 /**
  * epsilon of design section 2.6: a quaternion with |xi| <= epsilon is read as
@@ -125,9 +123,7 @@ ad_scalar_t safeQuaternionNorm(const ad_vector4_t& xi);
 vector4_t safelyNormalizedQuaternion(const vector4_t& xi);
 ad_vector4_t safelyNormalizedQuaternion(const ad_vector4_t& xi);
 
-/******************************************************************************************************/
-/* The configuration tangent lift (design section 2.1) */
-/******************************************************************************************************/
+// The configuration tangent lift (design section 2.1)
 
 /**
  * E^+(xi) = 2 G^T(xi_hat) / n_safe(xi) = 2 G^T(xi) / n_safe(xi)^2, the 3 x 4
@@ -146,9 +142,7 @@ ad_vector4_t safelyNormalizedQuaternion(const ad_vector4_t& xi);
 Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients>
 configurationTangentLift(const vector4_t& xi);
 
-/******************************************************************************************************/
-/* Heading and tilt (design section 2.8.1) */
-/******************************************************************************************************/
+// Heading and tilt (design section 2.8.1)
 
 /*
  * Two sets of attitudes are singular for the twist-swing split, and the

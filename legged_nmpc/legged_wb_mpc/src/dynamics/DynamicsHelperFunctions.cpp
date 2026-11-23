@@ -68,10 +68,6 @@ ContactArray<VECTOR6_T<SCALAR_T>> computeWrenchContactsEwrtWorld(
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 template <typename SCALAR_T>
 VECTOR6_T<SCALAR_T> computeBaseGeneralizedAcceleration(
     const VECTOR_T<SCALAR_T>& state,
@@ -130,10 +126,6 @@ template vector6_t computeBaseGeneralizedAcceleration(
     const PinocchioInterfaceTpl<scalar_t>& pinInterface,
     const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel);
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> computeGeneralizedAccelerations(
     const VECTOR_T<SCALAR_T>& state,
@@ -161,10 +153,6 @@ template vector_t computeGeneralizedAccelerations(
     const vector_t& input,
     const PinocchioInterfaceTpl<scalar_t>& pinInterface,
     const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel);
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> computeStateDerivative(
@@ -210,10 +198,6 @@ template vector_t computeStateDerivative(
     const PinocchioInterfaceTpl<scalar_t>& pinInterface,
     const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel);
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> computeJointTorques(
     const VECTOR_T<SCALAR_T>& state,
@@ -245,10 +229,6 @@ template vector_t computeJointTorques(
     const vector_t& input,
     PinocchioInterfaceTpl<scalar_t>& pinInterface,
     const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel);
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> computeBaseHeldJointTorques(

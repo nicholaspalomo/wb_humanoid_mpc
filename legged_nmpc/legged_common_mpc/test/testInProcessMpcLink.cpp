@@ -635,9 +635,7 @@ TEST_F(InProcessMpcLinkTest,
   }
 }
 
-/******************************************************************************************************/
-/* The state manifold of the MPC's problem */
-/******************************************************************************************************/
+// The state manifold of the MPC's problem
 
 /** [rad] The turn about z the plan of TurningQuaternionSolver makes between
  * consecutive nodes. */

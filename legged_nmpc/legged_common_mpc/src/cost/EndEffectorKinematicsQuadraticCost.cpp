@@ -61,10 +61,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
     const EndEffectorKinematicsWeights& weights,
     const PinocchioInterface& pinocchioInterface,
@@ -101,10 +97,6 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
     const EndEffectorKinematicsQuadraticCost& other)
     : StateInputCostGaussNewtonAd(other),
@@ -119,10 +111,6 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
       // this flag silently reverted a deactivated term to active.
       isActive_(other.isActive_),
       referenceManagerPtr_(other.referenceManagerPtr_) {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector_t EndEffectorKinematicsQuadraticCost::getParameters(
     scalar_t time,
@@ -146,10 +134,6 @@ vector_t EndEffectorKinematicsQuadraticCost::getParameters(
   return parameters;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 EndEffectorKinematicsCostElement<scalar_t>
 EndEffectorKinematicsQuadraticCost::getReferenceCostElement(
     const vector_t& state,
@@ -166,10 +150,6 @@ EndEffectorKinematicsQuadraticCost::getReferenceCostElement(
       endEffectorKinematics.getAngvelEesRtWorldEwrtWorld(state, input)[0]);
   return costElement;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 ad_vector_t EndEffectorKinematicsQuadraticCost::costVectorFunction(
     ad_scalar_t /*time*/,

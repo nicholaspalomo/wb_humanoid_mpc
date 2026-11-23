@@ -70,10 +70,6 @@ std::unique_ptr<PenaltyBase> makeLambdaPenalty(
 }
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 BasisScalingNonNegativityConstraint::BasisScalingNonNegativityConstraint(
     const SwitchedModelReferenceManager& referenceManager,
     size_t contactIndex,
@@ -99,10 +95,6 @@ BasisScalingNonNegativityConstraint::BasisScalingNonNegativityConstraint(
       barrierConfig_(rhs.barrierConfig_),
       penaltyPtr_(rhs.penaltyPtr_->clone()) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 bool BasisScalingNonNegativityConstraint::isActive(scalar_t time) const {
   // Under the contact-implicit formulation this is the only bound on λ, and the
   // mode schedule must not be allowed to switch it off for a foot the solver
@@ -113,10 +105,6 @@ bool BasisScalingNonNegativityConstraint::isActive(scalar_t time) const {
   // makes the gate sound.
   return referenceManagerPtr_->isInContact(time, contactIndex_);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 scalar_t BasisScalingNonNegativityConstraint::getValue(
     scalar_t /*time*/,
@@ -131,10 +119,6 @@ scalar_t BasisScalingNonNegativityConstraint::getValue(
           [&](scalar_t h) { return penaltyPtr_->getValue(/*t=*/0.0, h); })
       .sum();
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 ScalarFunctionQuadraticApproximation
 BasisScalingNonNegativityConstraint::getQuadraticApproximation(

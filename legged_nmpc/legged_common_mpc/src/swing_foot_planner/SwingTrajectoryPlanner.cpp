@@ -61,10 +61,6 @@ scalar_t smoothStep(scalar_t u) {
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 SwingTrajectoryPlanner::SwingTrajectoryPlanner(Config config, size_t numFeet)
     : config_(config),
       numFeet_(numFeet),
@@ -73,10 +69,6 @@ SwingTrajectoryPlanner::SwingTrajectoryPlanner(Config config, size_t numFeet)
       desPosFeetRtWorldEwrtWorldZTraj_(numFeet),
       feetHeightTrajectoriesEvents_(numFeet) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 scalar_t SwingTrajectoryPlanner::getDesLinaccFootRtWorldEwrtWorldZ(
     size_t leg, scalar_t time) const {
   const int index =
@@ -84,10 +76,6 @@ scalar_t SwingTrajectoryPlanner::getDesLinaccFootRtWorldEwrtWorldZ(
   if (isSearching(swingWindows_[leg][index], time)) return 0.0;
   return desPosFeetRtWorldEwrtWorldZTraj_[leg][index].secondDerivative(time);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 scalar_t SwingTrajectoryPlanner::getDesLinvelFootRtWorldEwrtWorldZ(
     size_t leg, scalar_t time) const {
@@ -98,9 +86,6 @@ scalar_t SwingTrajectoryPlanner::getDesLinvelFootRtWorldEwrtWorldZ(
   return desPosFeetRtWorldEwrtWorldZTraj_[leg][index].derivative(time);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 scalar_t SwingTrajectoryPlanner::getDesPosFootRtWorldEwrtWorldZ(
     size_t leg, scalar_t time) const {
   const int index =
@@ -112,10 +97,6 @@ scalar_t SwingTrajectoryPlanner::getDesPosFootRtWorldEwrtWorldZ(
   }
   return desPosFeetRtWorldEwrtWorldZTraj_[leg][index].value(time);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 scalar_t SwingTrajectoryPlanner::getImpactProximityFactor(size_t leg,
                                                           scalar_t time) const {
@@ -129,10 +110,6 @@ scalar_t SwingTrajectoryPlanner::getImpactProximityFactor(size_t leg,
   return impactProximityTrajectories_[leg][index].value(time);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 scalar_t SwingTrajectoryPlanner::swingPitchProfile(scalar_t tau) const {
   // Smoothstep up, hold, smoothstep down. The two ramps are clamped so that
   // they never overlap even if the configured fractions sum to more than one,
@@ -145,10 +122,6 @@ scalar_t SwingTrajectoryPlanner::swingPitchProfile(scalar_t tau) const {
   if (fall > 0.0 && tau > 1.0 - fall) return smoothStep((1.0 - tau) / fall);
   return 1.0;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 scalar_t SwingTrajectoryPlanner::getSwingRefTiltangleFootRtSurface(
     size_t leg, scalar_t time) const {
@@ -173,10 +146,6 @@ scalar_t SwingTrajectoryPlanner::getSwingRefTiltangleFootRtSurface(
          swingPitchProfile(tau);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
                                     scalar_t posSurfaceRtWorldEwrtWorldZ) {
   const scalar_array_t posSurfaceRtWorldEwrtWorldZTraj(
@@ -193,10 +162,6 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
          touchdownPosFeetRtWorldEwrtWorldZTraj);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void SwingTrajectoryPlanner::update(
     const ModeSchedule& modeSchedule,
     const ContactArray<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
@@ -206,10 +171,6 @@ void SwingTrajectoryPlanner::update(
          ContactArray<std::optional<GroundSearch>>(
              numFeet_, /*value=*/std::optional<GroundSearch>{}));
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void SwingTrajectoryPlanner::update(
     const ModeSchedule& modeSchedule,
@@ -328,10 +289,6 @@ void SwingTrajectoryPlanner::appendStancePhase(
       impactProximityTouchDown, 1.0, impactProximityLiftOff);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 SwingTrajectoryPlanner::SwingSplines SwingTrajectoryPlanner::makeSwingSplines(
     const SwingWindow& window,
     scalar_t liftoffPosFootRtWorldEwrtWorldZ,
@@ -370,10 +327,6 @@ SwingTrajectoryPlanner::SwingSplines SwingTrajectoryPlanner::makeSwingSplines(
   };
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 SwingTrajectoryPlanner::FootSwingEventIndices
 SwingTrajectoryPlanner::updateFootSchedule(
     const std::vector<bool>& contactFlagStock) {
@@ -395,10 +348,6 @@ SwingTrajectoryPlanner::updateFootSchedule(
       .finalTimeIndices = std::move(finalTimeIndexStock)};
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 ContactArray<std::vector<bool>> SwingTrajectoryPlanner::extractContactFlags(
     absl::Span<const size_t> phaseIDsStock) const {
   const size_t numPhases = phaseIDsStock.size();
@@ -415,10 +364,6 @@ ContactArray<std::vector<bool>> SwingTrajectoryPlanner::extractContactFlags(
   }
   return contactFlagStock;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 SwingTrajectoryPlanner::SwingEventIndices SwingTrajectoryPlanner::findIndex(
     size_t index, const std::vector<bool>& contactFlagStock) {
@@ -451,19 +396,11 @@ SwingTrajectoryPlanner::SwingEventIndices SwingTrajectoryPlanner::findIndex(
                            .finalTimeIndex = finalTimesIndex};
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 bool SwingTrajectoryPlanner::isPlannableSwing(int startIndex,
                                               int finalIndex,
                                               size_t numPhases) {
   return startIndex >= 0 && static_cast<size_t>(finalIndex) + 1 < numPhases;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 scalar_t SwingTrajectoryPlanner::swingTrajectoryScaling(
     scalar_t startTime, scalar_t finalTime, scalar_t swingTimeScale) {

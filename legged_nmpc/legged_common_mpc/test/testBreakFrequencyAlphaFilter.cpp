@@ -236,10 +236,7 @@ TEST(BreakFrequencyAlphaFilter,
   EXPECT_TRUE(BreakFrequencyAlphaFilter::validateBreakFrequency(0.0).ok());
 }
 
-/******************************************************************************************************/
-/*                 The reference file's field ProceduralMpcMotionManager is
- * configured from                 */
-/******************************************************************************************************/
+// The reference file's field ProceduralMpcMotionManager is configured from
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;

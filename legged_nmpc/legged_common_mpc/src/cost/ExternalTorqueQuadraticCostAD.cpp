@@ -61,10 +61,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::StatusOr<std::unique_ptr<ExternalTorqueQuadraticCostAD>>
 ExternalTorqueQuadraticCostAD::Create(
     size_t endEffectorIndex,
@@ -137,10 +133,6 @@ ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(
     const ExternalTorqueQuadraticCostAD& other)
     : StateInputCostGaussNewtonAd(other),
@@ -158,18 +150,10 @@ ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(
       // this flag silently reverted a deactivated term to active.
       isActive_(other.isActive_) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 bool ExternalTorqueQuadraticCostAD::isActive(scalar_t time) const {
   if (!isActive_) return false;
   return referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector_t ExternalTorqueQuadraticCostAD::getParameters(
     scalar_t time,
@@ -185,10 +169,6 @@ vector_t ExternalTorqueQuadraticCostAD::getParameters(
   return params;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 absl::Status ExternalTorqueQuadraticCostAD::setWeights(
     const vector_t& weights) {
   if (static_cast<size_t>(weights.size()) != activeJointNames_.size()) {
@@ -200,10 +180,6 @@ absl::Status ExternalTorqueQuadraticCostAD::setWeights(
   sqrtWeights_ = weights.cwiseSqrt();
   return absl::OkStatus();
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(
     ad_scalar_t /*time*/,

@@ -265,10 +265,6 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
   nominalJointPositions_.reserve(robotDescription.getNumJoints());
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void CentroidalMpcMrtJointController::applyRollingContactLeverArms() {
   // A rolling contact's frame is the wheel center (ModelSettings::PointContact)
   // while its force acts at the wheel's lowest point: the wrench at the frame
@@ -404,18 +400,10 @@ void CentroidalMpcMrtJointController::pollPdGainsFile() {
   postPdGains(**std::move(loaded), pdGainsFile_, ticket).IgnoreError();
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 CentroidalMpcMrtJointController::~CentroidalMpcMrtJointController() {
   // Stop the solver before anything its reset target reads is destroyed.
   if (mpcLink_ != nullptr) mpcLink_->stop();
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void CentroidalMpcMrtJointController::startMpcThread(
     const ::robot::model::RobotState& initRobotState) {
@@ -423,10 +411,6 @@ void CentroidalMpcMrtJointController::startMpcThread(
   // Set observation to MPC and start serving policies.
   mpcLink_->start(currentMpcObservation_);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void CentroidalMpcMrtJointController::updateMpcState(
     vector_t& mpcState, const ::robot::model::RobotState& robotState) {
@@ -465,10 +449,6 @@ void CentroidalMpcMrtJointController::updateMpcState(
   centroidal_model::getGeneralizedCoordinates(mpcState, info) = qPinocchio_;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void CentroidalMpcMrtJointController::updateMpcObservation(
     ocs2::SystemObservation& mpcObservation,
     const ::robot::model::RobotState& robotState) {
@@ -496,10 +476,6 @@ void CentroidalMpcMrtJointController::updateMpcObservation(
   contactWrenchGate_.update(mpcObservation.time, measuredContactFlags_);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void CentroidalMpcMrtJointController::setContactWrenchGateConfig(
     const ContactWrenchGate::Config& config) {
   if (contactWrenchGate_.setConfig(config)) {
@@ -525,10 +501,6 @@ void CentroidalMpcMrtJointController::postEvent(ControllerEventCode code,
       makeControllerEvent(code, kControllerName, value0, value1, text));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void CentroidalMpcMrtJointController::setContactEstimator(
     std::shared_ptr<::robot::model::ContactEstimator> contactEstimator) {
   contactEstimator_ =
@@ -540,10 +512,6 @@ void CentroidalMpcMrtJointController::setContactEstimator(
   postEvent(ControllerEventCode::kContactEstimatorChanged, /*value0=*/0.0,
             /*value1=*/0.0, name);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void CentroidalMpcMrtJointController::computeJointControlAction(
     scalar_t /*time*/,
@@ -872,10 +840,6 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
   previousObservationTime_ = currentMpcObservation_.time;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void CentroidalMpcMrtJointController::setControlMode(absl::string_view mode) {
   // Called every cycle; compared and assigned through string_views, so that
   // nothing is allocated (controlMode_ holds any mode name in its small-string
@@ -1162,9 +1126,6 @@ void CentroidalMpcMrtJointController::blendJointAction(
                                  jointActionUnchecked(robotJointAction, index));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 TargetTrajectories
 CentroidalMpcMrtJointController::currentObservationToResetTrajectory(
     const SystemObservation& currentObservation) {
@@ -1199,9 +1160,6 @@ CentroidalMpcMrtJointController::currentObservationToResetTrajectory(
   return resetTargetTrajectories;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 void CentroidalMpcMrtJointController::fillPlannedCoordinates(
     const vector_t& state) {
   const Eigen::Index configurationDim =
@@ -1217,9 +1175,6 @@ void CentroidalMpcMrtJointController::fillPlannedCoordinates(
           state.segment<kQuaternionCoefficients>(orientationStart)));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 const vector_t& CentroidalMpcMrtJointController::computeGravityCompensation(
     const ::robot::model::RobotState& robotState) {
   // Pinocchio's configuration q of the measurement, in the workspaces (sized by
@@ -1234,10 +1189,6 @@ const vector_t& CentroidalMpcMrtJointController::computeGravityCompensation(
   // the composite root.
   return rigidBodyDynamics_->gravityJointTorques(gravityCoordinates_);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 std::optional<ContactMask>
 CentroidalMpcMrtJointController::getPlannedContactFlags(scalar_t time) const {

@@ -41,9 +41,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 WeightCompInitializer::WeightCompInitializer(
     const PinocchioInterface& pinocchioInterface,
     const SwitchedModelReferenceManager& referenceManager,
@@ -52,26 +49,14 @@ WeightCompInitializer::WeightCompInitializer(
       pinocchioInterfacePtr_(&pinocchioInterface),
       referenceManagerPtr_(&referenceManager) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 WeightCompInitializer::WeightCompInitializer(const WeightCompInitializer& rhs)
     : mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
       pinocchioInterfacePtr_(rhs.pinocchioInterfacePtr_),
       referenceManagerPtr_(rhs.referenceManagerPtr_) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 WeightCompInitializer* absl_nonnull WeightCompInitializer::clone() const {
   return new WeightCompInitializer(*this);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void WeightCompInitializer::compute(scalar_t time,
                                     const vector_t& state,

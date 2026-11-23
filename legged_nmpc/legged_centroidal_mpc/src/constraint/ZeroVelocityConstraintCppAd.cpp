@@ -48,9 +48,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 ZeroVelocityConstraintCppAd::ZeroVelocityConstraintCppAd(
     const SwitchedModelReferenceManager& referenceManager,
     const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
@@ -69,9 +66,6 @@ ZeroVelocityConstraintCppAd::ZeroVelocityConstraintCppAd(
       contactPointIndex_(contactPointIndex),
       contactKind_(contactKind) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 ZeroVelocityConstraintCppAd::ZeroVelocityConstraintCppAd(
     const ZeroVelocityConstraintCppAd& rhs)
     : StateInputConstraint(rhs),
@@ -84,17 +78,11 @@ ZeroVelocityConstraintCppAd::ZeroVelocityConstraintCppAd(
       // this flag silently reverted a deactivated term to active.
       isActive_(rhs.isActive_) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 bool ZeroVelocityConstraintCppAd::isActive(scalar_t time) const {
   if (!isActive_) return false;
   return referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 void ZeroVelocityConstraintCppAd::configureForEvaluation(
     scalar_t time, const PreComputation& preComp) const {
   const LeggedPreComputation& leggedPreComp =
@@ -121,9 +109,6 @@ void ZeroVelocityConstraintCppAd::configureForEvaluation(
                           patch.posSurfaceRtWorldEwrtSurfaceZ;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t ZeroVelocityConstraintCppAd::getValue(
     scalar_t time,
     const vector_t& state,
@@ -133,9 +118,6 @@ vector_t ZeroVelocityConstraintCppAd::getValue(
   return eeTwistConstraintPtr_->getValue(time, state, input, preComp);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionLinearApproximation
 ZeroVelocityConstraintCppAd::getLinearApproximation(
     scalar_t time,

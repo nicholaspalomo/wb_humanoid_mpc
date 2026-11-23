@@ -54,9 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
 /// Helper functions contained in a local anonymous namespace
-/******************************************************************************************************/
 namespace {
 
 // The fields of the task file's `contact_implicit` block, for

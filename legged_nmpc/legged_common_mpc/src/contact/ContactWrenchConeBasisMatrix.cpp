@@ -298,10 +298,6 @@ vector_t solvePassiveLeastSquares(const matrix_t& A,
 
 }  // namespace
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 std::vector<std::string> basisGeneratorSetNames() {
   std::vector<std::string> names;
   names.reserve(kGeneratorSetRegistry.size());
@@ -323,10 +319,6 @@ absl::StatusOr<BasisGeneratorSetBuilder> getBasisGeneratorSetBuilder(
                    kBasisGeneratorSetKey, " '", name, "'; valid names are: ",
                    absl::StrJoin(basisGeneratorSetNames(), ", "), "."));
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 absl::StatusOr<ContactWrenchConeBasisMatrix>
 ContactWrenchConeBasisMatrix::Create(
@@ -385,10 +377,6 @@ vector_t ContactWrenchConeBasisMatrix::solveNonNegativeScalings(
   return solveNonNegativeBasisScalings(B_local_, B_pinv_local_,
                                        wrenchContactEwrtContact);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector_t solveNonNegativeLeastSquares(const matrix_t& A, const vector_t& b) {
   const Eigen::Index numColumns = A.cols();
@@ -483,10 +471,6 @@ vector_t solveNonNegativeBasisScalings(
   }
   return solveNonNegativeLeastSquares(basisMatrix, wrenchContactEwrtContact);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 uint64_t basisContentHash(absl::Span<const matrix_t> localBasisMatrices) {
   std::string serialized;

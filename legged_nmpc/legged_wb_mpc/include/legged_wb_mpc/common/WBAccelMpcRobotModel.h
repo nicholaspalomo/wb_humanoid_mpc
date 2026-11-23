@@ -55,7 +55,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
 /* State Vector definition
 
   Define the state vector x = [q, v]^T = [p_W, xi, q_j, dp_W, w_B, qd_j]^T (13 +
@@ -70,9 +69,7 @@ namespace ocs2::legged {
   [w_x, w_y, w_z] in the base frame Joint velocities qd_j
 
 */
-/******************************************************************************************************/
 
-/******************************************************************************************************/
 /* Input Vector definition
 
   Define the input vector u = [W_l, W_r, qdd_j]^T
@@ -82,7 +79,6 @@ namespace ocs2::legged {
     Joint accelerations qdd_j
 
 */
-/******************************************************************************************************/
 
 /**
  * The state and input layout of the whole-body MPC (above): getters and setters
@@ -122,9 +118,7 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     return new WBAccelMpcRobotModel(*this);
   }
 
-  /******************************************************************************************************/
-  /*                                          Start indices */
-  /******************************************************************************************************/
+  // Start indices
 
   size_t getBaseStartindex() const override { return 0; };
   size_t getBaseOrientationStartIndex() const override { return kPositionDim; }
@@ -154,9 +148,7 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   };
   // LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/config/weights/StateInputWeightsFromConfig.cpp:input_offsets)
 
-  /******************************************************************************************************/
-  /*                                     Generalized coordinates */
-  /******************************************************************************************************/
+  // Generalized coordinates
 
   /** q = [p_W, xi_hat, q_j] of state.head(nq), with the quaternion safely
    * normalized (safelyNormalizedQuaternion()). */
@@ -282,10 +274,7 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     state[kZAxisIndex] += errPosBaseRtWorldEwrtWorldZ;
   }
 
-  /******************************************************************************************************/
-  /*                   Layout-agnostic accessors (MpcRobotModelBase), the
-   * quaternion layout             */
-  /******************************************************************************************************/
+  // Layout-agnostic accessors (MpcRobotModelBase), the quaternion layout
 
   VECTOR4_T<SCALAR_T> getQuatBaseRtWorldXyzw(
       const VECTOR_T<SCALAR_T>& state) const override {
@@ -459,9 +448,7 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     v.tail(this->modelSettings.mpc_joint_dim) = jointVelocities;
   }
 
-  /******************************************************************************************************/
-  /*                                          Contacts */
-  /******************************************************************************************************/
+  // Contacts
 
   VECTOR6_T<SCALAR_T> getWrenchContactEwrtParam(
       const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {

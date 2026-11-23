@@ -80,9 +80,6 @@ GaitModeLayout gaitModeLayoutOf(const ModelSettings& modelSettings) {
   return layout;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 GaitSchedule::GaitSchedule(ModeSchedule initModeSchedule,
                            ModeSequenceTemplate initModeSequenceTemplate,
                            scalar_t phaseTransitionStanceTime,
@@ -94,18 +91,10 @@ GaitSchedule::GaitSchedule(ModeSchedule initModeSchedule,
       phaseTransitionStanceTime_(phaseTransitionStanceTime),
       modeLayout_(std::move(modeLayout)) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void GaitSchedule::reset() {
   modeSchedule_ = initModeSchedule_;
   modeSequenceTemplate_ = initModeSequenceTemplate_;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void GaitSchedule::insertModeSequenceTemplate(
     const ModeSequenceTemplate& modeSequenceTemplate,
@@ -142,9 +131,6 @@ void GaitSchedule::insertModeSequenceTemplate(
   tileModeSequenceTemplate(startTime + phaseTransitionStanceTime, finalTime);
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime,
                                            scalar_t upperBoundTime) {
   std::vector<scalar_t>& eventTimes = modeSchedule_.eventTimes;
@@ -177,9 +163,6 @@ ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime,
   return modeSchedule_;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime,
                                             scalar_t finalTime) {
   std::vector<scalar_t>& eventTimes = modeSchedule_.eventTimes;
@@ -219,10 +202,6 @@ void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime,
   // default final phase
   modeSequence.push_back(modeLayout_.stanceMode);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 namespace {
 
@@ -279,10 +258,6 @@ absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(
   }
   return schedule;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 void GaitSchedule::updateModeSchedule(const ModeSchedule& modeSchedule) {
   modeSchedule_ = modeSchedule;

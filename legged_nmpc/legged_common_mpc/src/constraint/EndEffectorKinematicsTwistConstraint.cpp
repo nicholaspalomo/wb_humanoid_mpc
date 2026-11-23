@@ -47,10 +47,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::legged {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
     const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
     size_t numConstraints,
@@ -65,10 +61,6 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
          "single end-effector!";
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
     const EndEffectorKinematicsTwistConstraint& rhs)
     : StateInputConstraint(rhs),
@@ -79,21 +71,11 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
       numConstraints_(rhs.numConstraints_),
       config_(rhs.config_) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 void EndEffectorKinematicsTwistConstraint::configure(Config&& config) {
   // Config matrices are always 6D (full pose). The constraint slices to
   // numConstraints_ rows at evaluation time.
   config_ = std::move(config);
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 matrix3_t EndEffectorKinematicsTwistConstraint::getTiltRateMap(
     const vector_t& state) const {
@@ -152,10 +134,6 @@ matrix_t EndEffectorKinematicsTwistConstraint::inPatchFrame(
   return rotated;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 vector_t EndEffectorKinematicsTwistConstraint::getValue(
     scalar_t /*time*/,
     const vector_t& state,
@@ -210,10 +188,6 @@ vector_t EndEffectorKinematicsTwistConstraint::getValue(
   }
   return f;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 VectorFunctionLinearApproximation
 EndEffectorKinematicsTwistConstraint::getLinearApproximation(
