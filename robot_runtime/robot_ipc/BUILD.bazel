@@ -8,7 +8,7 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
-# robot_ipc - the Cyclone DDS bus of the distributed runtime (legged_nmpc/docs/distributed_runtime/README.md), in C++
+# robot_ipc - the Zenoh bus of the distributed runtime (legged_nmpc/docs/distributed_runtime/README.md), in C++
 # and in Python. Generic: it knows nothing of the MPC's messages, which live in legged_nmpc; the shipped
 # network file names the MPC's topics only to give each its quality of service.
 
@@ -39,34 +39,6 @@ cc_proto_library(
 py_proto_library(
     name = "network_config_py_proto",
     deps = [":network_config_proto"],
-)
-
-# ==============================================================================
-# The DDS type of every topic
-# ==============================================================================
-
-# robot_ipc::Envelope (idl/Envelope.idl): idlc, the IDL compiler of the cyclonedds module, generates its C type support,
-# which the C++ bus registers for every topic. The Python bus declares the same struct (python/robot_ipc/envelope.py).
-genrule(
-    name = "envelope_type_support",
-    srcs = ["idl/Envelope.idl"],
-    outs = [
-        "idl/Envelope.c",
-        "idl/Envelope.h",
-    ],
-    cmd = "$(location @cyclonedds//:idlc) -l c -o $(RULEDIR)/idl $(location idl/Envelope.idl)",
-    tools = ["@cyclonedds//:idlc"],
-)
-
-# Generated C: GCC warns that the C++-only flags of FIRST_PARTY_COPTS do not apply to C, and compiles it under the rest.
-cc_library(
-    name = "envelope_type",
-    srcs = ["idl/Envelope.c"],
-    hdrs = ["idl/Envelope.h"],
-    copts = FIRST_PARTY_COPTS,
-    includes = ["idl"],
-    visibility = ["//visibility:private"],
-    deps = ["@cyclonedds//:ddsc"],
 )
 
 # config/ipc/network.textproto as a string constant, so that localhostNetworkConfig() is the shipped file itself.
@@ -113,12 +85,14 @@ cc_library(
         "LocalhostNetworkText.h",
         "src/Bus.cpp",
         "src/Delivery.cpp",
-        "src/DomainConfig.cpp",
-        "src/DomainRegistry.cpp",
-        "src/DomainRegistry.h",
+        "src/KeyExprs.cpp",
         "src/NetworkConfig.cpp",
         "src/QosProfile.cpp",
+        "src/SessionConfig.cpp",
+        "src/SessionRegistry.cpp",
+        "src/SessionRegistry.h",
         "src/StatusMacros.h",
+        "src/WireProtocol.cpp",
     ],
     copts = FIRST_PARTY_COPTS,
     hdrs = glob(["include/robot_ipc/*.h"]),
@@ -126,7 +100,6 @@ cc_library(
     deps = [
         "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/strings:string_view",
-        ":envelope_type",
         ":network_config_cc_proto",
         ":textproto",
         "@abseil-cpp//absl/base:core_headers",
@@ -143,8 +116,9 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
-        "@cyclonedds//:ddsc",
+        "@abseil-cpp//absl/types:span",
         "@protobuf",
+        "@zenoh-c",
     ],
 )
 
@@ -174,7 +148,7 @@ py_library(
     imports = ["python"],
     deps = [
         ":network_config_py_proto",
-        requirement("cyclonedds"),
+        requirement("eclipse-zenoh"),
         requirement("protobuf"),
     ],
 )
@@ -252,10 +226,9 @@ cc_test(
     size = "small",
     srcs = ["test/testBus.cpp"],
     copts = FIRST_PARTY_COPTS,
-    # The bus never reads the variable: a configuration it named would fail every bus of the test.
-    env = {"CYCLONEDDS_URI": "<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"no_such_interface\"/></Interfaces></General></Domain></CycloneDDS>"},
+    # The bus never reads the variable: a configuration file it named would fail every bus of the test.
+    env = {"ZENOH_CONFIG": "/no_such_directory/zenoh.json5"},
     deps = [
-        ":envelope_type",
         ":robot_ipc",
         ":test_messages_cc_proto",
         ":test_network",
@@ -269,8 +242,8 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
-        "@cyclonedds//:ddsc",
         "@googletest//:gtest_main",
+        "@zenoh-c",
     ],
 )
 
@@ -308,17 +281,17 @@ py_test(
     name = "bus_py_test",
     size = "small",
     srcs = ["test/test_bus.py"],
-    env = {"CYCLONEDDS_URI": "<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"no_such_interface\"/></Interfaces></General></Domain></CycloneDDS>"},
+    env = {"ZENOH_CONFIG": "/no_such_directory/zenoh.json5"},
     main = "test/test_bus.py",
     deps = [
         ":robot_ipc_py",
         ":test_messages_py_proto",
-        requirement("cyclonedds"),
+        requirement("eclipse-zenoh"),
     ],
 )
 
-# Python publishes and the C++ bus answers, and the other way round: the two buses speak one wire protocol over DDS,
-# generate one Cyclone DDS configuration, and carry policy-sized samples whole over a lossy link.
+# Python publishes and the C++ bus answers, and the other way round: the two buses speak one wire protocol over Zenoh,
+# generate one Zenoh configuration, and carry policy-sized samples whole.
 py_test(
     name = "cross_language_test",
     size = "medium",

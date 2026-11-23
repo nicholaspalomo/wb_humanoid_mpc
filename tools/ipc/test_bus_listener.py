@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Tests for bus_listener.py: the network file and the receive-only side of the bus over the test's DDS domain."""
+"""Tests for bus_listener.py: the network file and the receive-only side of the bus over the test's domain."""
 
 from collections.abc import Callable
 import os
@@ -40,7 +40,7 @@ import bus_test_publisher
 import robot_ipc
 
 TYPE_NAME = "legged_mpc_msgs.FsmCommand"
-# Generous: a loaded CI machine may take a while to discover, and a passing test returns as soon as it receives.
+# Generous: a loaded CI machine may take a while for the sessions to meet, and a passing test returns as soon as it receives.
 RECEIVE_TIMEOUT_S = 10.0
 
 
@@ -211,12 +211,12 @@ class BusListenerTest(unittest.TestCase):
                     return robot_topic in seen and mpc_topic in seen
 
                 self.assertTrue(wait_for(both_seen))
-                self.assertIn("DDS domain", listener.endpoints[0])
+                self.assertIn("domain ", listener.endpoints[0])
         self.assertEqual(seen[robot_topic], b"r")
         self.assertEqual(seen[mpc_topic], b"m")
 
     def test_a_topic_listener_receives_only_its_topic(self) -> None:
-        # Every topic is a DDS topic of its own: a longer name is another topic, not a match of a prefix.
+        # Every topic is a key expression of its own: a longer name is another topic, not a match of a prefix.
         topic = bus_test_publisher.unique_topic("state")
         with bus_test_publisher.MessagePublisher() as publisher:
             publisher.start(
@@ -249,19 +249,21 @@ class BusListenerTest(unittest.TestCase):
         with bus_listener.BusListener(
             bus_test_publisher.network(), topic=topic
         ) as listener:
-            writer = bus_test_publisher.RawEnvelopeWriter(topic)
-            self.assertTrue(wait_for(writer.matched))
-            writer.write(
-                robot_ipc.WIRE_PROTOCOL_VERSION + 1,
-                TYPE_NAME,
-                b"from the future",
-            )
-            writer.write(robot_ipc.WIRE_PROTOCOL_VERSION, TYPE_NAME, b"ok")
-            received = listener.receive(RECEIVE_TIMEOUT_S)
-            self.assertIsNotNone(received)
-            assert received is not None  # For the type checker.
-            self.assertEqual(received.payload, b"ok")
-            self.assertTrue(wait_for(lambda: listener.malformed_messages == 1))
+            with bus_test_publisher.RawEnvelopeWriter(topic) as writer:
+                self.assertTrue(wait_for(writer.matched))
+                writer.write(
+                    robot_ipc.WIRE_PROTOCOL_VERSION + 1,
+                    TYPE_NAME,
+                    b"from the future",
+                )
+                writer.write(robot_ipc.WIRE_PROTOCOL_VERSION, TYPE_NAME, b"ok")
+                received = listener.receive(RECEIVE_TIMEOUT_S)
+                self.assertIsNotNone(received)
+                assert received is not None  # For the type checker.
+                self.assertEqual(received.payload, b"ok")
+                self.assertTrue(
+                    wait_for(lambda: listener.malformed_messages == 1)
+                )
 
     def test_a_silent_bus_times_out(self) -> None:
         with bus_listener.BusListener(

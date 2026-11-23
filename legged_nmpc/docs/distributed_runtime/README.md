@@ -1,6 +1,6 @@
 # Distributed runtime: robot, MPC and operator
 
-This document describes how the legged NMPC runs as a set of processes that talk over **Cyclone DDS** with
+This document describes how the legged NMPC runs as a set of processes that talk over **Eclipse Zenoh** with
 **Protocol Buffers** messages, and how it is visualized with **Rerun**.
 
 The design is driven by one deployment:
@@ -19,7 +19,7 @@ flowchart LR
   subgraph Robot["Robot realtime computer"]
     direction TB
     RT["realtime thread<br/>backend read -> MRT joint controller -> backend write<br/>(no IPC, no protobuf, no locks it can wait on)"]
-    COMM_R["communication thread<br/>DDS, protobuf, file reading"]
+    COMM_R["communication thread<br/>Zenoh, protobuf, file reading"]
     RT -- "observation (triple buffer)<br/>telemetry (SPSC ring)" --> COMM_R
     COMM_R -- "policy (MRT_BASE buffer, try-lock)<br/>commands (triple buffers, SPSC queues)" --> RT
   end
@@ -63,17 +63,21 @@ the MPC. `InProcessMpcLink` (the solver on a thread of the process, through `ocs
 controller unit tests and the deterministic lockstep closed loop of `legged_nmpc/legged_mpc_validation`, which runs
 its solver iterations itself (`InProcessMpcLink::Execution::kCaller`, `runSolverIteration()`) on the simulation's clock.
 
-## IPC: a Cyclone DDS bus without ROS
+## IPC: a Zenoh bus without ROS
 
 `robot_runtime/robot_ipc` (C++) and its Python twin (`robot_runtime/robot_ipc/python/robot_ipc`) implement one
-pattern on [Eclipse Cyclone DDS](https://cyclonedds.io) - the DDS library alone, without ROS, rmw or ROS IDL packages:
+pattern on [Eclipse Zenoh](https://zenoh.io) - `zenoh-c` and the `eclipse-zenoh` wheel alone, without ROS, rmw, ROS
+IDL packages or a Zenoh router:
 
-- Every process joins the DDS domain of the network file as **one DDS participant** named after its **node**.
-- Every bus topic is a **DDS topic of the same name**, so any process may publish any topic and a subscriber does not
-  need to know which process publishes it. DDS discovery matches writers and readers, so processes start, stop and
-  restart in any order.
-- Discovery is **unicast** to the host of every node of the network file (`AllowMulticast` false): multicast is
-  unreliable over Wi-Fi and absent on a container's loopback. There is no broker.
+- Every process opens **one Zenoh peer session** per domain of the network file, shared by the buses of the process;
+  a bus publishes as its **node**.
+- Every bus topic is the last chunks of a **Zenoh key expression**,
+  `robot_ipc/<domain_id>/tag_<domain_tag>/<qos profile>/<topic>`, so any process may publish any topic and a
+  subscriber does not need to know which process publishes it. Every publisher and subscriber also declares a
+  liveliness token, which the other buses count. Processes start, stop and restart in any order.
+- The sessions connect over **TCP** to the host of every node of the network file, with multicast scouting off
+  (multicast is unreliable over Wi-Fi and absent on a container's loopback) and gossip on, so a session learns of its
+  peers' peers. There is no broker and no router.
 
 The network file (`config/ipc/network.textproto`, chosen with `--network_config`) names the domain, the nodes, the QoS
 of every topic and the transport. It is a textproto of `robot_ipc_proto.NetworkConfig`
@@ -88,83 +92,88 @@ nodes { name: "teleop"       host: "127.0.0.1" }  # keyboard / Xbox teleoperatio
 nodes { name: "config_push"  host: "127.0.0.1" }  # push_robot_config: a configuration file to the robot
 topics { name: "mpc/policy"  qos_profile: "reliable_latest"  publishers: "mpc" }
 ...
-transport { max_message_size_bytes: 65500 socket_receive_buffer_bytes: 8388608 }
+transport { socket_receive_buffer_bytes: 8388608 }
 ```
 
-Each process turns the file into its Cyclone DDS configuration (`robot_ipc/DomainConfig.h`, the same text in C++ and
-Python) and passes it to `dds_create_domain()`: no XML file, and `CYCLONEDDS_URI` is never read. A node's process uses
-the network interface of its node's host (one that is no address of its machine is refused), discovery goes to every
-node's host with automatic process indices (`ParticipantIndex auto`, up to 20 processes per machine), a `domain_tag`
-keeps two robots on one network (and the tests) apart, and a peer that vanished is unmatched after its 3 s lease. For
-the hardware split both machines use the same file with the robot's and the laptop's addresses. The C++ and the Python
-loader parse it strictly: an unknown field (the retired `port` and `bind_host` included), a value of the wrong type or a
-syntax error is an error naming the file, the line and the column, and an invalid entry (a duplicate name, a wildcard
-host, a topic that is no DDS name, an unknown QoS profile, a publisher that is no node) is an error naming it
+Each process turns the file into its Zenoh configuration (`robot_ipc/SessionConfig.h`, the same text in C++ and
+Python) and passes it to `z_open()` or `zenoh.open()`: no JSON5 file, and `ZENOH_CONFIG` is never read. A node's
+process listens on its node's host (one that is no address of its machine is refused) and connects to the ports of the
+domain on every node's host, a `domain_tag` keeps two robots on one network (and the tests) apart, and a peer that
+crashed is unmatched when its 3 s lease runs out. For the hardware split both machines use the same file with the
+robot's and the laptop's addresses. The C++ and the Python loader parse it strictly: an unknown field (the retired
+`port`, `bind_host`, `max_message_size_bytes`, `writer_unacked_bytes_limit` and `simulated_send_loss_per_mille`
+included), a value of the wrong type or a syntax error is an error
+naming the file, the line and the column, and an invalid entry (a duplicate name, a wildcard host, an invalid topic
+name, an unknown QoS profile, a publisher that is no node) is an error naming it
 ([`robot_ipc`](../../../robot_runtime/robot_ipc/README.md#the-network-file)).
 
-**Ports.** UDP only. A process with index i listens on `7400 + 250 * domain_id + 10 + 2 i` (discovery) and the port
-after it (data), DDSI's port mapping: domain 0 uses **7410-7449** on every machine.
+**Ports.** TCP only. A process listens on the lowest free port of `7447 + 100 * domain_id + i`, i below
+`max_processes_per_host` (20), and connects to every port of that range on the host of every node; Zenoh retries the
+ones without a listener in the background. Domain 0 uses **TCP 7447-7466** on every machine.
 
-**Wire protocol.** Every sample is one `robot_ipc::Envelope` (`robot_runtime/robot_ipc/idl/Envelope.idl`, C type
-support generated by `idlc` in the build): the wire protocol's version (2; 1 was the ZeroMQ framing that came before,
-`robot_ipc/WireProtocol.h`), the writer's sequence number, the full protobuf type name (`legged_mpc_msgs.MpcPolicy`)
-and the serialized message. Protocol Buffers stay the payload serialization. A bus refuses a sample of another protocol
-version, counts it as `rejected` and logs which version the peer speaks, so that a robot and a laptop built from
-checkouts that drifted apart say so at once. The type name lets the generic tool
-([`tools/ipc`](../../../tools/ipc/README.md)) decode any topic without a registry: `bazel run //tools/ipc:ipc_tool --
-echo mpc/status`, `hz robot/mpc_observation`, `list`.
+**Wire protocol.** Every sample is the payload of one Zenoh put, an envelope of little-endian fields
+(`robot_ipc/WireProtocol.h`, `robot_ipc/envelope.py`): the wire protocol's version (3; 2 was the Cyclone DDS IDL
+envelope and 1 the ZeroMQ framing that came before), the writer's id and sequence number, the source timestamp, the
+full protobuf type name (`legged_mpc_msgs.MpcPolicy`) and the serialized message. Protocol Buffers stay the payload
+serialization. A bus refuses a sample of another protocol version, counts it as `rejected` and logs which version the
+peer speaks, so that a robot and a laptop built from checkouts that drifted apart say so at once. The type name lets
+the generic tool ([`tools/ipc`](../../../tools/ipc/README.md)) decode any topic without a registry: `bazel run
+//tools/ipc:ipc_tool -- echo mpc/status`, `hz robot/mpc_observation`, `list`.
 
-**Quality of service.** Each topic of the network file names a profile (`robot_ipc/QosProfile.h`); every profile is
-VOLATILE, so a process that restarts is never handed old commands:
+**Quality of service.** Each topic of the network file names a profile (`robot_ipc/QosProfile.h`). Every sample
+crosses a TCP link; the profiles differ in what a publisher does when its link cannot take a sample at once, in
+priority and in batching. No profile keeps a history at the publisher: a subscriber gets only what is put after the
+two sessions' declarations met, so a process that restarts is never handed old commands.
 
-| Profile | DDS policies | Topics |
+| Profile | Zenoh publisher | Topics |
 |---|---|---|
-| `latest` | BEST_EFFORT, KEEP_LAST 1 | `robot/mpc_observation`, `robot/state`, `robot/loop_timing`, `viz/telemetry`, `operator/walking_velocity_command` |
-| `reliable_latest` | RELIABLE, KEEP_LAST 1 | `mpc/policy`, `mpc/status`, `robot/fsm_state`, `viz/scene`, `operator/mpc_parameters`, `operator/pd_gains`, `operator/joint_targets` |
-| `reliable_events` | RELIABLE, KEEP_LAST 64 (the default of an unlisted topic) | `operator/fsm_command`, `operator/dodgeball_throw`, `operator/config_save`, `robot/config_save_status` |
+| `latest` | congestion control DROP, data priority, express | `robot/mpc_observation`, `robot/state`, `robot/loop_timing`, `viz/telemetry`, `operator/walking_velocity_command` |
+| `reliable_latest` | congestion control DROP, data priority, batched | `mpc/policy`, `mpc/status`, `robot/fsm_state`, `viz/scene`, `operator/mpc_parameters`, `operator/pd_gains`, `operator/joint_targets` |
+| `reliable_events` | congestion control BLOCK, interactive-high priority, express (the default of an unlisted topic) | `operator/fsm_command`, `operator/dodgeball_throw`, `operator/config_save`, `robot/config_save_status` |
 
-A policy (0.5-0.75 MB) is hundreds of UDP fragments: under BEST_EFFORT one lost fragment would lose the whole policy,
-so `reliable_latest` repairs lost fragments, while a newer policy replaces one that is still being repaired, so that a
-slow link never builds a backlog. A stream that comes again every cycle is `latest`: a lost sample is replaced by the
-next one rather than sent again. The nodes a topic lists as `publishers` create its DDS writer when their bus is
-created, so the subscribers have discovered it before a one-off command is written (a VOLATILE reader gets only what is
-written after it matched). A reliable write never waits for acknowledgments: at the writer's unacknowledged-bytes limit
-(8 MiB by default) DDS refuses it, and the bus counts it as `sendDropped`.
+A stream that comes again every cycle is `latest`: a sample that a congested link cannot take is dropped, not queued,
+and the next one replaces it. A policy (0.5-0.75 MB) is `reliable_latest`: TCP delivers it whole, and under congestion
+Zenoh waits briefly for room before it drops a policy, so a slow link never builds a backlog. An event is
+`reliable_events`: its put waits for room in the link's queue. The nodes a topic lists as `publishers` declare its
+Zenoh publisher when their bus is created, so that it exists before a one-off command is put. The profile is a chunk of
+the key expression: two network files that disagree about a topic's profile never exchange its samples.
 
-**Delivery.** A subscriber picks per topic:
+**Delivery.** Zenoh's threads copy each sample into its subscription's bounded queue and wake the IO thread. A
+subscriber picks per topic:
 
-- `kLatest`: each time the IO thread drains the topic's reader (which keeps the newest 4 samples), only the newest is
-  handed over. Used for every stream (observations, policies, velocity commands, parameter documents, joint targets,
-  telemetry for the scene).
-- `kAll`: every sample, in order (the reader keeps 256). Used for discrete events (FSM commands, dodgeball throws) and
-  for plots.
+- `kLatest`: each time the IO thread drains the subscription's queue (which keeps the newest 4 samples), only the
+  newest is handed over. Used for every stream (observations, policies, velocity commands, parameter documents, joint
+  targets, telemetry for the scene).
+- `kAll`: every sample, in order (the queue keeps 256, the oldest dropped beyond that). Used for discrete events (FSM
+  commands, dodgeball throws) and for plots.
 
 One drain takes the samples of every topic and dispatches them in the order they were written - by their source
 timestamps, which every bus makes strictly increasing across its topics: `kAll`'s every sample, `kLatest`'s newest one
 at the place it was written. Within a drain, a handler never sees a sample of one topic before an earlier one of another
-topic from the same publisher (an FSM command before the parameter update the GUI sent ahead of it). DDS gives no such
-guarantee across drains: the topics are separate readers, and a large sample being repaired may arrive after a small
-one written later.
+topic from the same publisher (an FSM command before the parameter update the GUI sent ahead of it). Zenoh gives no such
+guarantee across drains: the profiles have different priorities, and a batched sample may arrive after an express one
+written later.
 
 **After a stall.** A subscriber that falls behind (a stalled process or a slow link) is handed the newest value of a
-latest-value topic, not a backlog: the writer keeps one sample and the reader four, whichever node publishes it
-(`robot_ipc`'s `BusDeliveryTest.AStalledSubscriberGetsTheNewestLatestValueNotABacklog`). This replaces the per-node
-ZeroMQ send queues (`NodeBusProfile`) that bounded the same backlog before: the bound is now the topic's QoS.
+latest-value topic, not a backlog: the publisher keeps no history, a congested link drops `latest` and
+`reliable_latest` samples, and the subscription's queue keeps four, whichever node publishes it (`robot_ipc`'s
+`BusDeliveryTest.AStalledSubscriberGetsTheNewestLatestValueNotABacklog`). This replaces the per-node ZeroMQ send queues
+(`NodeBusProfile`) that bounded the same backlog before: the bound is now the topic's QoS.
 
-**What the counters say** (`Bus::topicStatistics()`, `TopicStatistics.h`). `written` counts samples handed to the DDS
-writer, not samples delivered. A subscriber counts `received` (taken from its reader), `delivered`, `superseded` (the
-older `kLatest` samples of a drain) and `rejected`, with received = delivered + superseded + rejected; `missed` counts
-the gaps in each writer's sequence numbers, the samples a matched writer wrote that the reader never took (replaced in a
-KEEP_LAST history, or lost under BEST_EFFORT). From DDS itself: `sampleLost` and `sampleRejected` of the reader,
-`incompatibleQos` (a RELIABLE reader and a BEST_EFFORT writer from two different network files never match), and
-`matchedReaders` / `matchedWriters`, the peers currently up, which take the place of ZeroMQ's heartbeats and reconnects.
-DDS cannot say which subscriber a BEST_EFFORT sample did not reach; the subscriber's `missed` against the publisher's
-`written` shows what a link lost.
+**What the counters say** (`Bus::topicStatistics()`, `TopicStatistics.h`). `written` counts samples handed to the
+Zenoh publisher, not samples delivered. A subscriber counts `received` (taken from its queue), `delivered`,
+`superseded` (the older `kLatest` samples of a drain) and `rejected`, with received = delivered + superseded +
+rejected; `missed` counts the gaps in each writer's sequence numbers, the samples a writer put that the subscription
+never took (replaced in its queue while the IO thread was busy, or dropped by a congested link). From the liveliness
+tokens: `matchedReaders` / `matchedWriters`, the subscribers and publishers of the topic with the same profile on any
+bus (this one included), the peers currently up, which take the place of ZeroMQ's heartbeats and reconnects; and
+`incompatibleQos`, those with another profile (two different network files). A publisher cannot say which subscriber a
+dropped sample did not reach; the subscriber's `missed` against the publisher's `written` shows what a link lost.
 
-**Threads.** The DDS readers and writers belong to one thread, the bus's IO thread, which waits on a DDS waitset.
-Handlers and periodic callbacks run on it. `Bus::publish()` may be called from any non-realtime thread (it serializes on
-the caller and hands the bytes to the IO thread; only the IO thread calls `dds_write()`). **The realtime thread never
-calls the bus.**
+**Threads.** The Zenoh publishers belong to one thread, the bus's IO thread; Zenoh's own threads only fill the
+subscription queues and wake it. Handlers and periodic callbacks run on the IO thread. `Bus::publish()` may be called
+from any non-realtime thread (it serializes on the caller and hands the bytes to the IO thread; only the IO thread
+calls `z_publisher_put()`). **The realtime thread never calls the bus.**
 
 ### Topics
 
@@ -243,7 +252,7 @@ line, as the bus node `config_push` (an editor's save, which the robot does not 
 
 The bus has no authentication. Anything that can publish on it can command the robot's FSM, change its PD gains live
 and, with `operator/config_save`, replace the robot's three configuration files - so the bus belongs on the robot's
-private network (the addresses of the network file), never on an open one, and its ports (UDP 7410-7449 for domain 0) are
+private network (the addresses of the network file), never on an open one, and its ports (TCP 7447-7466 for domain 0) are
 open only between the robot and the laptop. The checks limit what a save can do, not who sends it: the store writes only its three
 fixed files (the message's `config_path` is compared with the configuration's, never joined into a path, and the contact
 planner's mirror has no kind), refuses whatever the robot would refuse at start-up, caps the size and the queue, keeps
@@ -266,7 +275,7 @@ The realtime thread of the robot process does, every period, only this:
 5. write the MPC observation into a triple buffer and, every `telemetry_frequency`, a telemetry sample into an SPSC
    ring.
 
-It never calls DDS or protobuf, never parses a configuration file, never touches a file, never logs in steady
+It never calls Zenoh or protobuf, never parses a configuration file, never touches a file, never logs in steady
 state, and never waits on a lock another thread can hold for long: the policy swap is `MRT_BASE::updatePolicy()`, a
 `try_lock` that skips the swap if the communication thread is moving a new policy in.
 
@@ -458,10 +467,10 @@ laptop runs the MPC node, the GUI and the Rerun bridge from the dev container.
 **Bring-up.**
 
 1. Write a network file with both machines' addresses (a copy of `config/ipc/two_machine.example.textproto`: each
-   process uses the interface of its node's `host`, and discovery goes by unicast to both hosts), open the bus's ports,
-   UDP 7410-7449 for domain 0, on both machines for the other one, and let both kernels give the 8 MiB receive buffer: the Makefile's launch and deploy targets raise
-   `net.core.rmem_max` to the network file's request on both machines (sudo, once per machine; `make udp-buffers`,
-   tools/deploy/README.md).
+   process listens on its node's `host` and connects to both hosts), open the bus's ports, TCP 7447-7466 for domain 0,
+   on both machines for the other one, and let both kernels give the 8 MiB receive buffer: the Makefile's launch and
+   deploy targets raise `net.core.rmem_max` to the network file's request on both machines (sudo, once per machine;
+   `make socket-buffers`, tools/deploy/README.md).
 2. On the laptop: `make deploy-robot ROBOT=<robot> HOST=<robot's ssh host> NETWORK=<file> SERVICE=enable`. It builds
    the bundle and the image, ships the image over ssh (`docker save | docker load`, or `REGISTRY=`), installs
    `~/wb-humanoid-robot` (the compose file, the network file, a `.env`) and the systemd unit
@@ -480,7 +489,7 @@ localhost network. Nothing runs the MPC inside the robot process (the robot bina
 are the checkout's `robot_models`, mounted read-only, which seed its stored configuration at every start; while it runs,
 the GUI's Save reaches it over the bus, as on the robot ("Saving the configuration", tools/deploy/README.md,
 "Simulation"). `NETEM="delay 3ms 1ms loss 0.5%"` shapes
-the bus's UDP packets on loopback with tc-netem while the robot container runs, to rehearse the robot's link
+the bus's TCP packets on loopback with tc-netem while the robot container runs, to rehearse the robot's link
 (`tools/deploy/netem.sh`). The MuJoCo viewer is chosen by name: the `mujoco_viewer` of the plot configuration
 (`legged_nmpc/legged_rerun_viewer/config/plot_config.textproto`, `PLOT_CONFIG=`) unless `--viewer` (`VIEWER=`,
 `WB_ROBOT_VIEWER`) or a named `VIEWS=` does (`VIEWS=browser|vnc|display`, the same on every launch target, the
@@ -501,8 +510,8 @@ the simulator's resets. The backend publishes the IMU's specific force with the 
 **Start order does not matter.** The robot process comes up in ZERO_TORQUE (on the gantry in simulation) whatever the
 MPC does, and streams `robot/mpc_observation` until a policy arrives; the MPC node answers whichever robot process
 sends observations, and a restart of either side is a full reset of the MPC (sequence numbers or counters going
-backwards). DDS discovery matches the writers and readers of a process that (re)starts, and unmatches those of one that
-went away after its 3 s lease, so either side may start, stop and restart in any order; the policy timeout below does
+backwards). The Zenoh sessions reconnect to a process that (re)starts and match its publishers and subscribers again,
+and unmatch those of one that crashed when its 3 s lease runs out, so either side may start, stop and restart in any order; the policy timeout below does
 not rely on it. The container's
 restart policy brings a robot process that exits back - in ZERO_TORQUE, so an operator has to take it into WB_MPC
 again.
@@ -510,13 +519,13 @@ again.
 **Link loss holds the robot.** Without a policy solved from an observation of the last `mpc_link.policy_timeout`
 (0.5 s) of robot time, WB_MPC holds the JOINT_PD action, `robot/fsm_state` reports `mpc_healthy: false`, and the
 first policy solved after the full reset it requests ends the hold with the usual entry blend ("Link loss" above). The
-hold is not ramped in, so a false loss is a jump to the standing posture. The timeout was set when the bus ran on TCP,
-where a lost segment cost a retransmission timeout of at least 200 ms (Linux's TCP_RTO_MIN): with the earlier 0.2 s
-timeout, every single lost segment read as a lost link - twice in one NETEM run (`delay 3ms 1ms loss 0.5%`), once under
-the robot standing free in WB_MPC. On DDS a lost fragment of a `reliable_latest` policy is repaired after a NACK, within
-a few round trips, and a newer policy may replace it; 0.5 s still outlasts a burst of losses with margin and leaves at
-least half of every shipped policy horizon (1.0-1.2 s). The hold is the robot's own clock against the policy's
-observation time, independent of DDS liveliness.
+hold is not ramped in, so a false loss is a jump to the standing posture. The timeout was set when the bus ran on TCP
+through ZeroMQ, where a lost segment cost a retransmission timeout of at least 200 ms (Linux's TCP_RTO_MIN): with the
+earlier 0.2 s timeout, every single lost segment read as a lost link - twice in one NETEM run (`delay 3ms 1ms loss
+0.5%`), once under the robot standing free in WB_MPC. Zenoh runs on TCP too, so a lost segment of a policy can cost the
+same retransmission timeout; 0.5 s outlasts it, and a burst of losses, with margin and leaves at least half of every
+shipped policy horizon (1.0-1.2 s). The hold is the robot's own clock against the policy's observation time,
+independent of the Zenoh lease.
 
 **Realtime in the container.** The realtime thread runs `SCHED_FIFO` with its memory locked (`--realtime_priority`,
 80 by default in `robot.textproto`): the compose file adds `CAP_SYS_NICE` and `CAP_IPC_LOCK` and sets the `rtprio` and

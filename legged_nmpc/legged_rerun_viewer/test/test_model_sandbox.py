@@ -202,7 +202,7 @@ class BinaryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             network_file = os.path.join(directory, "network.textproto")
             with open(network_file, "w", encoding="utf-8") as stream:
-                # The sandbox (in this process) and the listener share this test's own DDS domain.
+                # The sandbox (in this process) and the listener share this test's own domain.
                 stream.write(
                     robot_ipc.format_network_config(
                         robot_ipc.isolated_test_network(["mpc"])

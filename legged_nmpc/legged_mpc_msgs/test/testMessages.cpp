@@ -28,7 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // The C++ code generated from the legged_mpc_msgs protos compiles,
-// round-trips through the protobuf runtime it links, and travels over the DDS
+// round-trips through the protobuf runtime it links, and travels over the Zenoh
 // bus in its envelope (wire protocol version, full type name, serialized
 // message; see legged_nmpc/docs/distributed_runtime/README.md).
 

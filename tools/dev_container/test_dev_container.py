@@ -27,7 +27,7 @@
 
 """Pins what the ROS-free dev container, its image and CI's copy of its setup provide.
 
-The processes talk over Cyclone DDS + Protocol Buffers and draw with Rerun (legged_nmpc/docs/distributed_runtime), so the
+The processes talk over Eclipse Zenoh + Protocol Buffers and draw with Rerun (legged_nmpc/docs/distributed_runtime), so the
 image is plain Ubuntu with Pinocchio from robotpkg and one VNC display for the MuJoCo viewer and the operator GUI. These
 tests keep ROS from coming back through the image, CI or the container definition; keep the image, CI and the local CI
 emulator on one base, one Pinocchio and one environment; and keep the ports the processes listen on published. They
@@ -128,7 +128,7 @@ _ROS_TRACES = re.compile(
     r"|\bros2 (?:launch|run)\b"
 )
 
-# The second VNC display that only PlotJuggler used, and the PUB ports of the ZeroMQ bus that came before DDS.
+# The second VNC display that only PlotJuggler used, and the PUB ports of the ZeroMQ bus of an earlier design.
 _REMOVED_PORTS = {5903, 6082, 5600, 5610, 5620}
 _PLOTJUGGLER_DISPLAY_TRACES = re.compile(
     r"PLOTJUGGLER_DISPLAY|\bPJ_[A-Z_]+|Xvfb[^\n]*:100\b|DISPLAY=:100\b"
@@ -665,21 +665,21 @@ class PortsTest(unittest.TestCase):
     def setUp(self):
         self.published = _published_ports(_read("docker-compose.bridge.yaml"))
 
-    def test_the_dds_ports_of_the_network_files_domain_are_published_over_udp(
+    def test_the_tcp_ports_of_the_network_files_domain_are_published(
         self,
     ):
-        # 7400 + 250 * domain_id + 10 + 2 * index and the port after it, for the 20 process indices of one machine
-        # (robot_ipc/DomainConfig.h unicastPortRange()).
+        # 7447 + 100 * domain_id + index, for the 20 process indices of one machine (robot_ipc/SessionConfig.h
+        # tcpPortRange()).
         domain = re.search(
             r"(?m)^domain_id:\s*(\d+)", _read("config/ipc/network.textproto")
         )
         domain_id = int(domain.group(1)) if domain else 0
-        first = 7400 + 250 * domain_id + 10
-        ports = range(first, first + 2 * 20)
+        first = 7447 + 100 * domain_id
+        ports = range(first, first + 20)
         self.assertEqual([p for p in ports if p not in self.published], [])
         self.assertRegex(
             _read("docker-compose.bridge.yaml"),
-            rf'"{first}-{first + 39}:{first}-{first + 39}/udp"',
+            rf'"{first}-{first + 19}:{first}-{first + 19}/tcp"',
         )
 
     def test_rerun_vnc_and_jupyter_are_published(self):

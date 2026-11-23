@@ -48,6 +48,7 @@ REQUIREMENTS_FILE = os.path.join(
 # The module a distribution is imported as, where the two names differ. A requirement added to the file without an
 # entry here is imported under its own name.
 IMPORT_NAMES: dict[str, str] = {
+    "eclipse-zenoh": "zenoh",
     "protobuf": "google.protobuf",
     "pyyaml": "yaml",
     "rerun-sdk": "rerun",

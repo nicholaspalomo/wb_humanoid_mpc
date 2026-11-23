@@ -55,7 +55,7 @@ filegroup(
 exports_files([
     "deploy_robot.sh",
     "session.sh",
-    "udp_buffers.sh",
+    "socket_buffers.sh",
 ])
 
 filegroup(
@@ -191,14 +191,14 @@ py_test(
     deps = [requirement("pyyaml")],
 )
 
-# udp_buffers.sh against a fake sysctl and sudo: a kernel limit is raised only below the network file's request, kept
+# socket_buffers.sh against a fake sysctl and sudo: a kernel limit is raised only below the network file's request, kept
 # in sysctl.d, never lowered, and never fails a launch.
 py_test(
-    name = "test_udp_buffers",
+    name = "test_socket_buffers",
     size = "small",
-    srcs = ["test_udp_buffers.py"],
+    srcs = ["test_socket_buffers.py"],
     data = [
-        "udp_buffers.sh",
+        "socket_buffers.sh",
         "//config/ipc:network.textproto",
         "//config/ipc:two_machine.example.textproto",
     ],

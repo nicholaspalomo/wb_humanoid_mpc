@@ -70,10 +70,10 @@ TEST(TopicsTest, EveryTopicIsAPublisherPrefixFollowedByASnakeCaseName) {
 }
 
 TEST(TopicsTest,
-     EveryTopicIsADdsTopicNameListedOnceWithItsQosInTheShippedNetwork) {
-  // Every topic is a DDS topic of the same name, whose QoS profile and
-  // publishers the network file names: a topic it did not list would fall back
-  // to reliable_events and have no writer before its first sample.
+     EveryTopicIsAValidTopicNameListedOnceWithItsQosInTheShippedNetwork) {
+  // Every topic is a valid bus topic, whose QoS profile and publishers the
+  // network file names: a topic it did not list would fall back to
+  // reliable_events and have no publisher before its first sample.
   const robot::ipc::NetworkConfig network =
       robot::ipc::localhostNetworkConfig();
   EXPECT_EQ(network.topics.size(), kAllTopics.size())

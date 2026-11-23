@@ -52,10 +52,10 @@ bool isIpv4Address(absl::string_view host);
  * machine it runs on. Built from a robot_ipc_proto.NetworkConfig.Node of the
  * network file (robot_runtime/robot_ipc/proto/network_config.proto).
  *
- * DDS needs no address per node: the bus sends its discovery packets to the
- * host of every node (the unicast peer list), and a process publishing as a
- * node uses the network interface of its node's host when that host is an IPv4
- * address. The ports follow from NetworkConfig::domainId (DomainConfig.h).
+ * The network file names no port: every bus connects to the ports of the host
+ * of every node, and a process publishing as a node listens on its node's host
+ * when that host is an IPv4 address. The ports follow from
+ * NetworkConfig::domainId (SessionConfig.h).
  */
 struct NodeEndpoint {
   /** The node name a process publishes as (BusOptions::nodeName), e.g. "robot".

@@ -76,7 +76,7 @@ Every GUI application in the container renders on `:99`; there is no second disp
 <!-- LINT.IfChange(ports) -->
 On Linux the container runs on the host's network (`network_mode: host` in `docker-compose.yaml`): every process in it
 listens on the host's own interfaces, so the ports below answer at the host's address with nothing to publish, and the
-DDS bus (Cyclone DDS over UDP, unicast discovery to the hosts of the network file) reaches the processes of other
+Zenoh bus (TCP connections to the hosts of the network file, no multicast) reaches the processes of other
 containers and of other machines at the addresses of the network file. Two
 containers with host networking share the host's ports, so run one VNC desktop at a time.
 
@@ -99,12 +99,12 @@ The ports of the container's processes:
 | `5901` | VNC, for a native VNC client |
 | `6090` | The MuJoCo web viewer of the robot process (the `-sim` targets' default; [MuJoCo Web Viewer](#mujoco-web-viewer)) |
 | `9090`, `9876` | Rerun: the web viewer and the gRPC server it, or a native viewer, reads from |
-| `7410`-`7449` (UDP) | The DDS bus of domain 0: a discovery and a data port per process (`7400 + 250 * domain_id + 10 + 2 * index`) |
+| `7447`-`7466` (TCP) | The Zenoh bus of domain 0: one listening port per process (`7447 + 100 * domain_id + index`) |
 | `8888` | Jupyter (`make train-acom-jupyter`) |
 
 <!-- LINT.IfChange(bus_ports) -->
-The UDP range `7410`-`7449` holds the DDS ports of the 20 processes one machine may run on domain 0 of `config/ipc/network.textproto` (Cyclone DDS gives each process the lowest free index; the bus sends no multicast). With host networking, a process on the host or on another machine joins the bus of the processes in the container at the addresses of the network file. With the bridge network of `docker-compose.bridge.yaml` the range is published, but DDS tells its peers the container's own address, which a process outside the container cannot reach: on Docker Desktop run every process of the bus inside the container.
-<!-- LINT.ThenChange(//docker-compose.bridge.yaml:bus_ports, //config/ipc/network.textproto:dds_ports) -->
+The TCP range `7447`-`7466` holds the listening ports of the 20 processes one machine may run on domain 0 of `config/ipc/network.textproto` (each process takes the lowest free port and connects to every port of the range on the host of every node; the bus sends no UDP and no multicast). With host networking, a process on the host or on another machine joins the bus of the processes in the container at the addresses of the network file. With the bridge network of `docker-compose.bridge.yaml` the range is published, but a process in the container listens on its node's host, and a node host that is the computer's address is no address of the container, so the bus refuses it there: on Docker Desktop run every process of the bus inside the container.
+<!-- LINT.ThenChange(//docker-compose.bridge.yaml:bus_ports, //config/ipc/network.textproto:zenoh_ports) -->
 
 ## Rerun
 
@@ -232,7 +232,7 @@ host), use `VIEWS=display`. `make help` lists every launch target and its variab
 
 **The `-sim` targets mirror the hardware.** The robot process runs in a container of its own, from the robot's image
 (`robot-sim`: the robot-runtime image plus the MuJoCo viewer's GL) with the robot's compose file and realtime settings,
-and the MPC node, the GUI and the Rerun bridge run in this container, all on the host's network over the DDS bus
+and the MPC node, the GUI and the Rerun bridge run in this container, all on the host's network over the Zenoh bus
 (`tools/deploy/README.md`, "Simulation"). Starting that container needs the host's Docker, so run the `-sim` targets
 **on the host** (Linux): they then run the Bazel builds and the laptop side in this container through `docker exec`
 (`DEV_CONTAINER=` names it; default `devcontainer-app-1`). The robot container's MuJoCo viewer is by default the web

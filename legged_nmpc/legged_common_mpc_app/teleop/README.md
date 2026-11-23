@@ -28,7 +28,7 @@ the terminal showed (clamped to a lowered limit) instead of a speed nobody typed
 Do not run it next to the velocity controls of the GUI or the Xbox publisher: they publish the same topic (start the
 GUI with `--walking_commands=off`). Ctrl-C, or the end of the input, ends it. Because the MPC keeps the last command it
 received, it first publishes the stop command (zero velocities, the pelvis height change kept) and waits until the bus
-has written it to DDS, plus 100 ms for DDS to put it on the wire before the bus deletes its writer.
+has handed it to Zenoh, plus 100 ms for Zenoh to send it before the bus undeclares its publisher.
 
 <!-- LINT.IfChange(teleop_flags) -->
 | Flag | Default | Meaning |

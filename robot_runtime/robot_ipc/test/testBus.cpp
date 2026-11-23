@@ -27,12 +27,12 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The bus over Cyclone DDS: topics kept apart, kLatest against kAll, the order
-// of a drain across topics, publishing from several threads, processes that
-// start in either order or restart, a prompt stop(), the publish queue's drop
+// The bus over Zenoh: topics kept apart, kLatest against kAll, the order of a
+// drain across topics, publishing from several threads, processes that start
+// in either order or restart, a prompt stop(), the publish queue's drop
 // counting, the counters' invariants, rejection of malformed samples and of
 // another wire protocol version, handlers that throw, and a policy-sized
-// sample. Every test process has a DDS domain and tag of its own
+// sample. Every test process has a domain and tag of its own
 // (isolatedTestNetwork()), so tests that run at once never see each other's
 // samples.
 
@@ -59,20 +59,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "dds/dds.h"
 #include "gtest/gtest.h"
+#include "zenoh.h"  // NOLINT(build/include_subdir): zenoh-c installs its headers in no directory
 
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
+#include "robot_ipc/KeyExprs.h"
 #include "robot_ipc/NetworkConfig.h"
 #include "robot_ipc/NodeEndpoint.h"
 #include "robot_ipc/QosProfile.h"
+#include "robot_ipc/SessionConfig.h"
 #include "robot_ipc/TopicStatistics.h"
 #include "robot_ipc/WireProtocol.h"
 #include "robot_ipc_test/test_event.pb.h"
 #include "robot_ipc_test/test_sample.pb.h"
-#include "robot_runtime/robot_ipc/idl/Envelope.h"
 #include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 namespace robot::ipc {
@@ -134,8 +135,8 @@ absl::Status subscribeProbe(Bus& bus) {
 }
 
 // Publishes on kProbeTopic until the subscriber has received more probes than
-// before: DDS discovery has matched the publisher's writers with the
-// subscriber's readers.
+// before: the publisher's session has learned of the subscriber's
+// subscribers.
 bool waitUntilConnected(Bus& publisher, const Bus& subscriber) {
   const uint64_t before = subscriber.topicStatistics(kProbeTopic).received;
   TestEvent probe;
@@ -198,66 +199,106 @@ void expectReceivedIsAccountedFor(const TopicStatistics& statistics) {
             statistics.delivered + statistics.superseded + statistics.rejected);
 }
 
-// A raw DDS participant of the test network's domain (which the process's buses
-// created), to write and read what a Bus would not. Owns its entities.
-class RawParticipant {
+// A Zenoh session of its own in the test network's domain, which connects to
+// the session of the process's buses, to put and take what a Bus would not.
+// Owns its session and its subscriber.
+class RawSession {
  public:
-  RawParticipant()
-      : participant_(dds_create_participant(
-            testNetwork().domainId, /*qos=*/nullptr, /*listener=*/nullptr)) {}
-  ~RawParticipant() {
-    if (participant_ > 0) dds_delete(participant_);
+  RawSession() {
+    const NetworkConfig network = testNetwork();
+    const PortRange ports = tcpPortRange(network);
+    // The buses' session listens on a lower port; this one takes the next free.
+    for (int port = ports.first; port <= ports.last && !open_; ++port) {
+      if (!isTcpPortFree(kLoopbackHost, port)) continue;
+      const absl::StatusOr<std::string> config =
+          zenohSessionConfig(network, /*nodeName=*/"", port);
+      z_owned_config_t zenohConfig;
+      if (!config.ok() ||
+          zc_config_from_str(&zenohConfig, config->c_str()) != Z_OK) {
+        return;
+      }
+      open_ = z_open(&session_, z_config_move(&zenohConfig),
+                     /*_options=*/nullptr) == Z_OK;
+    }
   }
-  RawParticipant(const RawParticipant&) = delete;
-  RawParticipant& operator=(const RawParticipant&) = delete;
+  ~RawSession() {
+    if (subscribed_) z_subscriber_drop(z_subscriber_move(&subscriber_));
+    if (open_) z_session_drop(z_session_move(&session_));
+  }
+  RawSession(const RawSession&) = delete;
+  RawSession& operator=(const RawSession&) = delete;
 
-  bool ok() const { return participant_ > 0; }
+  bool ok() const { return open_; }
 
-  dds_entity_t writer(absl::string_view topic) {
-    dds_qos_t* absl_nonnull qos = dds_create_qos();
-    dds_qset_reliability(qos, DDS_RELIABILITY_RELIABLE, DDS_SECS(1));
-    dds_qset_history(qos, DDS_HISTORY_KEEP_LAST, kReliableEventsHistoryDepth);
-    const dds_entity_t writer = dds_create_writer(
-        participant_, topicEntity(topic), qos, /*listener=*/nullptr);
-    dds_delete_qos(qos);
-    return writer;
+  // Puts `bytes` on `topic`'s key expression as they are.
+  bool put(absl::string_view topic, absl::string_view bytes) {
+    const std::string keyExpr = dataKeyExpr(testNetwork(), topic);
+    z_view_keyexpr_t key;
+    z_owned_bytes_t payload;
+    return z_view_keyexpr_from_str(&key, keyExpr.c_str()) == Z_OK &&
+           z_bytes_copy_from_buf(&payload,
+                                 reinterpret_cast<const uint8_t*>(bytes.data()),
+                                 bytes.size()) == Z_OK &&
+           z_put(z_session_loan(&session_), z_view_keyexpr_loan(&key),
+                 z_bytes_move(&payload), /*options=*/nullptr) == Z_OK;
   }
 
-  dds_entity_t reader(absl::string_view topic) {
-    dds_qos_t* absl_nonnull qos = dds_create_qos();
-    dds_qset_reliability(qos, DDS_RELIABILITY_RELIABLE, DDS_SECS(1));
-    dds_qset_history(qos, DDS_HISTORY_KEEP_LAST, kReliableEventsHistoryDepth);
-    const dds_entity_t reader = dds_create_reader(
-        participant_, topicEntity(topic), qos, /*listener=*/nullptr);
-    dds_delete_qos(qos);
-    return reader;
+  // Keeps every sample of `topic` for taken().
+  bool subscribe(absl::string_view topic) {
+    const std::string keyExpr = dataKeyExpr(testNetwork(), topic);
+    z_view_keyexpr_t key;
+    if (z_view_keyexpr_from_str(&key, keyExpr.c_str()) != Z_OK) return false;
+    z_owned_closure_sample_t callback;
+    z_closure_sample(&callback, &RawSession::onSample, /*drop=*/nullptr, this);
+    subscribed_ = z_declare_subscriber(z_session_loan(&session_), &subscriber_,
+                                       z_view_keyexpr_loan(&key),
+                                       z_closure_sample_move(&callback),
+                                       /*options=*/nullptr) == Z_OK;
+    return subscribed_;
+  }
+
+  // The samples that arrived since the last call.
+  std::vector<std::string> taken() {
+    absl::MutexLock lock(mutex_);
+    std::vector<std::string> samples;
+    samples.swap(samples_);
+    return samples;
   }
 
  private:
-  dds_entity_t topicEntity(absl::string_view topic) const {
-    return dds_create_topic(participant_, &robot_ipc_Envelope_desc,
-                            std::string(topic).c_str(), /*qos=*/nullptr,
-                            /*listener=*/nullptr);
+  static void onSample(z_loaned_sample_t* absl_nonnull sample,
+                       void* absl_nullable context) {
+    RawSession& self = *static_cast<RawSession*>(context);
+    z_owned_slice_t slice;
+    if (z_bytes_to_slice(z_sample_payload(sample), &slice) != Z_OK) return;
+    const z_loaned_slice_t* absl_nonnull loaned = z_slice_loan(&slice);
+    std::string bytes(reinterpret_cast<const char*>(z_slice_data(loaned)),
+                      z_slice_len(loaned));
+    z_slice_drop(z_slice_move(&slice));
+    absl::MutexLock lock(self.mutex_);
+    self.samples_.push_back(std::move(bytes));
   }
 
-  const dds_entity_t participant_;
+  z_owned_session_t session_;
+  bool open_ = false;
+  z_owned_subscriber_t subscriber_;
+  bool subscribed_ = false;
+  absl::Mutex mutex_;
+  std::vector<std::string> samples_ ABSL_GUARDED_BY(mutex_);
 };
 
-// Writes one raw envelope.
-dds_return_t writeEnvelope(dds_entity_t writer,
-                           uint32_t protocolVersion,
-                           uint64_t sequence,
-                           std::string typeName,
-                           std::string payload) {
-  robot_ipc_Envelope envelope{};
-  envelope.protocol_version = protocolVersion;
-  envelope.sequence_number = sequence;
-  envelope.type_name = typeName.data();
-  envelope.payload._buffer = reinterpret_cast<uint8_t*>(payload.data());
-  envelope.payload._length = static_cast<uint32_t>(payload.size());
-  envelope.payload._maximum = envelope.payload._length;
-  envelope.payload._release = false;
-  return dds_write(writer, &envelope);
+// One raw envelope of a writer of its own.
+std::string rawEnvelope(uint32_t protocolVersion,
+                        uint64_t sequence,
+                        absl::string_view typeName,
+                        absl::string_view payload) {
+  constexpr uint64_t kRawWriterId = 7;
+  return encodeEnvelope(
+      EnvelopeHeader{.protocolVersion = protocolVersion,
+                     .writerId = kRawWriterId,
+                     .sequenceNumber = sequence,
+                     .sourceTimestampNs = absl::GetCurrentTimeNanos()},
+      typeName, payload);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -315,20 +356,27 @@ TEST(BusCreateTest,
   ASSERT_NE(first, nullptr);
   std::unique_ptr<Bus> second = createSubscriber();
   ASSERT_NE(second, nullptr);
+  EXPECT_EQ(first->domainConfig(), second->domainConfig());
 
+  // Another tag only changes the key expressions: it shares the session.
   BusOptions otherTag;
   otherTag.network = testNetwork();
   otherTag.network.domainTag = "another_tag";
-  EXPECT_EQ(Bus::Create(otherTag).status().code(),
+  EXPECT_NE(createBus(otherTag), nullptr);
+
+  BusOptions otherLease;
+  otherLease.network = testNetwork();
+  otherLease.network.transport.leaseDuration = absl::Seconds(7);
+  EXPECT_EQ(Bus::Create(otherLease).status().code(),
             absl::StatusCode::kFailedPrecondition);
   first.reset();
-  EXPECT_EQ(Bus::Create(otherTag).status().code(),
+  EXPECT_EQ(Bus::Create(otherLease).status().code(),
             absl::StatusCode::kFailedPrecondition)
       << "the subscriber still uses the domain";
 
   // Once its last bus is gone, the domain may be configured anew.
   second.reset();
-  EXPECT_NE(createBus(otherTag), nullptr);
+  EXPECT_NE(createBus(otherLease), nullptr);
 }
 
 TEST(BusCreateTest, ASubscribeOnlyBusReportsItsDomainAndCannotPublish) {
@@ -340,19 +388,19 @@ TEST(BusCreateTest, ASubscribeOnlyBusReportsItsDomainAndCannotPublish) {
             std::vector<std::string>{std::string(kLoopbackHost)});
   EXPECT_TRUE(absl::StrContains(
       bus->domainConfig(),
-      absl::StrCat("<Tag>", testNetwork().domainTag, "</Tag>")))
+      absl::StrCat("\"tcp/127.0.0.1:", tcpPortRange(testNetwork()).first,
+                   "\"")))
       << bus->domainConfig();
   EXPECT_EQ(bus->publish("test/topic", makeSample(/*sequence=*/0)).code(),
             absl::StatusCode::kFailedPrecondition);
 }
 
 TEST(BusCreateTest, TheEnvironmentDoesNotConfigureTheBus) {
-  // BUILD.bazel sets CYCLONEDDS_URI to a configuration whose interface does not
-  // exist; every bus of this test passes its own configuration to
-  // dds_create_domain() and never reads it.
-  const char* absl_nullable uri = std::getenv("CYCLONEDDS_URI");
-  ASSERT_NE(uri, nullptr);
-  EXPECT_TRUE(absl::StrContains(uri, "no_such_interface"));
+  // BUILD.bazel sets ZENOH_CONFIG to a file that does not exist; every bus of
+  // this test passes its own configuration to z_open() and never reads it.
+  const char* absl_nullable path = std::getenv("ZENOH_CONFIG");
+  ASSERT_NE(path, nullptr);
+  EXPECT_TRUE(absl::StrContains(path, "no_such_directory"));
   const std::unique_ptr<Bus> bus = createPublisher();
   ASSERT_NE(bus, nullptr);
   ASSERT_TRUE(subscribeProbe(*bus).ok());
@@ -361,9 +409,9 @@ TEST(BusCreateTest, TheEnvironmentDoesNotConfigureTheBus) {
 }
 
 TEST(BusCreateTest, ANodeCreatesTheWritersOfItsTopicsUpFront) {
-  // Before the publisher writes anything, the subscriber's reader has matched
-  // its writer: a VOLATILE reader gets only what is written after it matched,
-  // so the first sample of a one-off event must not race discovery.
+  // Before the publisher puts anything, the subscriber counts its publisher: a
+  // subscriber gets only what is put after the declarations met, so the first
+  // sample of a one-off event must not race them.
   NetworkConfig network = testNetwork();
   network.topics = {TopicQos{.topic = "test/declared",
                              .profile = QosProfile::kReliableEvents,
@@ -408,8 +456,8 @@ TEST(BusLifecycleTest, ConfigurationIsRefusedWhileRunningAndAcceptedAfterStop) {
                                        collector.handler())
                 .code(),
             absl::StatusCode::kInvalidArgument);
-  // DDS topic names are letters, digits, '_' and '/', not starting with a
-  // digit.
+  // Topics are letters, digits, '_' and '/', not starting with a digit, without
+  // an empty chunk.
   EXPECT_EQ(bus->subscribe<TestSample>("test/a-b", Delivery::kAll,
                                        collector.handler())
                 .code(),
@@ -419,6 +467,8 @@ TEST(BusLifecycleTest, ConfigurationIsRefusedWhileRunningAndAcceptedAfterStop) {
           .code(),
       absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(bus->publish("test.a", makeSample(/*sequence=*/0)).code(),
+            absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(bus->publish("test//a", makeSample(/*sequence=*/0)).code(),
             absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(
       bus->subscribe<TestSample>("test/a", Delivery::kAll, /*handler=*/nullptr)
@@ -622,7 +672,7 @@ TEST(BusDeliveryTest,
   EXPECT_FALSE(bus->isIoThread());
 }
 
-TEST(BusDeliveryTest, EveryTopicIsADdsTopicOfItsOwn) {
+TEST(BusDeliveryTest, EveryTopicIsAKeyExpressionOfItsOwn) {
   const std::unique_ptr<Bus> publisher = createPublisher();
   ASSERT_NE(publisher, nullptr);
   const std::unique_ptr<Bus> subscriber = createSubscriber();
@@ -683,8 +733,9 @@ TEST(BusDeliveryTest,
       publisher->publish("test/latest", makeSample(/*sequence=*/0)).ok());
   ASSERT_TRUE(waitFor([&]() { return latest.contains(0); }));
 
-  // With the subscriber's IO thread stopped, the burst piles up in its DDS
-  // readers, so that the next drain holds several samples of each topic.
+  // With the subscriber's IO thread stopped, the burst piles up in its
+  // subscriptions' queues, so that the next drain holds several samples of each
+  // topic.
   subscriber->stop();
   for (uint64_t sequence = 1; sequence <= kBurst; ++sequence) {
     ASSERT_TRUE(publisher->publish("test/latest", makeSample(sequence)).ok());
@@ -730,7 +781,7 @@ TEST(BusDeliveryTest,
   EXPECT_LE(latestStatistics.received,
             1 + static_cast<uint64_t>(options.latestDeliveryHistoryDepth) +
                 kBurst / 2)
-      << "the reader keeps latestDeliveryHistoryDepth samples while the IO "
+      << "the queue keeps latestDeliveryHistoryDepth samples while the IO "
          "thread is stopped";
 }
 
@@ -828,48 +879,69 @@ TEST(BusDeliveryTest,
                                           collector.handler())
                   .ok());
   ASSERT_TRUE(subscriber->start().ok());
-  // A raw DDS writer, to write what a Bus never would.
-  RawParticipant raw;
+  // A raw session, to put what a Bus never would.
+  RawSession raw;
   ASSERT_TRUE(raw.ok());
-  const dds_entity_t writer = raw.writer("test/typed");
-  ASSERT_GT(writer, 0);
-  ASSERT_TRUE(waitFor([&]() {
-    return subscriber->topicStatistics("test/typed").matchedWriters == 1u;
-  }));
-
   const std::string sampleType(TestSample::descriptor()->full_name());
   const std::string eventType(TestEvent::descriptor()->full_name());
+  uint64_t sequence = 0;
+  // Valid samples until one arrives: the sessions have met.
+  constexpr uint64_t kProbeSequence = 100;
+  ASSERT_TRUE(waitFor([&]() {
+    EXPECT_TRUE(
+        raw.put("test/typed",
+                rawEnvelope(kWireProtocolVersion, ++sequence, sampleType,
+                            makeSample(kProbeSequence).SerializeAsString())));
+    absl::SleepFor(absl::Milliseconds(5));
+    return collector.contains(kProbeSequence);
+  }));
+  ASSERT_TRUE(waitFor([&]() {
+    const TopicStatistics statistics =
+        subscriber->topicStatistics("test/typed");
+    return statistics.received == sequence && statistics.delivered == sequence;
+  }));
+  const size_t probes = collector.size();
+
   TestEvent event;
   event.set_name("not a sample");
-  uint64_t sequence = 0;
-  ASSERT_EQ(writeEnvelope(writer, kWireProtocolVersion, ++sequence, eventType,
-                          event.SerializeAsString()),
-            DDS_RETCODE_OK);
+  ASSERT_TRUE(
+      raw.put("test/typed", rawEnvelope(kWireProtocolVersion, ++sequence,
+                                        eventType, event.SerializeAsString())));
   // A length-delimited field (text) that claims five bytes and carries two.
-  ASSERT_EQ(writeEnvelope(writer, kWireProtocolVersion, ++sequence, sampleType,
-                          std::string("\x12\x05"
-                                      "ab")),
-            DDS_RETCODE_OK);
-  // The ZeroMQ framing's version, and a version from the future.
-  ASSERT_EQ(
-      writeEnvelope(writer, kWireProtocolVersion - 1, ++sequence, sampleType,
-                    makeSample(/*sequence=*/1).SerializeAsString()),
-      DDS_RETCODE_OK);
-  ASSERT_EQ(
-      writeEnvelope(writer, kWireProtocolVersion + 1, ++sequence, sampleType,
-                    makeSample(/*sequence=*/2).SerializeAsString()),
-      DDS_RETCODE_OK);
-  ASSERT_EQ(writeEnvelope(writer, kWireProtocolVersion, ++sequence, sampleType,
-                          makeSample(/*sequence=*/5).SerializeAsString()),
-            DDS_RETCODE_OK);
-  ASSERT_TRUE(waitFor([&]() { return collector.size() == 1; }));
+  ASSERT_TRUE(raw.put("test/typed",
+                      rawEnvelope(kWireProtocolVersion, ++sequence, sampleType,
+                                  std::string("\x12\x05"
+                                              "ab"))));
+  // The Cyclone DDS envelope's version, and a version from the future.
+  ASSERT_TRUE(
+      raw.put("test/typed",
+              rawEnvelope(kWireProtocolVersion - 1, ++sequence, sampleType,
+                          makeSample(/*sequence=*/1).SerializeAsString())));
+  ASSERT_TRUE(
+      raw.put("test/typed",
+              rawEnvelope(kWireProtocolVersion + 1, ++sequence, sampleType,
+                          makeSample(/*sequence=*/2).SerializeAsString())));
+  // An envelope cut short in its header, and one whose type name runs past it.
+  ASSERT_TRUE(raw.put("test/typed", std::string("\x03\x00\x00\x00\x01")));
+  std::string truncated =
+      rawEnvelope(kWireProtocolVersion, ++sequence, sampleType, /*payload=*/"");
+  truncated.resize(truncated.size() - 1);
+  ASSERT_TRUE(raw.put("test/typed", truncated));
+  ASSERT_TRUE(
+      raw.put("test/typed",
+              rawEnvelope(kWireProtocolVersion, ++sequence, sampleType,
+                          makeSample(/*sequence=*/5).SerializeAsString())));
+  ASSERT_TRUE(waitFor([&]() { return collector.size() == probes + 1; }));
 
-  EXPECT_EQ(collector.samples()[0].sequence(), 5u);
+  EXPECT_EQ(collector.samples().back().sequence(), 5u);
   const TopicStatistics statistics = subscriber->topicStatistics("test/typed");
-  EXPECT_EQ(statistics.received, 5u);
-  EXPECT_EQ(statistics.rejected, 4u);
-  EXPECT_EQ(statistics.delivered, 1u);
-  EXPECT_EQ(statistics.missed, 0u);
+  EXPECT_EQ(statistics.received, probes + 7);
+  EXPECT_EQ(statistics.rejected, 6u);
+  EXPECT_EQ(statistics.delivered, probes + 1);
+  // A rejected envelope that decodes (another type, a payload that does not
+  // parse) counts in its writer's sequence; the two of other versions and the
+  // truncated one do not decode, and leave a gap of three.
+  EXPECT_EQ(statistics.missed, 3u);
   expectReceivedIsAccountedFor(statistics);
   EXPECT_TRUE(subscriber->isRunning());
 }
@@ -877,39 +949,38 @@ TEST(BusDeliveryTest,
 TEST(BusDeliveryTest, TheBusWritesTheEnvelopeOfItsWireProtocol) {
   const std::unique_ptr<Bus> publisher = createPublisher();
   ASSERT_NE(publisher, nullptr);
-  RawParticipant raw;
+  RawSession raw;
   ASSERT_TRUE(raw.ok());
-  const dds_entity_t reader = raw.reader("test/version");
-  ASSERT_GT(reader, 0);
+  ASSERT_TRUE(raw.subscribe("test/version"));
   ASSERT_TRUE(publisher->start().ok());
 
-  std::vector<std::pair<uint64_t, TestSample>> received;
+  std::vector<std::pair<EnvelopeHeader, TestSample>> received;
   ASSERT_TRUE(waitFor([&]() {
     EXPECT_TRUE(
         publisher->publish("test/version", makeSample(/*sequence=*/3)).ok());
     absl::SleepFor(absl::Milliseconds(5));
-    void* absl_nullable sample = nullptr;
-    dds_sample_info_t info{};
-    while (dds_take(reader, &sample, &info, /*bufsz=*/1, /*maxs=*/1) == 1) {
-      const robot_ipc_Envelope& envelope =
-          *static_cast<const robot_ipc_Envelope*>(sample);
-      EXPECT_EQ(envelope.protocol_version, kWireProtocolVersion);
-      EXPECT_EQ(absl::string_view(envelope.type_name),
-                TestSample::descriptor()->full_name());
+    for (const std::string& bytes : raw.taken()) {
+      const std::optional<EnvelopeView> envelope = decodeEnvelope(bytes);
+      EXPECT_TRUE(envelope.has_value());
+      if (!envelope.has_value()) continue;
+      EXPECT_EQ(envelope->header.protocolVersion, kWireProtocolVersion);
+      EXPECT_EQ(envelope->typeName, TestSample::descriptor()->full_name());
       TestSample parsed;
       EXPECT_TRUE(
-          parsed.ParseFromArray(envelope.payload._buffer,
-                                static_cast<int>(envelope.payload._length)));
-      received.emplace_back(envelope.sequence_number, parsed);
-      dds_return_loan(reader, &sample, /*bufsz=*/1);
-      sample = nullptr;
+          parsed.ParseFromArray(envelope->payload.data(),
+                                static_cast<int>(envelope->payload.size())));
+      received.emplace_back(envelope->header, parsed);
     }
     return received.size() >= 2;
   }));
-  // The writer's sequence numbers count every sample it wrote, from 1; the
-  // reader may have matched after the first.
+  // The writer's sequence numbers count every sample it wrote, from 1, and its
+  // timestamps increase; the raw subscriber may have met it after the first.
   for (size_t index = 1; index < received.size(); ++index) {
-    EXPECT_EQ(received[index].first, received[index - 1].first + 1);
+    EXPECT_EQ(received[index].first.writerId, received[0].first.writerId);
+    EXPECT_EQ(received[index].first.sequenceNumber,
+              received[index - 1].first.sequenceNumber + 1);
+    EXPECT_GT(received[index].first.sourceTimestampNs,
+              received[index - 1].first.sourceTimestampNs);
   }
   EXPECT_EQ(received[0].second.sequence(), 3u);
 }
@@ -958,7 +1029,7 @@ TEST(BusDeliveryTest, OneDrainDispatchesInWriteOrderAcrossTopics) {
   ASSERT_TRUE(subscriber->start().ok());
   ASSERT_TRUE(waitUntilConnected(*publisher, *subscriber));
 
-  // With the subscriber's IO thread stopped, the samples pile up in its readers
+  // With the subscriber's IO thread stopped, the samples pile up in its queues
   // and are taken in one drain.
   subscriber->stop();
   ASSERT_TRUE(publisher->publish("test/a", makeSample(/*sequence=*/0)).ok());
@@ -982,7 +1053,7 @@ TEST(BusDeliveryTest, OneDrainDispatchesInWriteOrderAcrossTopics) {
 }
 
 TEST(BusDeliveryTest, AStalledSubscriberGetsTheNewestLatestValueNotABacklog) {
-  // The DDS reader of a kLatest subscription keeps latestDeliveryHistoryDepth
+  // The queue of a kLatest subscription keeps latestDeliveryHistoryDepth
   // samples, the newest: after a stall, the first samples the handler sees are
   // at most that many, whatever the stall's length. This replaces the ZeroMQ
   // high-water marks that bounded the same backlog per node.
@@ -1014,7 +1085,7 @@ TEST(BusDeliveryTest, AStalledSubscriberGetsTheNewestLatestValueNotABacklog) {
   ASSERT_TRUE(subscriber->start().ok());
   ASSERT_TRUE(waitFor([&]() { return collector.contains(kStallMessages); }));
   EXPECT_EQ(collector.size(), 1u)
-      << "one drain takes what the reader kept and hands over its newest";
+      << "one drain takes what the queue kept and hands over its newest";
   EXPECT_LE(subscriber->topicStatistics("test/stall").received,
             static_cast<uint64_t>(options.latestDeliveryHistoryDepth));
 }
@@ -1182,7 +1253,7 @@ TEST(BusConnectionTest,
     return subscriber->topicStatistics("test/restart").matchedWriters == 1u;
   }));
 
-  // The process dies (its writers go with it) and comes back.
+  // The bus goes (its publishers and tokens with it) and comes back.
   publisher.reset();
   EXPECT_TRUE(waitFor([&]() {
     return subscriber->topicStatistics("test/restart").matchedWriters == 0u;

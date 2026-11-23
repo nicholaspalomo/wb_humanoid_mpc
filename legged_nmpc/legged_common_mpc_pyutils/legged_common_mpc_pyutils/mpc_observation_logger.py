@@ -198,7 +198,7 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> str:
             subscribe(bus, writer)
             bus.start()
             _LOGGER.info(
-                "recording %s from DDS domain %d (peers %s) into %s",
+                "recording %s from domain %d (peers %s) into %s",
                 topics.ROBOT_MPC_OBSERVATION,
                 bus.domain_id,
                 ", ".join(bus.discovery_peers),

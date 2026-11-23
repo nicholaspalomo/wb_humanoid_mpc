@@ -29,7 +29,7 @@
 
 Every .proto file of the package has a generated module that loads, which also checks that its gencode version
 matches the protobuf wheel of @operator_deps (the generated code refuses an incompatible runtime at import). The
-messages travel over the DDS bus in its envelope (legged_nmpc/docs/distributed_runtime/README.md), and the Rerun
+messages travel over the Zenoh bus in its envelope (legged_nmpc/docs/distributed_runtime/README.md), and the Rerun
 SDK of the viewer bridge loads next to them.
 """
 

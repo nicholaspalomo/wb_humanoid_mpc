@@ -35,10 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /**
  * The topics of the IPC bus (legged_nmpc/docs/distributed_runtime/README.md,
- * "Topics"). Each is a DDS topic of the same name (letters, digits, '_' and
- * '/'); the comment of each constant names the message it carries and who
- * publishes it. config/ipc/network.textproto gives every one its QoS profile
- * and publishers (test/testTopics.cpp checks it).
+ * "Topics"). Each is the last chunks of a Zenoh key expression (letters,
+ * digits, '_' and '/'; robot_ipc/KeyExprs.h); the comment of each constant
+ * names the message it carries and who publishes it.
+ * config/ipc/network.textproto gives every one its QoS profile and publishers
+ * (test/testTopics.cpp checks it).
  */
 namespace ocs2::legged::ipc::topics {
 

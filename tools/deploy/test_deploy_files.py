@@ -217,28 +217,28 @@ class NetemTest(unittest.TestCase):
                 ),
                 (
                     "filter add dev lo parent 5600: protocol ip prio 1 u32"
-                    " match ip protocol 17 0xff match ip sport 7168 0xfe00"
+                    " match ip protocol 6 0xff match ip sport 7424 0xff00"
                     " flowid 5600:4"
                 ),
                 (
                     "filter add dev lo parent 5600: protocol ipv6 prio 2 u32"
-                    " match ip6 protocol 17 0xff match ip6 sport 7168 0xfe00"
+                    " match ip6 protocol 6 0xff match ip6 sport 7424 0xff00"
                     " flowid 5600:4"
                 ),
                 (
                     "filter add dev lo parent 5600: protocol ip prio 1 u32"
-                    " match ip protocol 17 0xff match ip dport 7168 0xfe00"
+                    " match ip protocol 6 0xff match ip dport 7424 0xff00"
                     " flowid 5600:4"
                 ),
                 (
                     "filter add dev lo parent 5600: protocol ipv6 prio 2 u32"
-                    " match ip6 protocol 17 0xff match ip6 dport 7168 0xfe00"
+                    " match ip6 protocol 6 0xff match ip6 dport 7424 0xff00"
                     " flowid 5600:4"
                 ),
             ],
         )
 
-    def test_every_filter_matches_udp_only(self) -> None:
+    def test_every_filter_matches_tcp_only(self) -> None:
         self.netem("apply", "lo", "delay", "3ms")
         filters = [
             call for call in self.tc.calls() if call.startswith("filter add")
@@ -247,7 +247,7 @@ class NetemTest(unittest.TestCase):
         for call in filters:
             with self.subTest(call=call):
                 self.assertRegex(
-                    call, r"\bmatch ip6? protocol 17 0xff match ip6? [sd]port "
+                    call, r"\bmatch ip6? protocol 6 0xff match ip6? [sd]port "
                 )
 
     def test_apply_replaces_a_qdisc_a_previous_run_left(self) -> None:
@@ -280,11 +280,11 @@ class NetemTest(unittest.TestCase):
             [call for call in self.tc.calls() if "show" not in call], []
         )
 
-    def test_the_port_range_holds_the_dds_ports_of_the_network_files(
+    def test_the_port_range_holds_the_tcp_ports_of_the_network_files(
         self,
     ) -> None:
-        # Every process's discovery and data port of the file's domain: 7400 + 250 * domain_id + 10 + 2 * index and
-        # the port after it, for the 20 indices of one machine (robot_ipc/DomainConfig.h unicastPortRange()).
+        # Every process's listen port of the file's domain: 7447 + 100 * domain_id + index, for the 20 indices of one
+        # machine (robot_ipc/SessionConfig.h tcpPortRange()).
         script = read("tools/deploy/netem.sh")
         base = int(search(r"^BUS_PORT=(\d+)$", script, re.M).group(1))
         mask = int(
@@ -295,8 +295,8 @@ class NetemTest(unittest.TestCase):
             "config/ipc/two_machine.example.textproto",
         ):
             domain = search(r"^domain_id:\s*(\d+)$", read(network), re.M)
-            first = 7400 + 250 * int(domain.group(1)) + 10
-            ports = range(first, first + 2 * 20)
+            first = 7447 + 100 * int(domain.group(1))
+            ports = range(first, first + 20)
             with self.subTest(network=network):
                 self.assertEqual(
                     [port for port in ports if port & mask != base], []
@@ -1663,10 +1663,10 @@ class MakefileTest(unittest.TestCase):
         self.assertNotIn("in_process", code)
         self.assertRegex(code, r"\$\(session\) sim --robot")
 
-    def test_launch_and_deploy_targets_raise_the_udp_buffers_first(
+    def test_launch_and_deploy_targets_raise_the_socket_buffers_first(
         self,
     ) -> None:
-        """Every target that starts the bus first raises the kernel's UDP buffer limits on the machine that runs it."""
+        """Every target that starts the bus first raises the kernel's socket buffer limits on the machine that runs it."""
         network = "config/ipc/two_machine.example.textproto"
         cases = (
             (
@@ -1705,7 +1705,7 @@ class MakefileTest(unittest.TestCase):
                 "deploy_robot.sh deploy",
             ),
             (
-                ("udp-buffers", "HOST=robot"),
+                ("socket-buffers", "HOST=robot"),
                 "config/ipc/network.textproto",
                 "robot",
                 None,
@@ -1719,7 +1719,7 @@ class MakefileTest(unittest.TestCase):
                 buffers = [
                     i
                     for i, line in enumerate(lines)
-                    if "tools/deploy/udp_buffers.sh" in line
+                    if "tools/deploy/socket_buffers.sh" in line
                 ]
                 self.assertEqual(len(buffers), 1, result.stdout)
                 command = lines[buffers[0]]

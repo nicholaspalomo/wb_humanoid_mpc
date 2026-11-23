@@ -51,7 +51,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "cppad/cg.hpp"
-#include "dds/dds.h"  // IWYU pragma: keep
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "hpipm_d_ocp_qp_ipm.h"  // IWYU pragma: keep NOLINT(build/include_subdir): HPIPM installs its headers in no directory
@@ -64,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 #include "turbojpeg.h"  // NOLINT(build/include_subdir): libjpeg-turbo installs turbojpeg.h without a directory
 #include "urdf_parser/urdf_parser.h"  // IWYU pragma: keep
+#include "zenoh.h"  // NOLINT(build/include_subdir): zenoh-c installs its headers in no directory
 
 #include "legged_mpc_msgs/robot_state_sample.nproto.h"
 #include "legged_mpc_msgs/robot_state_sample.pb.h"
@@ -97,7 +97,7 @@ int instantiateThirdPartyTemplates() {
   const std::string serialized = message.SerializeAsString();
   ocs2::legged::msgs::RobotStateSample sample;
 
-  const dds_duration_t timeout = DDS_MSECS(serialized.size());
+  const z_congestion_control_t congestion = Z_CONGESTION_CONTROL_DROP;
   const CppAD::cg::CG<double> constant(1.0);
   const CppAD::AD<CppAD::cg::CG<double>> taped(constant);
   const ::testing::Matcher<int> matcher = ::testing::Eq(1);
@@ -106,7 +106,7 @@ int instantiateThirdPartyTemplates() {
   const EGLint eglStatus = EGL_SUCCESS;
 
   const size_t total = counts.size() + serialized.size() +
-                       static_cast<size_t>(timeout) +
+                       static_cast<size_t>(congestion) +
                        static_cast<size_t>(sample.joint_positions.size());
   return static_cast<int>(total) + static_cast<int>(rotated.x() + state.sum()) +
          (status.ok() ? 1 : 0) + (matcher.Matches(1) ? 1 : 0) +

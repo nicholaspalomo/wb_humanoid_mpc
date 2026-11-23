@@ -51,7 +51,7 @@ filegroup(
     output_group = "nproto_files",
 )
 
-# The generated code compiles, round-trips through the C++ runtime and travels over the DDS bus.
+# The generated code compiles, round-trips through the C++ runtime and travels over the Zenoh bus.
 cc_test(
     name = "messages_cc_test",
     size = "small",

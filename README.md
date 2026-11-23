@@ -118,7 +118,7 @@ cd ~/workspace/wb_humanoid_mpc
 > module `wb_humanoid_mpc` and the container mount `/wb_humanoid_mpc_ws` keep their names: renaming them would break
 > existing checkouts and dev setups.
 
-> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. There is no ROS: the robot, the MPC and the operator tools are separate processes on a Cyclone DDS + Protocol Buffers bus (plain DDS, no ROS middleware), and Rerun draws the robot, the plan and the plots ([legged_nmpc/docs/distributed_runtime/README.md](legged_nmpc/docs/distributed_runtime/README.md)).
+> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. There is no ROS: the robot, the MPC and the operator tools are separate processes on an Eclipse Zenoh + Protocol Buffers bus (plain Zenoh peers, no ROS middleware and no router), and Rerun draws the robot, the plan and the plots ([legged_nmpc/docs/distributed_runtime/README.md](legged_nmpc/docs/distributed_runtime/README.md)).
 
 ### 2. Environment Setup
 
@@ -195,7 +195,7 @@ make clean-all    # Deep clean including external caches
 ## Launching Simulations
 
 ### How it runs
-The robot and the MPC are separate processes on a Cyclone DDS + Protocol Buffers bus, as on hardware: the **robot process**
+The robot and the MPC are separate processes on an Eclipse Zenoh + Protocol Buffers bus, as on hardware: the **robot process**
 (the realtime loop: MuJoCo as its backend, the MRT joint controller, the FSM) runs on the robot's computer, the **MPC
 node**, the **remote-control GUI** and the **Rerun bridge** on the laptop
 ([architecture](legged_nmpc/docs/distributed_runtime/README.md)). Simulation mirrors that: `make launch-<robot>-sim`

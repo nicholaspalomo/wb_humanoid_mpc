@@ -25,186 +25,111 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""The envelope of every sample of the bus, as robot_ipc/WireProtocol.h encodes it in C++.
 
-"""robot_ipc::Envelope, the one DDS type of the bus, in Python: the twin of idl/Envelope.idl.
-
-Every bus topic is a DDS topic of the same name whose samples are one Envelope: the wire protocol's version, the
-writer's sequence number, the full protobuf type name and the serialized message (robot_ipc/WireProtocol.h).
-
-The class declares the IDL members for cyclonedds's type information (XTypes), so that a C++ reader and a Python
-writer of the same topic match. It serializes itself: cyclonedds's generic machinery handles a sequence<octet> one
-element at a time as a Python list, which costs tens of milliseconds for a 0.75 MB policy; this envelope packs the
-payload as one bytes object, in the same XCDR encoding.
+Every sample is one envelope, the payload of a Zenoh put, little-endian: the wire protocol's version, the writer's id
+and sequence number, the source timestamp, the full protobuf type name and the serialized message.
 """
 
 import dataclasses
 import struct
-from typing import Any
-
-import cyclonedds.idl
-import cyclonedds.idl.annotations
-import cyclonedds.idl.types
 
 # LINT.IfChange(wire_protocol)
-# The version of the wire protocol; version 1 was the ZeroMQ framing that came before.
-WIRE_PROTOCOL_VERSION = 2
-# The DDS type name of the envelope.
-ENVELOPE_TYPE_NAME = "robot_ipc::Envelope"
+# The version of the wire protocol; version 1 was the ZeroMQ framing and version 2 the Cyclone DDS envelope that came
+# before.
+WIRE_PROTOCOL_VERSION = 3
+# protocol_version, writer_id, sequence_number, source_timestamp_ns, type_name_length; then the type name and the
+# payload.
+_HEADER = struct.Struct("<IQQqI")
+ENVELOPE_HEADER_BYTES = _HEADER.size
 # LINT.ThenChange(//robot_runtime/robot_ipc/include/robot_ipc/WireProtocol.h:wire_protocol)
-
-# The encapsulation identifiers of the serialized data's header (DDS-XTypes 7.6.3.1.2): plain CDR (XCDR1) and plain
-# CDR2 (XCDR2) of a final struct, big- and little-endian.
-_CDR_BE = 0x0000
-_CDR_LE = 0x0001
-_CDR2_BE = 0x0006
-_CDR2_LE = 0x0007
-_HEADER = struct.Struct(">HH")
-_HEADER_SIZE = _HEADER.size
-# XCDR2 aligns 8-byte members to 4, XCDR1 to 8 (from the end of the header).
-_XCDR1_UINT64_ALIGNMENT = 8
-_XCDR2_UINT64_ALIGNMENT = 4
-_UINT32_SIZE = 4
-_UINT64_SIZE = 8
-_STRING_TERMINATOR = b"\x00"
+_VERSION = struct.Struct("<I")
 
 
 class EnvelopeError(ValueError):
-    """Serialized data that is not an Envelope (a short buffer, an unknown encoding, a malformed string)."""
+    """Bytes that are no envelope of this protocol version: shorter than its header or its type name."""
 
 
-def _padding(offset: int, alignment: int) -> int:
-    return -offset % alignment
-
-
-# LINT.IfChange(envelope)
-@dataclasses.dataclass
-@cyclonedds.idl.annotations.final
-class Envelope(cyclonedds.idl.IdlStruct, typename=ENVELOPE_TYPE_NAME):  # type: ignore[call-arg]  # IdlMeta takes the IDL type name.
+@dataclasses.dataclass(frozen=True)
+class Envelope:
     """One sample of a bus topic.
 
     Attributes:
         protocol_version: WIRE_PROTOCOL_VERSION of the publisher; a bus refuses another version.
-        sequence_number: 1, 2, 3, ... per writer (one bus publishing one topic): a gap is a sample the reader missed.
+        writer_id: random, one per publisher of a bus.
+        sequence_number: 1, 2, 3, ... per writer: a gap is a sample the subscriber missed.
+        source_timestamp_ns: strictly increasing across the topics of the publishing bus.
         type_name: the full protobuf type name of the payload, e.g. "legged_mpc_msgs.MpcPolicy".
-        payload: the serialized protobuf message. Declared a sequence<octet> for the type information, held as bytes.
+        payload: the serialized protobuf message.
     """
 
-    protocol_version: cyclonedds.idl.types.uint32
-    sequence_number: cyclonedds.idl.types.uint64
+    protocol_version: int
+    writer_id: int
+    sequence_number: int
+    source_timestamp_ns: int
     type_name: str
-    payload: cyclonedds.idl.types.sequence[cyclonedds.idl.types.byte]
-    # LINT.ThenChange(//robot_runtime/robot_ipc/idl/Envelope.idl:envelope)
+    payload: bytes
 
-    def serialize(
-        self,
-        buffer: Any = None,
-        endianness: Any = None,
-        use_version_2: bool | None = None,
-    ) -> bytes:
-        """The XCDR2 (or, when asked, XCDR1) little-endian encoding of the envelope, with its header.
-
-        Args:
-            buffer: Unused: cyclonedds's own buffer, which this encoding does not need.
-            endianness: Unused: always little-endian, which every reader accepts.
-            use_version_2: False for XCDR1; XCDR2 otherwise.
-
-        Returns:
-            The header and the members, as DataWriter.write() hands them to DDS.
-        """
-        del buffer, endianness  # Unused.
-        name = self.type_name.encode("utf-8") + _STRING_TERMINATOR
-        payload = bytes(self.payload)
-        version_1 = use_version_2 is False
-        encapsulation = _CDR_LE if version_1 else _CDR2_LE
-        uint64_alignment = (
-            _XCDR1_UINT64_ALIGNMENT if version_1 else _XCDR2_UINT64_ALIGNMENT
-        )
-        parts = [
-            _HEADER.pack(encapsulation, 0),
-            struct.pack("<I", self.protocol_version),
-        ]
-        offset = _UINT32_SIZE
-        pad = _padding(offset, uint64_alignment)
-        parts.append(
-            b"\x00" * pad + struct.pack("<QI", self.sequence_number, len(name))
-        )
-        offset += pad + _UINT64_SIZE + _UINT32_SIZE
-        parts.append(name)
-        offset += len(name)
-        pad = _padding(offset, _UINT32_SIZE)
-        parts.append(b"\x00" * pad + struct.pack("<I", len(payload)))
-        parts.append(payload)
-        return b"".join(parts)
-
-    @classmethod
-    def deserialize(
-        cls,
-        data: bytes,
-        has_header: bool = True,
-        use_version_2: bool | None = None,
-    ) -> "Envelope":
-        """Reads an envelope of any of the four plain encodings (XCDR1 or XCDR2, either byte order).
-
-        Args:
-            data: The serialized sample, with its header unless has_header is False.
-            has_header: False for data without the 4-byte header, encoded as use_version_2 says.
-            use_version_2: Without a header: True for XCDR2 (the default), False for XCDR1.
-
-        Returns:
-            The envelope; its payload is a bytes object.
-
-        Raises:
-            EnvelopeError: the data is not an envelope.
-        """
-        view = memoryview(data)
-        if has_header:
-            if len(view) < _HEADER_SIZE:
-                raise EnvelopeError("the data is shorter than its header")
-            encapsulation = _HEADER.unpack_from(view)[0]
-            if encapsulation not in (_CDR_BE, _CDR_LE, _CDR2_BE, _CDR2_LE):
-                raise EnvelopeError(
-                    f"unknown encapsulation 0x{encapsulation:04x}"
-                )
-            body = view[_HEADER_SIZE:]
-        else:
-            encapsulation = _CDR2_LE if use_version_2 is not False else _CDR_LE
-            body = view
-        order = "<" if encapsulation in (_CDR_LE, _CDR2_LE) else ">"
-        uint64_alignment = (
-            _XCDR1_UINT64_ALIGNMENT
-            if encapsulation in (_CDR_LE, _CDR_BE)
-            else _XCDR2_UINT64_ALIGNMENT
-        )
-        try:
-            (protocol_version,) = struct.unpack_from(f"{order}I", body, 0)
-            offset = _UINT32_SIZE + _padding(_UINT32_SIZE, uint64_alignment)
-            sequence_number, name_size = struct.unpack_from(
-                f"{order}QI", body, offset
+    def encode(self) -> bytes:
+        """The envelope's bytes, ready to put."""
+        name = self.type_name.encode("utf-8")
+        return (
+            _HEADER.pack(
+                self.protocol_version,
+                self.writer_id,
+                self.sequence_number,
+                self.source_timestamp_ns,
+                len(name),
             )
-            offset += _UINT64_SIZE + _UINT32_SIZE
-            name = bytes(body[offset : offset + name_size])
-            if len(name) != name_size or not name.endswith(_STRING_TERMINATOR):
-                raise EnvelopeError("the type name is not a terminated string")
-            offset += name_size
-            offset += _padding(offset, _UINT32_SIZE)
-            (payload_size,) = struct.unpack_from(f"{order}I", body, offset)
-            offset += _UINT32_SIZE
-            payload = bytes(body[offset : offset + payload_size])
-        except struct.error as error:
-            raise EnvelopeError(f"the data ends early: {error}") from None
-        if len(payload) != payload_size:
-            raise EnvelopeError("the payload ends early")
-        return cls(
-            protocol_version=protocol_version,
-            sequence_number=sequence_number,
-            type_name=name[:-1].decode("utf-8", errors="replace"),
-            payload=payload,
+            + name
+            + self.payload
         )
+
+
+def protocol_version_of(data: bytes) -> int | None:
+    """The protocol version of the envelope `data`, its first field in every version; None for fewer than 4 bytes."""
+    if len(data) < _VERSION.size:
+        return None
+    return int(_VERSION.unpack_from(data)[0])
+
+
+def decode(data: bytes) -> Envelope:
+    """Decodes an envelope of WIRE_PROTOCOL_VERSION.
+
+    Args:
+        data: The bytes of a sample.
+
+    Returns:
+        The envelope.
+
+    Raises:
+        EnvelopeError: the bytes are shorter than the header or the type name.
+    """
+    if len(data) < ENVELOPE_HEADER_BYTES:
+        raise EnvelopeError("the data is shorter than an envelope's header")
+    version, writer_id, sequence, timestamp, name_length = _HEADER.unpack_from(
+        data
+    )
+    if name_length > len(data) - ENVELOPE_HEADER_BYTES:
+        raise EnvelopeError("the type name runs past the end of the data")
+    name_end = ENVELOPE_HEADER_BYTES + name_length
+    return Envelope(
+        protocol_version=version,
+        writer_id=writer_id,
+        sequence_number=sequence,
+        source_timestamp_ns=timestamp,
+        type_name=bytes(data[ENVELOPE_HEADER_BYTES:name_end]).decode(
+            "utf-8", errors="replace"
+        ),
+        payload=bytes(data[name_end:]),
+    )
 
 
 __all__ = [
-    "ENVELOPE_TYPE_NAME",
+    "ENVELOPE_HEADER_BYTES",
     "WIRE_PROTOCOL_VERSION",
     "Envelope",
     "EnvelopeError",
+    "decode",
+    "protocol_version_of",
 ]

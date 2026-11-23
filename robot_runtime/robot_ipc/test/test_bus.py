@@ -26,12 +26,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-"""The Python bus over Cyclone DDS: the properties testBus.cpp checks for the C++ bus.
+"""The Python bus over Zenoh: the properties testBus.cpp checks for the C++ bus.
 
 Topics kept apart, Delivery.LATEST against Delivery.ALL, the order of a drain across topics, publishing from several
 threads, processes that start in either order or restart, a prompt stop(), the publish queue's drop counting, the
 counters' invariants, rejection of malformed samples and of another wire protocol version, callbacks that raise, a
-policy-sized sample, the subscription to every topic, and decode(). Every test process has a DDS domain and tag of its
+policy-sized sample, the subscription to every topic, and decode(). Every test process has a domain and tag of its
 own (robot_ipc.isolated_test_network()), so tests that run at once never see each other's samples.
 """
 
@@ -41,15 +41,14 @@ import threading
 import time
 import unittest
 
-import cyclonedds.domain
-import cyclonedds.pub
-import cyclonedds.qos
-import cyclonedds.sub
-import cyclonedds.topic
 from robot_ipc_test import test_event_pb2
 from robot_ipc_test import test_sample_pb2
+import zenoh
 
 import robot_ipc
+from robot_ipc import envelope
+from robot_ipc import key_exprs
+from robot_ipc import session_config
 
 TIMEOUT = 20.0
 PUBLISHER = "publisher"
@@ -121,6 +120,84 @@ def accounted_for(statistics: robot_ipc.TopicStatistics) -> bool:
     )
 
 
+def bus_test_session(network: robot_ipc.NetworkConfig) -> zenoh.Session:
+    """A Zenoh session of its own in `network`'s domain, on the lowest free port, outside any bus.
+
+    Args:
+        network: The test network.
+
+    Returns:
+        The open session.
+
+    Raises:
+        RuntimeError: no port of the domain is free.
+    """
+    ports = session_config.tcp_port_range(network)
+    for port in range(ports.first, ports.last + 1):
+        if not session_config.is_tcp_port_free(robot_ipc.LOOPBACK_HOST, port):
+            continue
+        try:
+            return zenoh.open(
+                zenoh.Config.from_json5(
+                    session_config.zenoh_session_config(network, "", port)
+                )
+            )
+        except zenoh.ZError:
+            continue
+    raise RuntimeError(f"no free port of domain {network.domain_id}")
+
+
+class RawSession:
+    """A Zenoh session of its own in the test network's domain, to put and take what a Bus would not."""
+
+    def __init__(self) -> None:
+        self._session = bus_test_session(isolated_network())
+        self._lock = threading.Lock()
+        self._samples: list[bytes] = []
+        self._subscriber: zenoh.Subscriber | None = None
+
+    def put(self, topic: str, data: bytes) -> None:
+        """Puts `data` on `topic`'s key expression as it is."""
+        self._session.put(
+            key_exprs.data_key_expr(isolated_network(), topic), data
+        )
+
+    def subscribe(self, topic: str) -> None:
+        """Keeps every sample of `topic` for taken()."""
+        self._subscriber = self._session.declare_subscriber(
+            key_exprs.data_key_expr(isolated_network(), topic), self._on_sample
+        )
+
+    def _on_sample(self, sample: zenoh.Sample) -> None:
+        with self._lock:
+            self._samples.append(sample.payload.to_bytes())
+
+    def taken(self) -> list[bytes]:
+        """The samples that arrived since the last call."""
+        with self._lock:
+            samples, self._samples = self._samples, []
+        return samples
+
+    def close(self) -> None:
+        if self._subscriber is not None:
+            self._subscriber.undeclare()
+        self._session.close()
+
+
+def raw_envelope(
+    protocol: int, sequence: int, type_name: str, payload: bytes
+) -> bytes:
+    """One raw envelope of a writer of its own."""
+    return envelope.Envelope(
+        protocol_version=protocol,
+        writer_id=7,
+        sequence_number=sequence,
+        source_timestamp_ns=time.time_ns(),
+        type_name=type_name,
+        payload=payload,
+    ).encode()
+
+
 class Collector:
     """Collects what a callback receives, on the receive thread, for the test thread to read."""
 
@@ -186,7 +263,7 @@ class BusTestCase(unittest.TestCase):
     def wait_until_connected(
         self, publisher: robot_ipc.Bus, subscriber: robot_ipc.Bus
     ) -> None:
-        """Publishes probes until the subscriber has received more than before: DDS discovery has matched them."""
+        """Publishes probes until the subscriber has received more than before: the sessions have met."""
         before = subscriber.topic_statistics(PROBE_TOPIC).received
         probe = test_event_pb2.TestEvent(name="probe")
 
@@ -250,16 +327,26 @@ class CreateTest(BusTestCase):
     ) -> None:
         first = robot_ipc.Bus(PUBLISHER, isolated_network())
         network = isolated_network()
-        other_tag = robot_ipc.NetworkConfig(
+        # Another tag only changes the key expressions: it shares the session.
+        robot_ipc.Bus(
+            "",
+            robot_ipc.NetworkConfig(
+                nodes=network.nodes,
+                domain_id=network.domain_id,
+                domain_tag="another_tag",
+            ),
+        ).close()
+        other_lease = robot_ipc.NetworkConfig(
             nodes=network.nodes,
             domain_id=network.domain_id,
-            domain_tag="another_tag",
+            domain_tag=network.domain_tag,
+            transport=robot_ipc.TransportOptions(lease_duration_ms=7000),
         )
         with self.assertRaises(robot_ipc.BusError):
-            robot_ipc.Bus("", other_tag)
+            robot_ipc.Bus("", other_lease)
         first.close()
         # Once its last bus is gone, the domain may be configured anew.
-        robot_ipc.Bus("", other_tag).close()
+        robot_ipc.Bus("", other_lease).close()
 
     def test_a_subscribe_only_bus_reports_its_domain_and_cannot_publish(
         self,
@@ -268,15 +355,14 @@ class CreateTest(BusTestCase):
         self.assertEqual(bus.node_name, "")
         self.assertEqual(bus.domain_id, isolated_network().domain_id)
         self.assertEqual(bus.discovery_peers, ["127.0.0.1"])
-        self.assertIn(
-            f"<Tag>{isolated_network().domain_tag}</Tag>", bus.domain_config
-        )
+        first_port = robot_ipc.tcp_port_range(isolated_network()).first
+        self.assertIn(f'"tcp/127.0.0.1:{first_port}"', bus.domain_config)
         with self.assertRaises(robot_ipc.BusError):
             bus.publish("test/topic", make_sample(0))
 
     def test_the_environment_does_not_configure_the_bus(self) -> None:
-        # BUILD.bazel sets CYCLONEDDS_URI to an interface that does not exist; the bus passes its own configuration.
-        self.assertIn("no_such_interface", os.environ["CYCLONEDDS_URI"])
+        # BUILD.bazel sets ZENOH_CONFIG to a file that does not exist; the bus passes its own configuration.
+        self.assertIn("no_such_directory", os.environ["ZENOH_CONFIG"])
         bus = self.publisher()
         subscribe_probe(bus)
         bus.start()
@@ -548,7 +634,7 @@ class DeliveryTest(BusTestCase):
         self.assertTrue(all(on_io_thread))
         self.assertFalse(bus.is_io_thread())
 
-    def test_every_topic_is_a_dds_topic_of_its_own(self) -> None:
+    def test_every_topic_is_a_key_expression_of_its_own(self) -> None:
         publisher, subscriber = self.connected_pair()
         collector = Collector()
         subscriber.subscribe(
@@ -687,46 +773,61 @@ class DeliveryTest(BusTestCase):
             "test/typed", test_sample_pb2.TestSample, collector, "all"
         )
         subscriber.start()
-        # A raw DDS writer in the bus's domain, to write what a Bus never would.
-        participant = cyclonedds.domain.DomainParticipant(
-            isolated_network().domain_id
-        )
-        writer = cyclonedds.pub.DataWriter(
-            participant,
-            cyclonedds.topic.Topic(
-                participant, "test/typed", robot_ipc.Envelope
-            ),
-            qos=cyclonedds.qos.Qos(
-                cyclonedds.qos.Policy.Reliability.Reliable(
-                    max_blocking_time=10**9
-                ),
-                cyclonedds.qos.Policy.History.KeepLast(64),
-            ),
-        )
-        self.assertTrue(wait_for(matched_writers(subscriber, "test/typed", 1)))
+        # A raw session in the bus's domain, to put what a Bus never would.
+        raw = RawSession()
+        self.addCleanup(raw.close)
         sample_type = "robot_ipc_test.TestSample"
         version = robot_ipc.WIRE_PROTOCOL_VERSION
-        for sequence, (protocol, type_name, payload) in enumerate(
-            (
-                (
-                    version,
-                    "robot_ipc_test.TestEvent",
-                    test_event_pb2.TestEvent(name="x").SerializeToString(),
-                ),
-                # A length-delimited field (text) that claims five bytes and carries two.
-                (version, sample_type, b"\x12\x05ab"),
-                (version - 1, sample_type, make_sample(1).SerializeToString()),
-                (version + 1, sample_type, make_sample(2).SerializeToString()),
-                (version, sample_type, make_sample(5).SerializeToString()),
-            ),
-            start=1,
-        ):
-            writer.write(
-                robot_ipc.Envelope(protocol, sequence, type_name, payload)
+        sequence = 0
+
+        def put(protocol: int, type_name: str, payload: bytes) -> None:
+            nonlocal sequence
+            sequence += 1
+            raw.put(
+                "test/typed",
+                raw_envelope(protocol, sequence, type_name, payload),
             )
-        self.assertTrue(wait_for(lambda: collector.size() == 1))
-        self.assertEqual(collector.samples()[0].sequence, 5)
+
+        # Valid samples until one arrives: the sessions have met.
+        probe = 100
+
+        def probed() -> bool:
+            put(version, sample_type, make_sample(probe).SerializeToString())
+            time.sleep(0.005)
+            return any(
+                sample.sequence == probe for sample in collector.samples()
+            )
+
+        self.assertTrue(wait_for(probed))
+
+        def all_received() -> bool:
+            return (
+                subscriber.topic_statistics("test/typed").received == sequence
+            )
+
+        self.assertTrue(wait_for(all_received))
+        probes = collector.size()
+        put(
+            version,
+            "robot_ipc_test.TestEvent",
+            test_event_pb2.TestEvent(name="x").SerializeToString(),
+        )
+        # A length-delimited field (text) that claims five bytes and carries two.
+        put(version, sample_type, b"\x12\x05ab")
+        put(version - 1, sample_type, make_sample(1).SerializeToString())
+        put(version + 1, sample_type, make_sample(2).SerializeToString())
+        # An envelope cut short in its header, and one whose type name runs past it.
+        raw.put("test/typed", b"\x03\x00\x00\x00\x01")
+        sequence += 1
+        raw.put(
+            "test/typed", raw_envelope(version, sequence, sample_type, b"")[:-1]
+        )
+        put(version, sample_type, make_sample(5).SerializeToString())
+        self.assertTrue(wait_for(lambda: collector.size() == probes + 1))
+        self.assertEqual(collector.samples()[-1].sequence, 5)
         statistics = subscriber.topic_statistics("test/typed")
+        # A rejected envelope that decodes counts in its writer's sequence; the two of other versions and the
+        # truncated one leave a gap of three.
         self.assertEqual(
             (
                 statistics.received,
@@ -734,57 +835,41 @@ class DeliveryTest(BusTestCase):
                 statistics.delivered,
                 statistics.missed,
             ),
-            (5, 4, 1, 0),
+            (probes + 7, 6, probes + 1, 3),
         )
         self.assertTrue(subscriber.is_running())
-        del writer, participant
 
     def test_the_bus_writes_the_envelope_of_its_wire_protocol(self) -> None:
         publisher = self.publisher()
-        participant = cyclonedds.domain.DomainParticipant(
-            isolated_network().domain_id
-        )
-        reader = cyclonedds.sub.DataReader(
-            participant,
-            cyclonedds.topic.Topic(
-                participant, "test/version", robot_ipc.Envelope
-            ),
-            qos=cyclonedds.qos.Qos(
-                cyclonedds.qos.Policy.Reliability.Reliable(
-                    max_blocking_time=10**9
-                )
-            ),
-        )
+        raw = RawSession()
+        self.addCleanup(raw.close)
+        raw.subscribe("test/version")
         publisher.start()
-        received: list[robot_ipc.Envelope] = []
+        received: list[envelope.Envelope] = []
 
         def two_received() -> bool:
             publisher.publish("test/version", make_sample(3))
             time.sleep(0.005)
-            received.extend(
-                sample
-                for sample in reader.take(16)
-                if isinstance(sample, robot_ipc.Envelope)
-            )
+            received.extend(envelope.decode(data) for data in raw.taken())
             return len(received) >= 2
 
         self.assertTrue(wait_for(two_received))
-        for envelope in received:
+        for sample in received:
             self.assertEqual(
-                envelope.protocol_version, robot_ipc.WIRE_PROTOCOL_VERSION
+                sample.protocol_version, robot_ipc.WIRE_PROTOCOL_VERSION
             )
-            self.assertEqual(envelope.type_name, "robot_ipc_test.TestSample")
+            self.assertEqual(sample.type_name, "robot_ipc_test.TestSample")
+            self.assertEqual(sample.writer_id, received[0].writer_id)
             self.assertEqual(
-                test_sample_pb2.TestSample.FromString(
-                    bytes(envelope.payload)
-                ).sequence,
+                test_sample_pb2.TestSample.FromString(sample.payload).sequence,
                 3,
             )
-        sequences = [envelope.sequence_number for envelope in received]
+        sequences = [sample.sequence_number for sample in received]
         self.assertEqual(
             sequences, list(range(sequences[0], sequences[0] + len(sequences)))
         )
-        del reader, participant
+        timestamps = [sample.source_timestamp_ns for sample in received]
+        self.assertEqual(timestamps, sorted(set(timestamps)))
 
     def test_one_drain_dispatches_in_write_order_across_topics(self) -> None:
         publisher, subscriber = self.connected_pair()
@@ -989,25 +1074,6 @@ class ConnectionTest(BusTestCase):
         )
         publisher.start()
         self.assertTrue(wait_for(written(publisher, "test/queue", capacity)))
-
-
-class EnvelopeTest(unittest.TestCase):
-
-    def test_every_encoding_round_trips_and_garbage_is_refused(self) -> None:
-        envelope = robot_ipc.Envelope(2, 7, "a.B", b"\x00\x01payload")
-        for version_2 in (True, False):
-            with self.subTest(version_2=version_2):
-                data = envelope.serialize(use_version_2=version_2)
-                self.assertEqual(robot_ipc.Envelope.deserialize(data), envelope)
-        for garbage in (
-            b"",
-            b"\x00\x07",
-            b"\x00\x09\x00\x00" + bytes(16),
-            b"\x00\x07\x00\x00\x02",
-        ):
-            with self.subTest(garbage=garbage):
-                with self.assertRaises(robot_ipc.envelope.EnvelopeError):
-                    robot_ipc.Envelope.deserialize(garbage)
 
 
 class DecodeTest(unittest.TestCase):

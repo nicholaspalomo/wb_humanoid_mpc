@@ -35,28 +35,26 @@ namespace robot::ipc {
 
 /**
  * What a bus did with one topic since it was created. Once a drain has
- * dispatched, received == delivered + superseded + rejected. The last four
- * fields are DDS's own account, refreshed by the IO thread at most every
- * BusOptions::ioPollPeriod.
+ * dispatched, received == delivered + superseded + rejected. The last three
+ * fields count the liveliness tokens of the other buses (KeyExprs.h), as the
+ * IO thread last saw them.
  */
 struct TopicStatistics {
   // The Python bus counts the same (robot_ipc/bus.py TopicStatistics).
   // LINT.IfChange(topic_statistics)
   /**
-   * Samples handed to the topic's DDS writer - not samples delivered: a
-   * BEST_EFFORT sample can still be lost on the link, and a newer sample
-   * replaces one a reliable KEEP_LAST writer is still repairing. The
-   * subscriber's `missed` and `sampleLost` show what a link lost.
+   * Samples handed to the topic's Zenoh publisher - not samples delivered: a
+   * congested link drops a sample of a dropping profile (QosProfile.h). The
+   * subscriber's `missed` shows what a link lost.
    */
   uint64_t written = 0;
   /**
    * Samples not written: Bus::publish() refused because the queue to the IO
-   * thread was full (BusOptions::publishQueueCapacity), or DDS refused the
-   * write (a reliable writer at its unacknowledged-bytes limit,
-   * TransportOptions::writerUnackedBytesLimit, which the bus never waits for).
+   * thread was full (BusOptions::publishQueueCapacity), or Zenoh refused the
+   * put.
    */
   uint64_t sendDropped = 0;
-  /** Samples taken from the topic's DDS reader. */
+  /** Samples taken from the subscription's queue. */
   uint64_t received = 0;
   /** Samples handed to the subscription's handler (including those whose
    * handler then threw). */
@@ -72,30 +70,24 @@ struct TopicStatistics {
   /** Handler calls that threw; the bus logs and counts them and carries on. */
   uint64_t handlerErrors = 0;
   /**
-   * Samples a matched writer wrote that the reader never took, from the gaps in
-   * the writers' sequence numbers: replaced in a KEEP_LAST history (the
-   * writer's, or the reader's while the IO thread was busy) or, under
-   * BEST_EFFORT, lost on the link. Counted from the second sample of each
-   * writer on: what a writer wrote before this reader matched it is not a gap.
+   * Samples a writer wrote that the subscription never took, from the gaps in
+   * the writers' sequence numbers: replaced in the subscription's queue while
+   * the IO thread was busy (BusOptions' delivery history depths), or dropped by
+   * a congested link. Counted from the second sample of each writer on: what a
+   * writer wrote before this subscriber was declared is not a gap.
    */
   uint64_t missed = 0;
-  /** DDS SAMPLE_LOST of the reader: samples DDS knows were lost on the way (a
-   * gap it saw in a BEST_EFFORT stream). */
-  uint64_t sampleLost = 0;
-  /** DDS SAMPLE_REJECTED of the reader: samples DDS dropped for the reader's
-   * resource limits. */
-  uint64_t sampleRejected = 0;
   /**
-   * DDS REQUESTED_ and OFFERED_INCOMPATIBLE_QOS of the topic's reader and
-   * writer: remote endpoints that will not match them, e.g. a RELIABLE reader
-   * and a BEST_EFFORT writer from two different network files.
+   * The publishers and subscribers of the topic, on any bus, whose profile is
+   * another than this bus's: two different network files. They exchange no
+   * samples (the profile is a chunk of the key expression).
    */
   uint64_t incompatibleQos = 0;
-  /** The DDS readers this bus's writer of the topic currently matches: the
-   * subscribers that are up. */
+  /** The subscribers of the topic with this bus's profile, on any bus this one
+   * included, while this bus has a publisher of it: those that are up. */
   uint64_t matchedReaders = 0;
-  /** The DDS writers this bus's reader of the topic currently matches: the
-   * publishers that are up. */
+  /** The publishers of the topic with this bus's profile, on any bus this one
+   * included, while this bus subscribes to it: those that are up. */
   uint64_t matchedWriters = 0;
   // LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/bus.py:topic_statistics)
 };

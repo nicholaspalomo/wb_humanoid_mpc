@@ -51,20 +51,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 
 /**
- * The DDS bus of legged_nmpc/docs/distributed_runtime/README.md:
- * publish/subscribe over Cyclone DDS, without a broker and without ROS. Every
- * bus topic is a DDS topic of the same name whose samples are one
- * robot_ipc::Envelope (WireProtocol.h): the wire protocol's version, the
- * writer's sequence number, the full protobuf type name and the serialized
+ * The bus of legged_nmpc/docs/distributed_runtime/README.md: publish/subscribe
+ * over Eclipse Zenoh, peer to peer without a router and without ROS. Every bus
+ * topic is a Zenoh key expression (KeyExprs.h) whose samples are one envelope
+ * (WireProtocol.h): the wire protocol's version, the writer's id and sequence
+ * number, the source timestamp, the full protobuf type name and the serialized
  * message. A sample of another protocol version is refused and counted as
  * rejected.
  *
- * A bus is one DDS participant of NetworkConfig::domainId, configured from the
- * network file (DomainConfig.h): unicast discovery to the host of every node,
+ * The buses of a process share one Zenoh peer session of
+ * NetworkConfig::domainId, configured from the network file (SessionConfig.h):
+ * a TCP listener on the node's host, connections to the host of every node,
  * the quality of service of each topic by its named profile (QosProfile.h). Any
- * process may publish any topic and processes start in any order; DDS discovery
- * matches the writers and readers, and TopicStatistics::matchedReaders /
- * matchedWriters say which are up.
+ * process may publish any topic and processes start in any order; every bus
+ * declares a liveliness token per publisher and subscriber, and
+ * TopicStatistics::matchedReaders / matchedWriters count those that are up.
  *
  * Order. One drain takes up to BusOptions::maxMessagesPerDrain samples across
  * the topics and dispatches them in the order they were written (their source
@@ -72,18 +73,19 @@ namespace robot::ipc {
  * kAll's every sample, kLatest's newest one at the place it was written (the
  * older ones of the drain are superseded). Within a drain, a handler never sees
  * a sample of one topic before one of another topic that the same publisher
- * wrote earlier. Across drains DDS gives no such guarantee: the topics are
- * separate DDS readers, and a large sample being repaired may arrive after a
- * small one written later.
+ * wrote earlier. Across drains Zenoh gives no such guarantee: the profiles have
+ * different priorities, and a batched sample may arrive after an express one
+ * written later.
  *
- * Threads. The DDS readers and writers belong to the bus's IO thread, which
- * start() launches. Handlers and periodic callbacks run on it, one at a time,
- * so they must return quickly and need no locking among themselves. publish()
- * may be called from any thread except a realtime one: it serializes on the
- * caller and hands the sample to the IO thread through a short mutex-protected
- * queue; only the IO thread calls dds_write(). A realtime thread never calls
- * the bus; it exchanges data with a periodic callback through lock-free
- * mailboxes instead.
+ * Threads. The Zenoh publishers belong to the bus's IO thread, which start()
+ * launches; Zenoh's own threads copy each arriving sample into its
+ * subscription's queue (BusOptions' delivery history depths) and wake it.
+ * Handlers and periodic callbacks run on it, one at a time, so they must return
+ * quickly and need no locking among themselves. publish() may be called from
+ * any thread except a realtime one: it serializes on the caller and hands the
+ * sample to the IO thread through a short mutex-protected queue; only the IO
+ * thread calls z_publisher_put(). A realtime thread never calls the bus; it
+ * exchanges data with a periodic callback through lock-free mailboxes instead.
  *
  * Errors are absl::Status values. Nothing throws out of the IO thread: a
  * handler or callback that throws is logged and counted, and the bus carries
@@ -102,12 +104,13 @@ class Bus {
       absl::AnyInvocable<void(const google::protobuf::Message& message)>;
 
   /**
-   * Joins the DDS domain and creates the writers of the topics the network file
-   * lists this node as a publisher of; the IO thread starts with start(). A
-   * node name that is not in the network or an invalid network is
-   * InvalidArgument; a node whose host is an address of another machine is
+   * Opens (or shares) the Zenoh session of the domain and declares the
+   * publishers of the topics the network file lists this node as a publisher
+   * of; the IO thread starts with start(). A node name that is not in the
+   * network or an invalid network is InvalidArgument; a node whose host is an
+   * address of another machine, or a domain whose every port is taken, is
    * Unavailable; a process whose buses ask for two different configurations of
-   * one domain is FailedPrecondition; a DDS failure is Internal.
+   * one domain is FailedPrecondition; a Zenoh failure is Internal.
    */
   static absl::StatusOr<std::unique_ptr<Bus>> Create(BusOptions options);
 
@@ -191,8 +194,8 @@ class Bus {
                           absl::string_view payload);
 
   /**
-   * Publishes from a handler or a periodic callback, straight to the DDS writer
-   * (after what publish() queued). Called from any other thread it is
+   * Publishes from a handler or a periodic callback, straight to the Zenoh
+   * publisher (after what publish() queued). Called from any other thread it is
    * FailedPrecondition.
    */
   absl::Status publishFromIoThread(absl::string_view topic,
@@ -206,11 +209,11 @@ class Bus {
   const std::string& nodeName() const;
   /** NetworkConfig::domainId. */
   int domainId() const;
-  /** The hosts the bus sends its discovery packets to: the distinct hosts of
-   * the network's nodes. */
+  /** The hosts the bus connects to: the distinct hosts of the network's nodes.
+   */
   const std::vector<std::string>& discoveryPeers() const;
-  /** The Cyclone DDS configuration the bus joined its domain with
-   * (DomainConfig.h). */
+  /** The Zenoh configuration the bus's session was opened with
+   * (SessionConfig.h). */
   const std::string& domainConfig() const;
 
   /** The counters of one topic (all zero for a topic the bus has not seen).

@@ -26,21 +26,21 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-"""The Python and the C++ bus speak one wire protocol over Cyclone DDS.
+"""The Python and the C++ bus speak one wire protocol over Zenoh.
 
 The Python bus publishes TestSample messages; the C++ echo binary (test/BusEchoMain.cpp, a typed C++ subscription)
 parses each one and publishes it back with its origin set, and the Python bus parses the answer with a typed
-subscription and sees its raw envelopes. Both processes generate their Cyclone DDS configuration from the same network
-file, and generate the same text. A message of another type on the C++ side's topic is rejected by the C++ bus, which
-proves it reads the envelope's type name. Policy-sized samples (0.75 MB) cross the processes whole over a link that
-drops 2 % of its packets (Internal/Test/XmitLossiness), in datagrams of a Wi-Fi frame: the reliable_latest profile
-repairs every lost fragment.
+subscription and sees its raw envelopes. Both processes generate their Zenoh configuration from the same network file,
+and generate the same text for the same listen port. A message of another type on the C++ side's topic is rejected by
+the C++ bus, which proves it reads the envelope's type name. Policy-sized samples (0.75 MB) cross the processes whole
+on the reliable_latest profile.
 """
 
 from collections.abc import Callable
 import functools
 import os
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -63,9 +63,10 @@ ECHO_ORIGIN = "robot_ipc_bus_echo"
 SAMPLES = 50
 POLICIES = 5
 POLICY_BYTES = 768 * 1024
-# A lossy Wi-Fi link: 2 % of the packets lost, one DDS fragment per frame.
-LOSS_PER_MILLE = 20
-WIFI_MESSAGE_SIZE_BYTES = 1400
+# The listen endpoint of a configuration on loopback.
+LISTEN_PORT = re.compile(
+    r'"listen":\{"endpoints":\["tcp/127\.0\.0\.1:([0-9]+)"\]'
+)
 
 
 def wait_for(condition: Callable[[], bool], timeout: float = TIMEOUT) -> bool:
@@ -98,9 +99,7 @@ def make_policy(sequence: int) -> test_sample_pb2.TestSample:
     )
 
 
-def network(
-    loss_per_mille: int = 0, message_size: int = 0
-) -> robot_ipc.NetworkConfig:
+def network() -> robot_ipc.NetworkConfig:
     isolated = robot_ipc.isolated_test_network(["python", "echo"])
     reliable_latest = robot_ipc.QosProfile.RELIABLE_LATEST
     return robot_ipc.NetworkConfig(
@@ -112,9 +111,7 @@ def network(
             robot_ipc.TopicQos(POLICY_FROM_CPP, reliable_latest, ("echo",)),
         ),
         transport=robot_ipc.TransportOptions(
-            max_message_size_bytes=message_size,
-            socket_receive_buffer_bytes=8 << 20,
-            simulated_send_loss_per_mille=loss_per_mille,
+            socket_receive_buffer_bytes=8 << 20
         ),
     )
 
@@ -176,11 +173,8 @@ class EchoProcess:
 class CrossLanguageTestCase(unittest.TestCase):
     """The Python bus and the echo process, on NETWORK."""
 
-    LOSS_PER_MILLE = 0
-    MESSAGE_SIZE = 0
-
     def setUp(self) -> None:
-        self.network = network(self.LOSS_PER_MILLE, self.MESSAGE_SIZE)
+        self.network = network()
         network_file = os.path.join(
             os.environ["TEST_TMPDIR"], f"{self.id()}.textproto"
         )
@@ -244,12 +238,18 @@ class CrossLanguageTestCase(unittest.TestCase):
 
 class CrossLanguageTest(CrossLanguageTestCase):
 
-    def test_both_languages_generate_the_same_domain_configuration(
+    def test_both_languages_generate_the_same_session_configuration(
         self,
     ) -> None:
+        port = LISTEN_PORT.search(self.cpp_config)
+        self.assertIsNotNone(port, self.cpp_config)
+        if port is None:
+            return
         self.assertEqual(
             self.cpp_config,
-            robot_ipc.cyclone_domain_config(self.network, "echo"),
+            robot_ipc.zenoh_session_config(
+                self.network, "echo", int(port.group(1))
+            ),
         )
 
     def test_python_and_cpp_carry_the_envelope_and_serialize_identically(
@@ -306,22 +306,14 @@ class CrossLanguageTest(CrossLanguageTestCase):
         )
 
 
-class LossyLinkTest(CrossLanguageTestCase):
-    """Policy-sized samples across the processes over a link that loses packets."""
+class PolicyTest(CrossLanguageTestCase):
+    """Policy-sized samples across the processes."""
 
-    LOSS_PER_MILLE = LOSS_PER_MILLE
-    MESSAGE_SIZE = WIFI_MESSAGE_SIZE_BYTES
-
-    def test_reliable_latest_carries_every_policy_whole_over_a_lossy_link(
-        self,
-    ) -> None:
-        self.assertIn(
-            f"<XmitLossiness>{LOSS_PER_MILLE}</XmitLossiness>", self.cpp_config
-        )
+    def test_reliable_latest_carries_every_policy_whole(self) -> None:
         for sequence in range(1, POLICIES + 1):
             policy = make_policy(sequence)
             self.assertTrue(self.bus.publish(POLICY_TO_CPP, policy))
-            # One at a time: KEEP_LAST 1 would replace a policy still being repaired with the next one.
+            # One at a time: the echo's latest subscription keeps the newest, and a backlog is not what this checks.
             self.assertTrue(
                 wait_for(functools.partial(self.has_policy, sequence)),
                 f"policy {sequence} never came back",

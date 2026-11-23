@@ -55,7 +55,7 @@ inline constexpr absl::Duration kVelocityCommandPeriod = absl::Milliseconds(40);
  * changed command limits. */
 inline constexpr absl::Duration kCommandLimitsCheckPeriod = absl::Seconds(1);
 /** How long publishStopCommand() waits for the bus to write the stop command,
- * and then for DDS to send it. */
+ * and then for Zenoh to send it. */
 inline constexpr absl::Duration kStopCommandSendTimeout = absl::Seconds(1);
 inline constexpr absl::Duration kStopCommandGracePeriod =
     absl::Milliseconds(100);
@@ -63,9 +63,10 @@ inline constexpr absl::Duration kStopCommandGracePeriod =
 /**
  * Publishes the operator's latest walking command on
  * operator/walking_velocity_command at the topic's 25 Hz, from the bus's IO
- * thread, so that an MPC node that DDS discovers later, or a sample lost on the
- * link (the topic is BEST_EFFORT), still gets it (the subscribers take the
- * latest one). Nothing is published until the first setCommand().
+ * thread, so that an MPC node that joins later, or one that misses a sample
+ * (the topic is `latest`, dropped under congestion), still gets it (the
+ * subscribers take the latest one). Nothing is published until the first
+ * setCommand().
  *
  * The command is held in physical units, not as the normalized message: the MPC
  * scales the message back by its own copy of the command limits, which its
@@ -111,7 +112,8 @@ class VelocityCommandRepeater {
   /**
    * Replaces the command with the stop command - zero velocities, the pelvis
    * height change kept - and waits until the bus has written it and
-   * `gracePeriod` more, for DDS to send it before the bus deletes its writer.
+   * `gracePeriod` more, for Zenoh to send it before the bus undeclares its
+   * publisher.
    * The MPC keeps the last walking command it received, so a teleoperation that
    * ends without it leaves the robot walking. Blocks the caller for up to
    * `timeout` plus `gracePeriod`; never call it on the bus's IO thread.

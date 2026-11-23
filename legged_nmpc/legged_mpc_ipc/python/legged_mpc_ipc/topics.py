@@ -27,7 +27,7 @@
 
 """The topics of the IPC bus, the Python twin of include/legged_mpc_ipc/Topics.h.
 
-Each topic is a DDS topic of the same name (legged_nmpc/docs/distributed_runtime/README.md, "Topics"). The comment of
+Each topic is the last chunks of a Zenoh key expression (legged_nmpc/docs/distributed_runtime/README.md, "Topics"). The comment of
 each constant names the message it carries and who publishes it; config/ipc/network.textproto gives each its QoS
 profile (test/test_topics.py checks that every constant here equals its C++ twin).
 """

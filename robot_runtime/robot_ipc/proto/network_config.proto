@@ -5,11 +5,12 @@ package robot_ipc_proto;
 import "nproto/options.proto";
 import "nproto/retired_field_options.proto";
 
-// The DDS network of the bus (robot_runtime/robot_ipc/README.md): the schema of the network file,
-// config/ipc/network.textproto. Every process of the runtime joins the DDS domain domain_id; the bus generates its
-// Cyclone DDS configuration from this file (robot_ipc/DomainConfig.h) and passes it to dds_create_domain(), so no
-// XML file and no CYCLONEDDS_URI is involved. Discovery is unicast to the host of every node: Wi-Fi multicast is
-// unreliable, and a container's loopback interface has none.
+// The Zenoh network of the bus (robot_runtime/robot_ipc/README.md): the schema of the network file,
+// config/ipc/network.textproto. Every process of the runtime opens a Zenoh peer session of domain domain_id; the bus
+// generates the session's configuration from this file (robot_ipc/SessionConfig.h) and passes it to z_open(), so no
+// JSON5 file and no ZENOH_CONFIG is involved. Each process listens on a TCP port of its domain and connects to the
+// ports of the host of every node: no multicast scouting, since Wi-Fi multicast is unreliable and a container's
+// loopback interface has none.
 //
 // Both loaders (robot_ipc/NetworkConfig.h and robot_ipc.load_network_config) parse the file strictly: an unknown
 // field, a value of the wrong type or a syntax error is an error that names the file, the line and the column. They
@@ -25,11 +26,11 @@ message NetworkConfig {
   message Node {
     option (nproto.retired_field) = {
       name: "port"
-      replacement: "remove it: DDS computes its UDP ports from domain_id (robot_runtime/robot_ipc/README.md, \"Ports\")"
+      replacement: "remove it: the bus computes its TCP ports from domain_id (robot_runtime/robot_ipc/README.md, \"Ports\")"
     };
     option (nproto.retired_field) = {
       name: "bind_host"
-      replacement: "remove it: a node's process uses the network interface of its host"
+      replacement: "remove it: a node's process listens on the network interface of its host"
     };
 
     reserved 5 to max;
@@ -37,9 +38,9 @@ message NetworkConfig {
 
     // The node name a process publishes as (--ipc_node), e.g. "robot": letters, digits, '_' and '-'. Unique.
     string name = 1;
-    // The machine of the node: an IPv4 address or a host name, without a scheme or a port. Every bus sends its
-    // discovery packets to the host of every node, and the process of a node uses the network interface of its
-    // host's address (it must be an address of that machine). Required.
+    // The machine of the node: an IPv4 address or a host name, without a scheme or a port. Every bus connects to the
+    // ports of the host of every node, and the process of a node listens on its host's address (it must be an address
+    // of that machine). Required.
     string host = 2;
   }
 
@@ -49,53 +50,59 @@ message NetworkConfig {
   message Topic {
     reserved 4 to max;
 
-    // The bus topic, which is also the DDS topic name: letters, digits, '_' and '/', not starting with a digit.
+    // The bus topic, the last chunks of its Zenoh key expression: letters, digits, '_' and '/', not starting with a
+    // digit or '/', without an empty chunk.
     string name = 1;
     // "latest", "reliable_latest" or "reliable_events" (robot_ipc/QosProfile.h). Required.
     string qos_profile = 2;
-    // The nodes that publish the topic. Their buses create the DDS writer at start-up, so that the subscribers have
-    // discovered it before the first sample; any other process may still publish the topic, from its first publish on.
+    // The nodes that publish the topic. Their buses declare the Zenoh publisher at start-up, so that the subscribers
+    // know of it before the first sample; any other process may still publish the topic, from its first publish on.
     repeated string publishers = 3;
   }
 
-  // The DDS transport. Every field is optional: 0 keeps the default its comment names.
+  // The Zenoh transport. Every field is optional: 0 keeps the default its comment names.
   // Next ID: 8
   message Transport {
-    reserved 8 to max;
+    option (nproto.retired_field) = {
+      name: "max_message_size_bytes"
+      replacement: "remove it: Zenoh sends over TCP, which sizes its own segments"
+    };
+    option (nproto.retired_field) = {
+      name: "writer_unacked_bytes_limit"
+      replacement: "remove it: a Zenoh publisher keeps no history; the profile's congestion control decides (robot_ipc/QosProfile.h)"
+    };
+    option (nproto.retired_field) = {
+      name: "simulated_send_loss_per_mille"
+      replacement: "remove it, and rehearse a lossy link with netem (tools/deploy/README.md)"
+    };
 
-    // The largest UDP payload Cyclone DDS sends (General/MaxMessageSize). 0: Cyclone's 14720 B, which the IP layer
-    // fragments on a 1500 B link. A lossy link (Wi-Fi) does better at 1400 B: a lost packet then costs one DDS
-    // fragment, which the reliable protocol sends again, instead of a whole datagram.
-    uint32 max_message_size_bytes = 1;
+    reserved 8 to max;
+    reserved 1, 4, 7;
+
     // LINT.IfChange(socket_buffers)
-    // The socket receive buffer requested (Internal/SocketReceiveBufferSize max; the kernel caps it at
-    // net.core.rmem_max, which the Makefile's launch and deploy targets raise to it: tools/deploy/udp_buffers.sh).
-    // 0: Cyclone's 1 MiB request. A process that receives policies wants a few of them: 8 MiB.
+    // The TCP receive buffer requested (transport.link.tcp.so_rcvbuf; the kernel caps it at net.core.rmem_max, which
+    // the Makefile's launch and deploy targets raise to it: tools/deploy/socket_buffers.sh). 0: the OS default. A
+    // process that receives policies wants a few of them: 8 MiB.
     uint32 socket_receive_buffer_bytes = 2;
-    // The socket send buffer requested (Internal/SocketSendBufferSize max; capped at net.core.wmem_max, raised the
-    // same way). 0: the OS default.
+    // The TCP send buffer requested (transport.link.tcp.so_sndbuf; capped at net.core.wmem_max, raised the same way).
+    // 0: the OS default.
     uint32 socket_send_buffer_bytes = 3;
-    // LINT.ThenChange(//tools/deploy/udp_buffers.sh:socket_buffers)
-    // The unacknowledged bytes a reliable writer may hold before a write waits for acknowledgments
-    // (Internal/Watermarks/WhcHigh). 0: 8 MiB, ten policies; the bus never waits, it counts the write as sendDropped.
-    uint32 writer_unacked_bytes_limit = 4;
-    // The processes of the domain one machine may run (Discovery/MaxAutoParticipantIndex + 1): each takes a pair of
-    // unicast ports, and discovery probes this many port pairs on every peer. 0: 20.
+    // LINT.ThenChange(//tools/deploy/socket_buffers.sh:socket_buffers)
+    // The processes of the domain one machine may run, in [1, 100]: each listens on one TCP port of the domain's range,
+    // and every process connects to this many ports on the host of every node. 0: 20.
     uint32 max_processes_per_host = 5;
-    // How long a process that stopped sending (crashed, unplugged) stays matched (Discovery/LeaseDuration). 0: 3 s.
+    // How long a process that stopped sending (crashed, unplugged) stays connected (transport.link.tx.lease). 0: 3 s.
     uint32 lease_duration_ms = 6;
-    // Drops this many of every 1000 UDP packets a process sends (Internal/Test/XmitLossiness), to rehearse a lossy
-    // link without netem and to test the reliable profiles. 0 (the default) on a real network.
-    uint32 simulated_send_loss_per_mille = 7;
   }
 
-  // In the order the bus lists the discovery peers.
+  // In the order the bus connects to their hosts.
   repeated Node nodes = 1;
-  // The DDS domain, in [0, 232]: its UDP ports are 7400 + 250 * domain_id + 10 + 2 * process index (discovery) and
-  // one more (data).
+  // The domain, in [0, 232]: its TCP ports are 7447 + 100 * domain_id + process index (robot_ipc/SessionConfig.h), and
+  // its key expressions start with robot_ipc/<domain_id>.
   uint32 domain_id = 2;
-  // A tag that every process of the bus must share to discover the others (Discovery/Tag): two robots on one network
-  // and the tests use it to stay apart. Letters, digits, '_', '-' and '.'. Empty: none.
+  // A tag that every process of the bus must share to exchange samples, in the third chunk of every key expression
+  // (tag_<domain_tag>): two robots on one network and the tests use it to stay apart. Letters, digits, '_', '-' and
+  // '.'. Empty: none.
   string domain_tag = 3;
   // The QoS of the topics, each listed at most once.
   repeated Topic topics = 4;

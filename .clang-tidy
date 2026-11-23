@@ -172,7 +172,7 @@ CheckOptions:
   # LINT.IfChange(include_cleaner_ignore)
   misc-include-cleaner.IgnoreHeaders: "Eigen/.*;cppad/.*;mujoco/.*;lib/ocs2/thirdparty/.*;boost/.*;coal/.*;\
     hpp/fcl/.*;pinocchio/fwd[.]hpp;pinocchio/src/.*;gtest/internal/.*;gmock/internal/.*;absl/.*/internal/.*;\
-    google/protobuf/.*internal.*;google/protobuf/port_(un)?def[.]inc;dds/dds[a-z]+/.*;bits/.*;\
+    google/protobuf/.*internal.*;google/protobuf/port_(un)?def[.]inc;zenoh_[a-z]+[.]h;bits/.*;\
     asm(-generic)?/.*"
   # LINT.ThenChange(//.clangd:include_cleaner_ignore)
   modernize-type-traits.IgnoreMacros: true            # googletest's INSTANTIATE_TEST_SUITE_P and EXPECT_THROW expand to C++11 traits

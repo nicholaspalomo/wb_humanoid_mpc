@@ -50,7 +50,7 @@ Free of Tk, so that the tests exercise it headless:
 - OperatorBus is the GUI's node on the bus: one publisher per operator topic, and the robot/fsm_state and
   robot/config_save_status subscriptions.
 
-Nothing here calls Cyclone DDS directly; robot_ipc.Bus does, on its own receive thread. Bus.publish() never waits for
+Nothing here calls Zenoh directly; robot_ipc.Bus does, on its own receive thread. Bus.publish() never waits for
 the network, so publishing from a Tk callback cannot stall the GUI.
 """
 
@@ -455,7 +455,7 @@ class OperatorBus:
             robot_ipc.NetworkConfigError: the file is invalid; the message names the line and column, or the node.
             ValueError: the node is not in the network.
             robot_ipc.InterfaceError: the node's host is an address of another machine.
-            robot_ipc.BusError: DDS cannot join the network's domain.
+            robot_ipc.BusError: Zenoh cannot open the session of the network's domain.
         """
         network = robot_ipc.load_network_config(network_config)
         return cls(robot_ipc.Bus(node_name, network))

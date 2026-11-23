@@ -54,8 +54,9 @@ absl::StatusOr<robot::ipc::NetworkConfig> loadNodeNetwork(
  * The options of the bus of a binary that publishes as `nodeName` (--ipc_node)
  * on the network of `networkConfigPath` (loadNodeNetwork()). How much a
  * subscriber that falls behind is handed after a stall is the topic's QoS,
- * which the network file names (robot_ipc/QosProfile.h): KEEP_LAST 1 for the
- * latest-value streams (robot/mpc_observation, mpc/policy), whichever node
+ * which the network file names (robot_ipc/QosProfile.h): the latest-value
+ * streams (robot/mpc_observation, mpc/policy) drop what a congested link cannot
+ * take, and their subscription queues keep only the newest few, whichever node
  * publishes them. The errors of loadNodeNetwork().
  */
 absl::StatusOr<robot::ipc::BusOptions> nodeBusOptions(

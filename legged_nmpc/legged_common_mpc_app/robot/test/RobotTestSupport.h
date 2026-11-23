@@ -100,7 +100,7 @@ robot::model::RobotDescription atlasDescription();
 std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>
 makeHeadlessAtlas(bool gantryLocked);
 
-/** A bus publishing as `nodeName` on this test process's DDS domain
+/** A bus publishing as `nodeName` on this test process's domain
  * (robot::ipc::isolatedTestNetwork()). */
 std::unique_ptr<robot::ipc::Bus> createLoopbackBus(absl::string_view nodeName);
 

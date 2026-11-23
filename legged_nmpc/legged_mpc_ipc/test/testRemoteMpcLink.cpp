@@ -144,7 +144,7 @@ class RemoteMpcLinkTest : public ::testing::Test {
              bool observationsThroughRelay = false) {
     mpc_ = test_support::makeScriptedMpc();
     mpc_->getSolverPtr()->addSynchronizedModule(module_);
-    // Through the relay, the robot and the MPC are on two DDS domains of their
+    // Through the relay, the robot and the MPC are on two domains of their
     // own: the observations reach the MPC only through the relay, which may
     // lose them, and the MPC's policies and status are forwarded back
     // unchanged.
@@ -212,7 +212,7 @@ class RemoteMpcLinkTest : public ::testing::Test {
    * Writes the observation at robot time `time` until a policy solved from it
    * is in the link's buffer: several of the same time and state, because the
    * first ones may go out before the subscriptions of the other side have
-   * reached the publisher (DDS discovery has matched the writers and readers).
+   * reached the publisher (the sessions have met).
    * Then one cycle at time + kSettleStep that waits for its own policy, after
    * which nothing is in flight any more, and swaps that in.
    */

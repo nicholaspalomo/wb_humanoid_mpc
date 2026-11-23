@@ -25,33 +25,33 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Test helpers: publishers of raw bus messages on the test process's own DDS domain, and its network file.
+"""Test helpers: publishers of raw bus messages on the test process's own domain, and its network file.
 
-Every test process has a DDS domain and tag of its own (robot_ipc.isolated_test_network()), so that the tests Bazel
-runs at once never see each other's samples; the network file this module writes names it, and the tool under test
-joins it from that file. A publisher writes its messages repeatedly from a thread until stopped, which makes the tests
-independent of DDS discovery (a listener of every topic discovers a topic from its writer, and gets only what is written
-after that). raw_envelope_writer() writes envelopes a bus would never write (another wire protocol version).
+Every test process has a domain and tag of its own (robot_ipc.isolated_test_network()), so that the tests Bazel runs at
+once never see each other's samples; the network file this module writes names it, and the tool under test joins it
+from that file. A publisher writes its messages repeatedly from a thread until stopped, which makes the tests
+independent of when the sessions meet (a subscriber gets only what is put after its declaration reached the publisher).
+RawEnvelopeWriter puts envelopes a bus would never put (another wire protocol version).
 """
 
 from collections.abc import Sequence
 import os
 import threading
+import time
 import uuid
 
-import cyclonedds.domain
-import cyclonedds.pub
-import cyclonedds.qos
-import cyclonedds.topic
+import zenoh
 
 import robot_ipc
+from robot_ipc import envelope
+from robot_ipc import key_exprs
+from robot_ipc import session_config
 
 DEFAULT_PERIOD_S = 0.01
 # The nodes of the test network, which the publishers publish as.
 NODES = ("robot", "mpc")
-# A reliable raw write waits this long for acknowledgments at most [ns].
-_RAW_WRITE_BLOCKING_NS = 1_000_000_000
-_RAW_WRITER_HISTORY_DEPTH = 64
+# The writer id of the raw envelopes.
+_RAW_WRITER_ID = 7
 
 
 def unique_topic(name: str) -> str:
@@ -130,53 +130,99 @@ class MessagePublisher:
         self.stop()
 
 
-class RawEnvelopeWriter:
-    """A DDS writer of robot_ipc::Envelope samples on one topic of the test domain, outside any bus.
-
-    The domain must exist in this process already (a bus of the test network holds it), so that the writer joins it
-    with the test network's configuration.
+def open_raw_session(test_network: robot_ipc.NetworkConfig) -> zenoh.Session:
+    """A Zenoh session of its own in `test_network`'s domain, on the lowest free port, outside any bus.
 
     Args:
-        topic: the topic to write.
+        test_network: The test network.
+
+    Returns:
+        The open session.
+
+    Raises:
+        RuntimeError: no port of the domain is free.
+    """
+    ports = session_config.tcp_port_range(test_network)
+    for port in range(ports.first, ports.last + 1):
+        if not session_config.is_tcp_port_free(robot_ipc.LOOPBACK_HOST, port):
+            continue
+        try:
+            return zenoh.open(
+                zenoh.Config.from_json5(
+                    session_config.zenoh_session_config(test_network, "", port)
+                )
+            )
+        except zenoh.ZError:
+            continue
+    raise RuntimeError(f"no free port of domain {test_network.domain_id}")
+
+
+class RawEnvelopeWriter:
+    """A Zenoh session of its own that puts envelopes on one topic of the test domain, outside any bus.
+
+    Args:
+        topic: the topic to put.
+
+    Raises:
+        RuntimeError: no port of the test domain is free for the session.
     """
 
     def __init__(self, topic: str) -> None:
-        self._participant = cyclonedds.domain.DomainParticipant(
-            network().domain_id
-        )
-        self._writer = cyclonedds.pub.DataWriter(
-            self._participant,
-            cyclonedds.topic.Topic(
-                self._participant, topic, robot_ipc.Envelope
-            ),
-            qos=cyclonedds.qos.Qos(
-                cyclonedds.qos.Policy.Reliability.Reliable(
-                    max_blocking_time=_RAW_WRITE_BLOCKING_NS
-                ),
-                cyclonedds.qos.Policy.History.KeepLast(
-                    _RAW_WRITER_HISTORY_DEPTH
-                ),
-            ),
+        test_network = network()
+        self._key_expr = key_exprs.data_key_expr(test_network, topic)
+        self._session = open_raw_session(test_network)
+        self._lock = threading.Lock()
+        self._subscribers: set[str] = set()
+        # The liveliness tokens of the topic's subscribers, of any bus and profile. A bus declares its subscriber
+        # before its token, so once the token is here, so is the subscriber.
+        self._tokens = self._session.liveliness().declare_subscriber(
+            f"{key_exprs.ENDPOINT_KEY_EXPR_ROOT}/{test_network.domain_id}/"
+            f"{key_exprs.DOMAIN_TAG_CHUNK_PREFIX}{test_network.domain_tag}/"
+            f"{key_exprs.EndpointRole.SUBSCRIBER.value}/*/*/{topic}",
+            self._on_token,
+            history=True,
         )
         self._sequence = 0
+
+    def _on_token(self, sample: zenoh.Sample) -> None:
+        with self._lock:
+            if sample.kind == zenoh.SampleKind.PUT:
+                self._subscribers.add(str(sample.key_expr))
+            else:
+                self._subscribers.discard(str(sample.key_expr))
 
     def write(
         self, protocol_version: int, type_name: str, payload: bytes
     ) -> None:
-        """Writes one envelope with the next sequence number."""
+        """Puts one envelope with the next sequence number."""
         self._sequence += 1
-        self._writer.write(
-            robot_ipc.Envelope(
-                protocol_version,
-                self._sequence,
-                type_name,
-                payload,
-            )
+        self._session.put(
+            self._key_expr,
+            envelope.Envelope(
+                protocol_version=protocol_version,
+                writer_id=_RAW_WRITER_ID,
+                sequence_number=self._sequence,
+                source_timestamp_ns=time.time_ns(),
+                type_name=type_name,
+                payload=payload,
+            ).encode(),
         )
 
     def matched(self) -> bool:
-        """Whether a reader has matched the writer."""
-        return self._writer.get_publication_matched_status().current_count > 0
+        """Whether a subscriber of the topic is up."""
+        with self._lock:
+            return bool(self._subscribers)
+
+    def close(self) -> None:
+        """Undeclares the token subscriber and closes the session, without which the process does not exit."""
+        self._tokens.undeclare()
+        self._session.close()
+
+    def __enter__(self) -> "RawEnvelopeWriter":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
 
 def write_network_file(directory: str) -> str:

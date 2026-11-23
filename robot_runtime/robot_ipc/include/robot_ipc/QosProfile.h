@@ -37,65 +37,73 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 
 /**
- * The DDS quality of service of a topic, chosen by name in the network file
+ * The quality of service of a topic, chosen by name in the network file
  * (NetworkConfig::topics, e.g. `topics { name: "mpc/policy" qos_profile:
- * "reliable_latest" }`). Every profile is VOLATILE: a reader gets what is
- * written after it matched the writer, never a history, so a process that
- * restarts is not handed old commands. The publisher and the subscribers of a
- * topic read the profile from the same network file; a reader that asks for
- * RELIABLE does not match a BEST_EFFORT writer, which both sides count
+ * "reliable_latest" }`). Zenoh sends every sample over the TCP links between
+ * the processes, so a sample that leaves a publisher arrives unless its link
+ * breaks; the profiles differ in what a publisher does when its link cannot
+ * take a sample at once (CongestionControl), and in its priority. No profile
+ * keeps a history: a subscriber gets what is put after it was declared, so a
+ * process that restarts is not handed old commands. The publisher and the
+ * subscribers of a topic read the profile from the same network file, and the
+ * profile is a chunk of the topic's key expression (KeyExprs.h): two processes
+ * that disagree about it never exchange samples, which both count
  * (TopicStatistics::incompatibleQos).
  */
 enum class QosProfile {
   /**
-   * "latest": BEST_EFFORT, KEEP_LAST 1. Streams whose newest sample is all that
-   * matters and that come again within a few milliseconds: observations, robot
-   * state, velocity commands, telemetry. A lost sample is replaced by the next
-   * one instead of being sent again, so a lossy link adds no latency.
+   * "latest": drop under congestion, data priority, sent at once (express).
+   * Streams whose newest sample is all that matters and that come again within
+   * a few milliseconds: observations, robot state, velocity commands,
+   * telemetry. A sample the link cannot take is dropped instead of queued, so a
+   * slow link adds no latency.
    */
   kLatest,
   /**
-   * "reliable_latest": RELIABLE, KEEP_LAST 1. Large or infrequent latest
-   * values: MPC policies (0.5-0.75 MB, hundreds of UDP fragments, so that one
-   * lost fragment would lose the whole policy under BEST_EFFORT), the MPC
-   * status, the FSM state and the operator's parameter documents. Lost
-   * fragments are sent again, but a newer sample replaces one that is still
-   * being repaired, so a slow link never builds a backlog.
+   * "reliable_latest": drop under congestion, data priority, batched. Large or
+   * infrequent latest values: MPC policies (0.5-0.75 MB), the MPC status, the
+   * FSM state and the operator's parameter documents. Zenoh waits briefly for
+   * room before it drops a sample, so a policy crosses a busy link whole, while
+   * a link too slow for the rate drops samples rather than building a backlog.
    */
   kReliableLatest,
   /**
-   * "reliable_events": RELIABLE, KEEP_LAST kReliableEventsHistoryDepth.
-   * Discrete events that must each arrive: FSM commands, dodgeball throws,
-   * configuration saves and their status. The default of a topic the network
-   * file does not list.
+   * "reliable_events": block under congestion, interactive priority, sent at
+   * once. Discrete events that must each arrive: FSM commands, dodgeball
+   * throws, configuration saves and their status. The default of a topic the
+   * network file does not list. A put waits for room in the link's queue, on
+   * the IO thread; a broken link is closed when its lease runs out.
    */
   kReliableEvents,
 };
 
-/** Whether DDS sends a lost sample (or fragment) again. */
-enum class Reliability {
-  kBestEffort,
-  kReliable,
+/** What a Zenoh publisher does with a sample its link cannot take at once. */
+enum class CongestionControl {
+  kDrop,
+  kBlock,
 };
 
-/** The DDS policies of a QosProfile. */
+/** The Zenoh priority of a profile's samples, highest first. */
+enum class Priority {
+  kInteractiveHigh,
+  kData,
+};
+
+/** The Zenoh publisher options of a QosProfile. */
 struct QosPolicy {
-  Reliability reliability = Reliability::kReliable;
-  /** The writer's KEEP_LAST depth: the samples it keeps for readers that have
-   * not acknowledged them yet. */
-  int writerHistoryDepth = 1;
+  CongestionControl congestionControl = CongestionControl::kBlock;
+  Priority priority = Priority::kData;
+  /** Sent at once, not batched with other samples. */
+  bool express = false;
 };
 
 // The Python bus has the same profiles (robot_ipc/qos_profile.py).
 // LINT.IfChange(qos_profiles)
-/** The writer history of kReliableEvents: events written faster than a reader
- * acknowledges them beyond it are lost. */
-inline constexpr int kReliableEventsHistoryDepth = 64;
 /** Every profile, in the order of the enum. */
 inline constexpr std::array<QosProfile, 3> kAllQosProfiles = {
     QosProfile::kLatest, QosProfile::kReliableLatest,
     QosProfile::kReliableEvents};
-// LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/qos_profile.py:qos_profiles)
+// LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/qos_profile.py:qos_profile_names)
 
 /** The name of a profile in the network file: "latest", "reliable_latest" or
  * "reliable_events". */
@@ -105,7 +113,7 @@ absl::string_view qosProfileName(QosProfile profile);
  * lists the valid ones. */
 absl::StatusOr<QosProfile> parseQosProfile(absl::string_view name);
 
-/** The DDS policies of `profile`. */
+/** The Zenoh publisher options of `profile`. */
 QosPolicy qosPolicy(QosProfile profile);
 
 }  // namespace robot::ipc

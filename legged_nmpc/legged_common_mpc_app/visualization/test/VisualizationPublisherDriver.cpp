@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Publishes the G1's viz/scene and viz/telemetry from synthetic data, through
 // the visualization publisher, as node "visualization" of the network file
-// --network_config (the test's own DDS domain), for test_end_to_end.py. Prints
+// --network_config (the test's own domain), for test_end_to_end.py. Prints
 // "READY" on stdout once the bus is up, then feeds robot/state samples at
 // --sample_rate and a new policy every
 // --policy_period until --duration has passed.

@@ -43,7 +43,7 @@ exports_files([
 ])
 
 # The dev image and the system packages CI and the image install; //tools/hooks:test_include_style checks that none of
-# them brings a system Abseil, Protocol Buffers, Cyclone DDS or googletest, and //tools/hooks:test_ci_formatter_versions
+# them brings a system Abseil, Protocol Buffers, Zenoh or googletest, and //tools/hooks:test_ci_formatter_versions
 # that CI's format check uses the image's formatters.
 exports_files([
     ".github/workflows/format_test.yml",

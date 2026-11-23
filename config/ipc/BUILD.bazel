@@ -1,7 +1,7 @@
 load("@rules_python//python:defs.bzl", "py_test")
 
-# The network file of the Cyclone DDS bus (robot_runtime/robot_ipc): the DDS domain, the nodes and their hosts, the QoS
-# profile of every topic and the transport. A textproto of robot_runtime/robot_ipc/proto/network_config.proto
+# The network file of the Zenoh bus (robot_runtime/robot_ipc): the domain, the nodes and their hosts, the QoS profile
+# of every topic and the transport. A textproto of robot_runtime/robot_ipc/proto/network_config.proto
 # (robot_ipc_proto.NetworkConfig).
 
 package(default_visibility = ["//visibility:public"])

@@ -42,12 +42,13 @@ namespace robot::ipc {
  * legged MPC's runtime. */
 struct BusOptions {
   /**
-   * The node this process publishes as: the bus uses its node's network
-   * interface and creates the DDS writers of the topics the network file lists
-   * it as a publisher of. Empty: the bus only subscribes (a monitoring tool).
+   * The node this process publishes as: the bus listens on its node's network
+   * interface and declares the Zenoh publishers of the topics the network file
+   * lists it as a publisher of. Empty: the bus only subscribes (a monitoring
+   * tool).
    */
   std::string nodeName;
-  /** The DDS network: domain, discovery peers, topic QoS and transport
+  /** The Zenoh network: domain, peers, topic QoS and transport
    * (NetworkConfig.h). */
   NetworkConfig network;
 
@@ -64,7 +65,7 @@ struct BusOptions {
   /**
    * The longest the IO thread waits for something to happen. publish(), stop(),
    * arriving samples and due periodic callbacks all wake it at once, so this
-   * only bounds how stale a wait (and the DDS status in TopicStatistics) gets.
+   * only bounds how stale a wait (and the peer counts in TopicStatistics) gets.
    */
   absl::Duration ioPollPeriod = kDefaultIoPollPeriod;
   /** Messages publish() queues for the IO thread before it refuses (counted as
@@ -74,17 +75,17 @@ struct BusOptions {
    * dispatches and serves its other work. */
   size_t maxMessagesPerDrain = kDefaultMaxMessagesPerDrain;
   /**
-   * The KEEP_LAST depth of the DDS reader of a Delivery::kLatest subscription.
-   * More than one, so that a sample of the wrong type does not displace a valid
-   * one before the drain sees both; the drain then hands over only the newest
-   * (the others are superseded, unparsed), and what the reader replaced before
-   * the drain is counted as missed.
+   * The samples the queue of a Delivery::kLatest subscription keeps, the
+   * newest ones, until the IO thread drains it. More than one, so that a sample
+   * of the wrong type does not displace a valid one before the drain sees both;
+   * the drain then hands over only the newest (the others are superseded,
+   * unparsed), and what the queue replaced before the drain is counted as
+   * missed.
    */
   int latestDeliveryHistoryDepth = kDefaultLatestDeliveryHistoryDepth;
   /**
-   * The KEEP_LAST depth of the DDS reader of a Delivery::kAll subscription: the
-   * samples it holds while the IO thread is busy before the oldest are replaced
-   * (counted as missed).
+   * The samples the queue of a Delivery::kAll subscription holds while the IO
+   * thread is busy before the oldest are replaced (counted as missed).
    */
   int allDeliveryHistoryDepth = kDefaultAllDeliveryHistoryDepth;
   // LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/bus.py:bus_defaults)

@@ -30,7 +30,6 @@ cc_library(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@cpp-httplib//:httplib",
-        "@cyclonedds//:ddsc",
         "@eigen",
         "@glew",
         "@glfw",
@@ -39,5 +38,6 @@ cc_library(
         "@libjpeg_turbo//:turbojpeg",
         "@pinocchio",
         "@urdf",
+        "@zenoh-c",
     ],
 )
