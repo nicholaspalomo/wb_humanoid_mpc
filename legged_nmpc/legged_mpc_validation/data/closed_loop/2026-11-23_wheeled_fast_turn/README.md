@@ -13,8 +13,10 @@ The four runs the baseline has show no violation and one improvement: `lateral_0
 0.0204 rad. `standing` and `walk_0p5` take no step and are unchanged.
 
 On the 0.15 s stance, `turn_1radps` fell 3.1 s into the turn: the base sank steadily from 0.636 m and dropped below
-half its height at 6.67 s. Each diagonal pair stayed down for 0.6 s between its steps and built 22 cm of lateral debt,
-past the legs' reach (legged_nmpc/docs/rolling_contact/README.md, section 10). A 0.25 s swing on the 0.05 s stance
+half its height at 6.67 s. By the gait's timing each diagonal pair stayed down for 0.6 s between its steps, a lateral
+debt of 22 cm against 14 cm on the 0.05 s stance (legged_nmpc/docs/rolling_contact/README.md, section 10). The joint
+angles, foot positions and step times were not recorded, so the limit it ran into is not identified. A drive combined
+with a fast yaw (1 m/s at 1 rad/s) was not run. A 0.25 s swing on the 0.05 s stance
 survived too, at a mean height of 0.617 m and a maximum tilt of 0.050 rad, so the swing stays at 0.3 s.
 
 | Scenario | Survived | Mean height [m] | Max tilt [rad] | Yaw rate RMS error [rad/s] | Velocity RMS error [m/s] | Max stance slip [mm] |

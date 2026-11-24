@@ -98,9 +98,9 @@ gait_switching {
 # turning command, which no wheel can roll, steps the diagonal pairs where a wheel's lateral debt reaches 5 cm. The
 # swing is that of turning_trot. The stance between two swings is 0.05 s, shorter than turning_trot's 0.15 s: in a fast
 # turn the pairs step back to back, and a pair stays down for the other pair's swing and two of these stances, during
-# which its wheels build a debt of 0.36 m times the yaw rate per second. At 1 rad/s the 0.15 s stance let that debt
-# reach 22 cm, past the legs' reach, and the base sank until it fell; at 0.05 s it stays at 14 cm
-# (legged_mpc_validation's turn_1radps). gait_scheduler: "gait_switching_table" switches back to the table, whose drive
+# which its wheels build a debt of 0.36 m times the yaw rate per second. At 1 rad/s that is 22 cm on
+# the 0.15 s stance, where the base sank until the robot fell, and 14 cm on 0.05 s, where it stays up
+# (legged_mpc_validation's turn_1radps). Which limit the longer step runs into was not measured. gait_scheduler: "gait_switching_table" switches back to the table, whose drive
 # and turning_trot then run as before.
 gait_scheduler: "rolling_lateral_debt"
 rolling_lateral_debt {

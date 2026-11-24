@@ -248,9 +248,9 @@ landed (`RollingStepScheduler::lateralDebtRate()`). The gait file's `gait_schedu
   speed until the leg's reach limits the tracking. With $G$ groups, a group then stays down for
   $(G - 1)\,T_\mathrm{swing} + G\,T_\mathrm{stance}$ between its steps, and builds a debt of $|\dot{e}_i|$ times that.
   The wheeled ANYmal C's gait file keeps `min_stance_duration` at 0.05 s for this reason: at its 1 rad/s command limit
-  ($|\dot{e}_i| = 0.36$ m/s) a pair stays down for 0.4 s and steps 14 cm, where turning_trot's 0.15 s stance kept it
-  down for 0.6 s, the step grew to 22 cm, past the legs' reach, and the base sank until it fell
-  (legged_mpc_validation's `turn_1radps`).
+  ($|\dot{e}_i| = 0.36$ m/s) a pair stays down for 0.4 s, a debt of 14 cm. On turning_trot's 0.15 s stance it stays
+  down for 0.6 s, a debt of 22 cm, and the base sank until the robot fell (legged_mpc_validation's `turn_1radps`). The
+  debts follow from the timing; which limit the longer step runs into was not measured.
 
 The rates of the shipped robots, from their geometry:
 
