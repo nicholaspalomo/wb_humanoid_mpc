@@ -159,7 +159,8 @@ struct RollingStepSwing {
  * maxLateralDebt its group swings for swingDuration, after which it lands at
  * its nominal foothold and its debt is zero again. The groups swing one at a
  * time, with minStanceDuration on every contact between two swings; of two
- * groups due at the same time the one leading the motion swings first. A swing
+ * groups due at the same time the one further over the bound swings first, and
+ * of two with the same debt the one leading the motion. A swing
  * that lifts off within commitWindow of an update is committed and never moves
  * again; the others are planned again at every update.
  *
@@ -243,6 +244,12 @@ class RollingStepScheduler {
   std::optional<scalar_t> dueTime(size_t group,
                                   scalar_t cursor,
                                   absl::Span<const PredictedDebt> debts) const;
+
+  /** Returns [m] how far the largest debt of `group`'s contacts is above
+   * maxLateralDebt at `cursor`; 0 for a group that is not overdue. */
+  scalar_t overdueDebt(size_t group,
+                       scalar_t cursor,
+                       absl::Span<const PredictedDebt> debts) const;
 
   /** Returns how far the contacts of `group` stand ahead in the direction their
    * nominal places move: the sum of each contact's offset from the base along

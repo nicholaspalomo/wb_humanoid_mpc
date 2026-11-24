@@ -362,5 +362,29 @@ TEST(RollingStepScheduler, AFastCommandStepsBackToBack) {
   }
 }
 
+TEST(RollingStepScheduler, OverdueGroupsAlternate) {
+  // At 1 rad/s a wheel builds 0.36 m/s * 0.15 s = 5.4 cm of debt during the
+  // stance between two swings, which is more than the 5 cm bound. A group that
+  // has just landed is then overdue again when the next swing is planned. The
+  // other group has the larger debt and steps next.
+  for (const vector3_t& cmd :
+       {vector3_t(0.0, 0.0, 1.0), vector3_t(0.0, 0.0, -1.0),
+        vector3_t(1.0, 0.0, 1.0), vector3_t(0.0, 2.0, 0.0)}) {
+    SCOPED_TRACE(testing::Message() << "command " << cmd.transpose());
+    RollingStepScheduler scheduler = quadruped();
+    const absl::btree_map<scalar_t, RollingStepSwing> committed =
+        runCommitted(scheduler, quadrupedGeometry(), cmd, /*start=*/0.0,
+                     /*end=*/5.0);
+    ASSERT_GE(committed.size(), 10U);
+    const RollingStepSwing* absl_nullable previous = nullptr;
+    for (const std::pair<const scalar_t, RollingStepSwing>& entry : committed) {
+      if (previous != nullptr) {
+        EXPECT_NE(entry.second.group, previous->group);
+      }
+      previous = &entry.second;
+    }
+  }
+}
+
 }  // namespace
 }  // namespace ocs2::legged

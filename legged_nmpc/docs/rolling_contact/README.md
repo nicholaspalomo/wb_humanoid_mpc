@@ -234,9 +234,11 @@ landed (`RollingStepScheduler::lateralDebtRate()`). The gait file's `gait_schedu
 - A step group (a wheel of Tron1, a diagonal pair of the wheeled ANYmal C) swings for `swing_duration` where the debt
   of one of its contacts reaches `max_lateral_debt`. It lands at its nominal foothold (section 5), so its debt is zero
   again.
-- The groups swing one at a time, with `min_stance_duration` on every wheel between two swings. Of two groups due
-  together, the one whose nominal places stand furthest ahead in the direction they move swings first: Tron1 steps
-  with the wheel on the side it moves to, then with the other.
+- The groups swing one at a time, with `min_stance_duration` on every wheel between two swings. If two groups are due
+  together, the one with the larger debt above the bound swings first. A fast command can make a group overdue again
+  during the stance that follows its own step, and this rule gives the next swing to the other group. If the debts are
+  equal, the group whose nominal places stand furthest ahead in the direction they move swings first: Tron1 steps with
+  the wheel on the side it moves to, then with the other.
 - The debts are integrated from the filtered command since each touchdown, open loop. Each solve predicts them over
   the horizon with its command and plans every swing the horizon holds, so the solver sees a swing a horizon ahead and
   moves the center of mass over the stance wheels in time. No swing is planned sooner than `min_lift_off_lead` after the
@@ -245,12 +247,7 @@ landed (`RollingStepScheduler::lateralDebtRate()`). The gait file's `gait_schedu
   at every solve.
 - A command faster than the steps can follow delays each swing to the end of the stance after the last one. The steps
   then follow each other back to back, and each one clears a debt above the bound: the step length grows with the
-  speed until the leg's reach limits the tracking. With $G$ groups, a group then stays down for
-  $(G - 1)\,T_\mathrm{swing} + G\,T_\mathrm{stance}$ between its steps, and builds a debt of $|\dot{e}_i|$ times that.
-  The wheeled ANYmal C's gait file keeps `min_stance_duration` at 0.05 s for this reason: at its 1 rad/s command limit
-  ($|\dot{e}_i| = 0.36$ m/s) a pair stays down for 0.4 s, a debt of 14 cm. On turning_trot's 0.15 s stance it stays
-  down for 0.6 s, a debt of 22 cm, and the base sank until the robot fell (legged_mpc_validation's `turn_1radps`). The
-  debts follow from the timing; which limit the longer step runs into was not measured.
+  speed until the leg's reach limits the tracking.
 
 The rates of the shipped robots, from their geometry:
 

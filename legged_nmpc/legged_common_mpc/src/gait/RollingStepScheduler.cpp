@@ -60,8 +60,11 @@ namespace {
 // The index of the yaw rate in a [v_x, v_y, yaw rate] command.
 constexpr Eigen::Index kYawRateIndex = 2;
 // [s] Two groups due within this time of each other are due together, and the
-// one leading the motion swings first.
+// one further over the bound swings first.
 constexpr scalar_t kSimultaneousDueTime = 1.0e-9;
+// [m] Of two groups due together whose debts are within this of each other, the
+// one leading the motion swings first.
+constexpr scalar_t kEqualDebt = 1.0e-9;
 
 /** InvalidArgument for `field` of rolling_lateral_debt unless `value` is finite
  * and positive. */
@@ -327,6 +330,20 @@ std::optional<scalar_t> RollingStepScheduler::dueTime(
   return due;
 }
 
+scalar_t RollingStepScheduler::overdueDebt(
+    size_t group,
+    scalar_t cursor,
+    absl::Span<const PredictedDebt> debts) const {
+  scalar_t overdue = 0.0;
+  for (const size_t contact : settings_.stepGroups[group]) {
+    const scalar_t debtAtCursor =
+        debts[contact].debt + rates_[contact] * (cursor - debts[contact].time);
+    overdue =
+        std::max(overdue, std::abs(debtAtCursor) - settings_.maxLateralDebt);
+  }
+  return overdue;
+}
+
 scalar_t RollingStepScheduler::leadOf(size_t group) const {
   scalar_t lead = 0.0;
   for (const size_t contact : settings_.stepGroups[group]) {
@@ -356,6 +373,7 @@ void RollingStepScheduler::planSwings(scalar_t initTime, scalar_t finalTime) {
   while (cursor <= finalTime) {
     std::optional<size_t> next;
     scalar_t nextDue = 0.0;
+    scalar_t nextOverdue = 0.0;
     for (size_t group = 0; group < settings_.stepGroups.size(); ++group) {
       const std::optional<scalar_t> due = dueTime(group, cursor, debts);
       if (!due.has_value()) continue;
@@ -363,9 +381,19 @@ void RollingStepScheduler::planSwings(scalar_t initTime, scalar_t finalTime) {
           !next.has_value() || *due < nextDue - kSimultaneousDueTime;
       const bool together =
           next.has_value() && std::abs(*due - nextDue) <= kSimultaneousDueTime;
-      if (earlier || (together && leadOf(group) > leadOf(*next))) {
+      // dueTime() returns the cursor for every overdue group. If several groups
+      // are overdue, the one with the largest debt steps first. With a fast
+      // command, a group can be overdue again by the end of the stance after
+      // its own step, and choosing by lead alone would pick it again.
+      const scalar_t overdue = overdueDebt(group, cursor, debts);
+      const bool furtherOver = together && overdue > nextOverdue + kEqualDebt;
+      const bool leadsTie = together &&
+                            std::abs(overdue - nextOverdue) <= kEqualDebt &&
+                            leadOf(group) > leadOf(*next);
+      if (earlier || furtherOver || leadsTie) {
         next = group;
         nextDue = *due;
+        nextOverdue = overdue;
       }
     }
     if (!next.has_value() || nextDue > finalTime) break;
