@@ -281,8 +281,8 @@ on the plain trot that did not turn, are in [the label's README](data/closed_loo
 That turn was on the gait file's `turning_trot`; label `2026-11-22_wheel_steps` recorded the event-driven steps: it turns
 through 11.97 rad with no violation of that baseline, and `lateral_0p2` survives with a velocity RMS error of
 0.042 m/s ([its README](data/closed_loop/2026-11-22_wheel_steps/README.md)). Label `2026-11-23_wheeled_fast_turn`
-recorded the 0.05 s stance between steps, on which `turn_1radps` survives at a mean height of 0.630 m; on the 0.15 s
-stance before it the base sank and the robot fell 3.1 s into the turn
+recorded the scheduler that steps the group with the largest debt when several are overdue. `turn_1radps` survives on it
+at a mean height of 0.638 m. Before it, one diagonal pair did not step and the robot fell 3.1 s into the turn
 ([its README](data/closed_loop/2026-11-23_wheeled_fast_turn/README.md)).
 It uses the default bands; `make compare-closed-loop CANDIDATE=2026-11-12_anymal_c_wheels
 BASELINE=2026-11-12_anymal_c_wheels ROBOT=anymal_c_wheels` passes with no violation and no improvement.
@@ -302,7 +302,7 @@ those scenarios once its MJCF had joint damping; `2026-11-10_anymal_b`, the firs
 configurations on the event-driven steps ([its README](data/closed_loop/2026-11-22_wheel_steps/README.md));
 `2026-11-23_mujoco4`, the five configurations on MuJoCo 4.0.1, within the bands of their baselines
 ([its README](data/closed_loop/2026-11-23_mujoco4/README.md)); and `2026-11-23_wheeled_fast_turn`, the wheeled ANYmal C
-on a shorter stance between its steps, which turns at 1 rad/s
+turning at 1 rad/s after a fix to its step scheduler
 ([its README](data/closed_loop/2026-11-23_wheeled_fast_turn/README.md)).
 Otherwise record a baseline on the code to compare against and a candidate on the change, on the same machine and container image, and give each label a README saying
 what it ran (the commit and the worktree state are in every document's provenance) and, for a candidate, the
