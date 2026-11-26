@@ -386,5 +386,26 @@ TEST(RollingStepScheduler, OverdueGroupsAlternate) {
   }
 }
 
+TEST(RollingStepScheduler, AGroupThatBuildsDebtMoreSlowlyStillSteps) {
+  // RF and LH stand at a third of the others' distance from the center, so in
+  // a turn they build a third of the debt. LF + RH are overdue again after
+  // each stance; RF + LH step once their debt is the larger.
+  constexpr scalar_t kNearFraction = 1.0 / 3.0;
+  std::vector<RollingContactGeometry> geometry = quadrupedGeometry();
+  geometry[1].nomPosContactRtBaseEwrtHeadingXy *= kNearFraction;
+  geometry[2].nomPosContactRtBaseEwrtHeadingXy *= kNearFraction;
+  RollingStepScheduler scheduler = quadruped();
+  const absl::btree_map<scalar_t, RollingStepSwing> committed =
+      runCommitted(scheduler, geometry, vector3_t(0.0, 0.0, 1.5), /*start=*/0.0,
+                   /*end=*/10.0);
+  size_t slowGroupSwings = 0;
+  for (const std::pair<const scalar_t, RollingStepSwing>& entry : committed) {
+    if (entry.second.group == 1) ++slowGroupSwings;
+  }
+  EXPECT_GE(committed.size(), 10U);
+  EXPECT_GE(slowGroupSwings, 3U);
+  EXPECT_LT(slowGroupSwings, committed.size());
+}
+
 }  // namespace
 }  // namespace ocs2::legged

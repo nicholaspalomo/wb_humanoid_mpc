@@ -414,6 +414,12 @@ TEST(AddProjectileToSpec, AppendsAFreeSphereWithTheRightMassSizeAndContact) {
       << "the geom's mass must be set explicitly, or MuJoCo's 1000 kg/m^3 "
          "default makes this a 5 kg medicine ball";
 
+  // The names addProjectileToSpec() refuses in a scene are the ones it gives.
+  const int ballJoint =
+      mj_name2id(withBall.model, mjOBJ_JOINT, "sim_projectile_free_joint");
+  ASSERT_GE(ballJoint, 0);
+  EXPECT_EQ(withBall.model->jnt_bodyid[ballJoint], ballBody);
+  EXPECT_EQ(withBall.model->jnt_type[ballJoint], mjJNT_FREE);
   const int ballGeom = withBall.geom("sim_projectile_geom");
   ASSERT_GE(ballGeom, 0);
   EXPECT_EQ(withBall.model->geom_type[ballGeom], mjGEOM_SPHERE);
