@@ -1200,9 +1200,7 @@ _SEPARATOR_BANNER = re.compile(
 )
 
 
-def check_separator_banner(
-    source: str, path: str
-) -> list[check_types.Finding]:
+def check_separator_banner(source: str, path: str) -> list[check_types.Finding]:
     """Lines that hold nothing but a `/*****/` separator comment."""
     return [
         check_types.Finding(

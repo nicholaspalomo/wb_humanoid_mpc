@@ -328,14 +328,16 @@ absl::Status addProjectileToSpec(mjSpec* absl_nullable spec,
   // MuJoCo 4 compiles a scene with two bodies of one name, after which
   // mj_name2id finds only one of them, so a clash is refused here.
   const std::string name(bodyName);
+  const std::string jointName = absl::StrCat(name, "_free_joint");
+  const std::string geomName = absl::StrCat(name, "_geom");
   struct NamedElement {
     mjtObj type = mjOBJ_UNKNOWN;
     std::string name;
   };
   const NamedElement projectileElements[] = {
       {.type = mjOBJ_BODY, .name = name},
-      {.type = mjOBJ_JOINT, .name = absl::StrCat(name, "_free_joint")},
-      {.type = mjOBJ_GEOM, .name = absl::StrCat(name, "_geom")},
+      {.type = mjOBJ_JOINT, .name = jointName},
+      {.type = mjOBJ_GEOM, .name = geomName},
   };
   for (const NamedElement& element : projectileElements) {
     if (mjs_findElement(spec, element.type, element.name.c_str()) != nullptr) {
@@ -376,13 +378,13 @@ absl::Status addProjectileToSpec(mjSpec* absl_nullable spec,
   // Named so that the model's printout (and any log naming it) reads as what it
   // is rather than as a URDF/MJCF mismatch; MujocoSimInterface::buildJointMap()
   // skips it as the projectile's.
-  mjs_setName(joint->element, absl::StrCat(name, "_free_joint").c_str());
+  mjs_setName(joint->element, jointName.c_str());
 
   mjsGeom* absl_nullable geom = mjs_addGeom(ball, /*def=*/nullptr);
   if (geom == nullptr) {
     return absl::InternalError("addProjectileToSpec: mjs_addGeom failed.");
   }
-  mjs_setName(geom->element, absl::StrCat(name, "_geom").c_str());
+  mjs_setName(geom->element, geomName.c_str());
   geom->type = mjGEOM_SPHERE;
   geom->size[0] = projectile.radius;
   // The MASS is set rather than the density, because the default density of
