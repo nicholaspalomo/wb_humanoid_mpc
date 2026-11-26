@@ -2519,6 +2519,12 @@ class SessionOwnerTest(unittest.TestCase):
         self.assertEqual(
             session.count("    claim_session\n    trap 'stop_if_owner' EXIT"), 1
         )
+        # The laptop side's PID file is removed by its owner only: a newer session's launcher wrote it.
+        self.assertIn(
+            "    if owns_session; then\n"
+            '        tools/deploy/in_dev_container.sh "rm -f ${PID_FILE}"',
+            session,
+        )
         # The simulation claims before it stops the session running before it.
         self.assertEqual(
             session.count(

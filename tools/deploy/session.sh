@@ -39,8 +39,9 @@
 # of the laptop side's launcher goes to .deploy/laptop_side.pid of this checkout, so that `stop` ends exactly it.
 #
 # A session that starts ends the one running before it. The PID of the newest session goes to .deploy/session_owner,
-# and a session that exits runs `stop` only while that file still holds its PID. Otherwise the session it replaced,
-# exiting a moment later, would stop the new session's robot container.
+# and a session that exits runs `stop`, and removes the laptop side's PID file, only while that file still holds its
+# PID. Otherwise the session it replaced, exiting a moment later, would stop the new session's robot container and
+# remove the PID file through which `stop` reaches the new laptop side.
 #
 # Environment: DISPLAY (the viewer's and the GUI's), WB_DEV_CONTAINER (in_dev_container.sh), WB_VNC_RESOLUTION (the
 # VNC desktop's, for start_vnc.sh; empty: the host monitor's).
@@ -61,7 +62,7 @@ OWNER_FILE=".deploy/session_owner"
 LAUNCHER=".bazel/bin/tools/launch/launch"
 
 usage() {
-    sed -n '2,46p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,47p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
     exit 2
 }
 
@@ -191,9 +192,14 @@ claim_session() {
     echo "$$" > "${OWNER_FILE}"
 }
 
+# Whether no newer session has claimed the checkout since this one did.
+owns_session() {
+    [ "$(cat "${OWNER_FILE}" 2> /dev/null)" = "$$" ]
+}
+
 # Runs stop, at this session's exit, unless a newer session has claimed the checkout since.
 stop_if_owner() {
-    if [ "$(cat "${OWNER_FILE}" 2> /dev/null)" = "$$" ]; then
+    if owns_session; then
         stop
         rm -f "${OWNER_FILE}"
     fi
@@ -242,7 +248,10 @@ run_laptop_side() {
     tools/deploy/in_dev_container.sh \
         "mkdir -p .deploy && echo \$\$ > ${PID_FILE} && exec ${LAUNCHER} $(printf '%q' "${launch_file}") --machine laptop${arguments}" &
     wait "$!" || status=$?
-    tools/deploy/in_dev_container.sh "rm -f ${PID_FILE}" || true
+    # A newer session has written its own launcher's PID to the file once it claimed the checkout.
+    if owns_session; then
+        tools/deploy/in_dev_container.sh "rm -f ${PID_FILE}" || true
+    fi
     return "${status}"
 }
 
