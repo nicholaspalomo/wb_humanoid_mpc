@@ -171,7 +171,10 @@ five without a viewer here, which is why the bound is on the share of late steps
 a 2 ms maximum; the robot app's realtime priority and `mlockall` (which keep page faults off the physics thread) are not
 part of this test. One window on the physics' two cores stopped the physics once for 27 ms (one late step, after which
 the loop rebases its schedule; real-time factor 0.991), past the 10 ms bound: no other window showed a stop of that
-length, with or without a viewer, and its cause is not known, so that target can fail now and then.
+length, with or without a viewer, and its cause is not known, so that target can fail now and then. The two targets
+that put the viewer on the physics' cores are `flaky` in BUILD.bazel, so Bazel runs a failed one up to twice more: on CI's
+shared 4-core runners, and in 2 of 8 runs on this workstation, the physics-core target's single window pair crossed the
+p99 or late-step margin without a viewer that delays the physics, which would fail every attempt.
 
 Two placements are not defaults, and fail the bounds:
 

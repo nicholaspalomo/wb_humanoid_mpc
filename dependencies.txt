@@ -43,6 +43,8 @@ libxrandr-dev
 # The X server the Tk tests of remote_control start for themselves where the caller has no display, as in CI, so that
 # they run there instead of being skipped (legged_nmpc/remote_control/test/operator_test_support.py).
 xvfb
+# node, which runs the web viewer page's script in its test (robot_runtime/web_viewer/test/test_page_script.py).
+nodejs
 
 # The system Python 3.12: tools/locomotion_heuristics (with robotpkg's Pinocchio), the hooks and black in tools/hooks,
 # and Jupyter (tools/launch_jupyter.sh). The operator tools run under Bazel's hermetic Python 3.11 and its own pip hub.

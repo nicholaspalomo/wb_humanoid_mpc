@@ -611,6 +611,9 @@ cc_test(
 cc_test(
     name = "test_web_viewer_sim_rate_on_the_physics_cores",
     size = "medium",
+    # The viewer shares the physics' cores, where the machine's own preemptions can push one window past the bounds
+    # (README.md, "Viewers"); a viewer that delays the physics fails every attempt.
+    flaky = True,
     srcs = ["test/testWebViewerSimRate.cpp"],
     args = ["--gtest_filter=WebViewerSimRate.TheWebViewerOnThePhysicsCoresDoesNotDelayThePhysics"],
     copts = FIRST_PARTY_COPTS,
@@ -623,6 +626,9 @@ cc_test(
 cc_test(
     name = "test_web_viewer_sim_rate_on_the_physics_core",
     size = "medium",
+    # The viewer shares the physics' cores, where the machine's own preemptions can push one window past the bounds
+    # (README.md, "Viewers"); a viewer that delays the physics fails every attempt.
+    flaky = True,
     srcs = ["test/testWebViewerSimRate.cpp"],
     args = ["--gtest_filter=WebViewerSimRate.TheWebViewerOnThePhysicsCoreDoesNotDelayThePhysics"],
     copts = FIRST_PARTY_COPTS,
