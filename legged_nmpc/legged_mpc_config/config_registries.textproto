@@ -257,6 +257,7 @@ registries {
   names: "center_of_mass"
   names: "zmp"
   names: "dcm"
+  names: "hide_collision_geoms"
   names: "mj_contact_points"
   names: "mj_contact_forces"
   names: "mj_com"

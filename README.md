@@ -494,9 +494,10 @@ panel lists exactly the ones the running robot has.
 |:---:|---|---|
 | **`k`** | Toggle **Camera Tracking** | Switches between robot tracking mode (`mjCAMERA_TRACKING` locked on pelvis/torso) and free manual camera (`mjCAMERA_FREE`) |
 | **`0`** | Toggle **Floor / Ground** | Shows/hides ground plane (geom group 0) |
-| **`1`** | Toggle **Visual Meshes** | Shows/hides high-res surface meshes (group 1) to inspect underlying collision geoms |
-| **`2`** | Toggle **Collision Primitives** | Shows/hides collision capsules, boxes, and spheres (group 2) |
+| **`1`** | Toggle **Visual Meshes** | Shows/hides high-res surface meshes (group 1); with `v` off as well, the collision geoms under them show |
+| **`2`** | Toggle **Collision Primitives** | Shows/hides collision capsules, boxes, and spheres (group 2) once `v` shows the collision geoms |
 | **`3` - `5`** | Toggle **Auxiliary Groups** | Shows/hides user/sensor geom groups (groups 3–5) |
+| **`v`** | Toggle **Collision Geoms** | Hides the collision geoms of every body with a visual mesh, so the viewer shows the visual meshes only; off, the collision geoms show as well (`hide_collision_geoms`, on in every shipped task file) |
 | **`b`** | Toggle **Contact Timeline** | Barcode of planned vs ground-truth contact per contact point (`contact_timeline`, on in every shipped task file) |
 | **`g`** | Toggle **Target Contact Patches** | Contact patch of every foot at the planner's target position and yaw (`target_contact_patches`, on in every shipped task file) |
 | **`o`** | Toggle **Center of Mass** | Whole-body CoM sphere, its vertical, and its shadow on the ground (`center_of_mass`, on in some shipped task files) |

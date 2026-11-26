@@ -89,6 +89,7 @@ sim_visualizations: "contact_forces"  # arrows of the physical contact forces on
 sim_visualizations: "base_velocity"  # measured (red) vs commanded (green) base velocity and yaw rate at the CoM
 sim_visualizations: "contact_timeline"  # [b] barcode of planned vs ground-truth contact per contact point
 sim_visualizations: "target_contact_patches"  # [g] contact patch of every foot at the planner's target position and yaw
+sim_visualizations: "hide_collision_geoms"  # [v] hides the collision geoms of every body with a visual mesh (on: visual meshes only)
 # sim_visualizations: "center_of_mass"        # [o] whole-body center of mass: sphere, vertical, and its shadow on the ground
 # sim_visualizations: "zmp"                   # [z] zero moment point of the physical ground reaction, on the ground
 # sim_visualizations: "dcm"                   # [d] divergent component of motion (capture point) of the measured CoM, on the ground

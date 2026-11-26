@@ -88,7 +88,7 @@ TEST(VisualizationRegistry, DefaultSetIsTheHistoricalViewer) {
   const absl::btree_set<std::string> set(defaults.begin(), defaults.end());
   for (const char* absl_nonnull name :
        {"metrics", "external_forces", "contact_forces", "base_velocity",
-        "contact_timeline", "target_contact_patches"}) {
+        "contact_timeline", "target_contact_patches", "hide_collision_geoms"}) {
     EXPECT_EQ(set.count(name), 1u) << name << " is on by default";
   }
   for (const char* absl_nonnull name :

@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/visualization/ContactTimelineVisualization.h"
 #include "mujoco_sim_interface/visualization/DcmVisualization.h"
 #include "mujoco_sim_interface/visualization/ExternalForceVisualization.h"
+#include "mujoco_sim_interface/visualization/HideCollisionGeomsVisualization.h"
 #include "mujoco_sim_interface/visualization/MetricsOverlay.h"
 #include "mujoco_sim_interface/visualization/MujocoOptionFlagVisualization.h"
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
@@ -90,6 +91,9 @@ const std::vector<Entry>& registry() {
           {&makeVisualization<CenterOfMassVisualization>, false},
           {&makeVisualization<ZmpVisualization>, false},
           {&makeVisualization<DcmVisualization>, false},
+          // The viewer shows the visual meshes only unless the key turns it
+          // off.
+          {&makeVisualization<HideCollisionGeomsVisualization>, true},
           {[] {
              return std::unique_ptr<MujocoVisualization>(
                  MujocoOptionFlagVisualization::contactPoints());

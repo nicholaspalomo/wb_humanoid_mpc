@@ -309,8 +309,8 @@ shared: every open page shows the same view.
 |:---:|---|---|
 | **`k`** | Toggle **Camera Tracking** | Switches between robot tracking mode (`mjCAMERA_TRACKING` locked on pelvis) and free manual camera (`mjCAMERA_FREE`) |
 | **`0`** | Toggle **Floor / Ground** | Shows/hides ground plane (geom group 0) |
-| **`1`** | Toggle **Visual Meshes** | Shows/hides high-res surface meshes (group 1) to inspect underlying collision shapes |
-| **`2`** | Toggle **Collision Primitives** | Shows/hides collision capsules, boxes, and cylinders (group 2) |
+| **`1`** | Toggle **Visual Meshes** | Shows/hides high-res surface meshes (group 1); the collision shapes under them show once the `hide_collision_geoms` visualization is off (its key is in the root README's table) |
+| **`2`** | Toggle **Collision Primitives** | Shows/hides collision capsules, boxes, and cylinders (group 2) while `hide_collision_geoms` is off |
 | **`3` - `5`** | Toggle **Auxiliary Groups** | Shows/hides user/sensor geom groups (groups 3–5) |
 | **`a`** - **`z`** | Toggle a **Visualization** | The key of each visualization the task file lists in `sim_visualizations` (the Markers panel shows them; the [root README's table](../README.md#mujoco-3d-viewer-hotkeys--controls) lists every one and which the shipped task files enable). Contact timeline window and force threshold: `sim_contact_timeline_window`, `sim_min_force_mjcontact_ewrt_mjcontact_x` in `task.textproto` |
 | **`p`** | **Markers / Cheatsheet** | The web page opens its Markers panel; the GLFW window prints the hotkey and mouse guide to the robot's log |

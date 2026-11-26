@@ -76,6 +76,7 @@ cc_library(
         "src/visualization/CenterOfMassVisualization.cpp",
         "src/visualization/ZmpVisualization.cpp",
         "src/visualization/DcmVisualization.cpp",
+        "src/visualization/HideCollisionGeomsVisualization.cpp",
         "src/visualization/MujocoOptionFlagVisualization.cpp",
     ],
     hdrs = glob(
@@ -322,6 +323,20 @@ cc_test(
         ":mujoco_sim_interface",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The viewer's visual-meshes-only view: which geoms it hides, and that it removes them from a scene and keeps the floor,
+# a body whose one geom collides and the decor geoms of the other visualizations.
+cc_test(
+    name = "test_hide_collision_geoms_visualization",
+    size = "small",
+    srcs = ["test/testHideCollisionGeomsVisualization.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
