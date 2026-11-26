@@ -7,7 +7,7 @@ loop by hand.
 
 | Command | What it does |
 |---|---|
-| `make lint-tidy [PKG=//legged_nmpc/...]` | Lints with the checks of `//:.clang-tidy`, runs the self-test, prints the findings and fails on any. CI's build job runs it after the tests. |
+| `make lint-tidy [PKG=//legged_nmpc/...]` | Lints with the checks of `//:.clang-tidy`, runs the self-test, prints the findings and fails on any. CI runs it once per batch of the test job (`PKG` is the batch's patterns), each in a job of its own. |
 | `make lint-tidy-fix CHECKS='<glob>' [PKG=...] [PATHS=...]` | Applies the fix-its of the matching checks and clang-formats the edited files. Build afterwards. |
 
 `.clang-tidy` is the only configuration, and every check in it is enforced: there is no list of checks still being

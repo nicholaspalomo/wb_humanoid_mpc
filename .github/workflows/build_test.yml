@@ -168,7 +168,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        batch:
+        batch: &batches
           - name: lib, tools and docs
             targets: //:all //legged_nmpc/docs/... //lib/... //bazel/... //tools/...
           - name: runtime
@@ -223,12 +223,18 @@ jobs:
 
   lint-tidy:
     needs: build
+    # The test job's batches: linted cold in one job, //... ran past the 6-hour limit.
+    name: lint-tidy (${{ matrix.batch.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 360
     container: ubuntu:24.04
     env:
       DEBIAN_FRONTEND: noninteractive
       TZ: Etc/UTC
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: *batches
     steps:
       - *install_base_dependencies
       - *checkout
@@ -249,5 +255,5 @@ jobs:
 
       - name: Lint C++ (clang-tidy)
         run: |
-          make lint-tidy
+          make lint-tidy PKG="${{ matrix.batch.targets }}"
       # LINT.ThenChange(//tools/ci_local.sh:lint_tidy, //.bazelrc:clang_tidy_config)

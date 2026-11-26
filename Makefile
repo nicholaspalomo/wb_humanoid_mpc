@@ -224,7 +224,7 @@ clang_tidy_bep_cleanup := $(if $(CLANG_TIDY_BEP),,rm -f "$$bep";)
 lint-tidy:
 	@$(source_env) && mkdir -p .bazel && status=0 && $(clang_tidy_bep); \
 	$(bazel_indexed) build --config=clang-tidy --keep_going --build_event_json_file="$$bep" \
-		$(or $(PKG),//...) //tools/clang_tidy:selftest || status=$$?; \
+		-- $(or $(PKG),//...) //tools/clang_tidy:selftest || status=$$?; \
 	python3 -m tools.clang_tidy.clang_tidy_report "$$bep" || status=$$?; \
 	$(clang_tidy_bep_cleanup) exit $$status
 
@@ -234,7 +234,7 @@ lint-tidy-fix:
 	@$(if $(CHECKS),,$(error lint-tidy-fix needs CHECKS=<glob>, e.g. CHECKS=modernize-use-override))
 	@$(source_env) && mkdir -p .bazel && status=0 && $(clang_tidy_bep); \
 	$(bazel_indexed) build --config=clang-tidy-fix --keep_going --build_event_json_file="$$bep" \
-		$(or $(PKG),//...) || status=$$?; \
+		-- $(or $(PKG),//...) || status=$$?; \
 	python3 -m tools.clang_tidy.clang_tidy_apply "$$bep" --checks '$(CHECKS)' \
 		$(if $(PATHS),--paths $(PATHS)) || status=$$?; \
 	$(clang_tidy_bep_cleanup) exit $$status

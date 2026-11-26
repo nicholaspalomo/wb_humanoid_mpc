@@ -328,6 +328,24 @@ class WorkflowJobsTest(unittest.TestCase):
             r"(?m)^\t.*\$\(bazel_indexed\) test -- \$\(TEST_TARGETS\)$",
         )
 
+    def test_clang_tidy_lints_the_test_batches(self):
+        # One job over //... ran past the 6-hour limit; each batch of the tests is a job of its own.
+        tidy = self.jobs["lint-tidy"]
+        self.assertIs(tidy["strategy"]["fail-fast"], False)
+        self.assertEqual(
+            tidy["strategy"]["matrix"]["batch"],
+            self.jobs["test"]["strategy"]["matrix"]["batch"],
+        )
+        run = _step(tidy, "Lint C++ (clang-tidy)")["run"].strip()
+        self.assertEqual(
+            run, 'make lint-tidy PKG="${{ matrix.batch.targets }}"'
+        )
+        # `--` before the patterns, so that the last batch's exclusions are not read as flags.
+        self.assertRegex(
+            self.makefile,
+            r"(?m)^\t\t-- \$\(or \$\(PKG\),//\.\.\.\) //tools/clang_tidy:selftest ",
+        )
+
     def test_a_second_run_of_one_branch_cancels_the_first(self):
         concurrency = self.workflow["concurrency"]
         self.assertIs(concurrency["cancel-in-progress"], True)
