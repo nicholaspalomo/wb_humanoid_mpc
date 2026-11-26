@@ -38,6 +38,10 @@
 # The laptop side runs in the dev container (in_dev_container.sh), the robot container with the host's Docker. The PID
 # of the laptop side's launcher goes to .deploy/laptop_side.pid of this checkout, so that `stop` ends exactly it.
 #
+# A session that starts ends the one running before it. The PID of the newest session goes to .deploy/session_owner,
+# and a session that exits runs `stop` only while that file still holds its PID. Otherwise the session it replaced,
+# exiting a moment later, would stop the new session's robot container.
+#
 # Environment: DISPLAY (the viewer's and the GUI's), WB_DEV_CONTAINER (in_dev_container.sh), WB_VNC_RESOLUTION (the
 # VNC desktop's, for start_vnc.sh; empty: the host monitor's).
 set -euo pipefail
@@ -53,10 +57,11 @@ DEPLOYMENT_PROJECT="wb-humanoid-robot"
 PROJECT="${PROJECT_PREFIX}-$(basename "${repo}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9_\n-' '-')-$(printf '%s' "${repo}" | cksum | cut -d ' ' -f 1)"
 # LINT.ThenChange(//tools/deploy/README.md:sim_project, //tools/deploy/test_deploy_files.py:sim_project)
 PID_FILE=".deploy/laptop_side.pid"
+OWNER_FILE=".deploy/session_owner"
 LAUNCHER=".bazel/bin/tools/launch/launch"
 
 usage() {
-    sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,46p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
     exit 2
 }
 
@@ -179,6 +184,22 @@ stop() {
     fi
 }
 
+# LINT.IfChange(session_owner)
+# Makes this session the one that a later exit of an older session leaves running.
+claim_session() {
+    mkdir -p "$(dirname "${OWNER_FILE}")"
+    echo "$$" > "${OWNER_FILE}"
+}
+
+# Runs stop, at this session's exit, unless a newer session has claimed the checkout since.
+stop_if_owner() {
+    if [ "$(cat "${OWNER_FILE}" 2> /dev/null)" = "$$" ]; then
+        stop
+        rm -f "${OWNER_FILE}"
+    fi
+}
+# LINT.ThenChange(//tools/deploy/test_deploy_files.py:session_owner)
+
 command="${1:-}"
 [ -n "${command}" ] || usage
 shift
@@ -289,6 +310,7 @@ print_views_banner() {
 case "${command}" in
     stop)
         stop
+        rm -f "${OWNER_FILE}"
         exit 0
         ;;
     project)
@@ -309,7 +331,8 @@ if [ "${command}" = "laptop" ]; then
     if [ "${skip_build}" != "yes" ]; then
         tools/deploy/in_dev_container.sh "${BUILD_AND_INDEX} //tools/launch ${build_targets}"
     fi
-    trap 'stop' EXIT
+    claim_session
+    trap 'stop_if_owner' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
     print_views_banner ""
@@ -382,9 +405,10 @@ if [ "${skip_build}" != "yes" ]; then
     tools/deploy/in_dev_container.sh "${BUILD_AND_INDEX} //tools/launch ${build_targets}"
 fi
 
+claim_session
 stop
 refuse_if_ports_taken
-trap 'stop' EXIT
+trap 'stop_if_owner' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 export ROBOT="${robot}" NETEM="${netem}" DISPLAY="${DISPLAY:-:99}"

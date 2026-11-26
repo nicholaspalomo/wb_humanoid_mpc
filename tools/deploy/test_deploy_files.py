@@ -2446,5 +2446,91 @@ class PinocchioSourceBuildTest(unittest.TestCase):
         self.assertEqual(commands, "")
 
 
+# LINT.IfChange(session_owner)
+def session_owner_functions() -> str:
+    """The claim_session and stop_if_owner functions of session.sh."""
+    return search(
+        r"# LINT\.IfChange\(session_owner\)\n(.*?)# LINT\.ThenChange",
+        read("tools/deploy/session.sh"),
+        re.DOTALL,
+    ).group(1)
+
+
+class SessionOwnerTest(unittest.TestCase):
+    """A session stops what it started only while no newer session replaced it."""
+
+    def exit_of_a_session(
+        self, owner: str | None, claims: bool
+    ) -> tuple[str, bool]:
+        """Runs stop_if_owner in a shell whose stop() prints.
+
+        Args:
+          owner: what the owner file holds before the shell starts; None for no file.
+          claims: whether the shell runs claim_session first.
+
+        Returns:
+          What the shell printed, and whether the owner file is left.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            owner_file = os.path.join(directory, "session_owner")
+            if owner is not None:
+                with open(owner_file, "w", encoding="utf-8") as stream:
+                    stream.write(owner)
+            script = "\n".join(
+                [
+                    f'OWNER_FILE="{owner_file}"',
+                    "stop() { echo stopped; }",
+                    session_owner_functions(),
+                    "claim_session" if claims else ":",
+                    "stop_if_owner",
+                ]
+            )
+            result = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return result.stdout, os.path.exists(owner_file)
+
+    def test_the_owner_stops_and_gives_up_the_checkout(self) -> None:
+        self.assertEqual(
+            self.exit_of_a_session(owner="1", claims=True), ("stopped\n", False)
+        )
+
+    def test_a_session_that_was_replaced_leaves_the_new_one_running(
+        self,
+    ) -> None:
+        self.assertEqual(
+            self.exit_of_a_session(owner="1", claims=False), ("", True)
+        )
+
+    def test_a_session_whose_claim_was_removed_stops_nothing(self) -> None:
+        self.assertEqual(
+            self.exit_of_a_session(owner=None, claims=False), ("", False)
+        )
+
+    def test_every_session_claims_the_checkout_and_stops_only_as_its_owner(
+        self,
+    ) -> None:
+        session = without_comments(read("tools/deploy/session.sh"))
+        self.assertNotIn("trap 'stop' EXIT", session)
+        self.assertEqual(session.count("trap 'stop_if_owner' EXIT"), 2)
+        self.assertEqual(
+            session.count("    claim_session\n    trap 'stop_if_owner' EXIT"), 1
+        )
+        # The simulation claims before it stops the session running before it.
+        self.assertEqual(
+            session.count(
+                "claim_session\nstop\nrefuse_if_ports_taken\n"
+                "trap 'stop_if_owner' EXIT"
+            ),
+            1,
+        )
+
+
+# LINT.ThenChange(//tools/deploy/session.sh:session_owner)
+
+
 if __name__ == "__main__":
     unittest.main()
