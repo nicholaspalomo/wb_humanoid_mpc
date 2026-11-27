@@ -56,18 +56,18 @@ nom_pos_base_rt_surface_ewrt_world_z: 0.8135
 # straight-leg singularity.
 # Joint order is the Pinocchio order of the URDF: the left leg from the hip out, then the right leg.
 # LINT.IfChange(sa01_nominal_pose)
-default_joint_state { joint: "leg_l1_joint" value: 0.0 }  # left hip roll
-default_joint_state { joint: "leg_l2_joint" value: 0.0 }  # left hip yaw
-default_joint_state { joint: "leg_l3_joint" value: -0.30 }  # left hip pitch
-default_joint_state { joint: "leg_l4_joint" value: 0.70 }  # left knee
-default_joint_state { joint: "leg_l5_joint" value: -0.40 }  # left ankle pitch
-default_joint_state { joint: "leg_l6_joint" value: 0.0 }  # left ankle roll
-default_joint_state { joint: "leg_r1_joint" value: 0.0 }  # right hip roll
-default_joint_state { joint: "leg_r2_joint" value: 0.0 }  # right hip yaw
-default_joint_state { joint: "leg_r3_joint" value: -0.30 }  # right hip pitch
-default_joint_state { joint: "leg_r4_joint" value: 0.70 }  # right knee
-default_joint_state { joint: "leg_r5_joint" value: -0.40 }  # right ankle pitch
-default_joint_state { joint: "leg_r6_joint" value: 0.0 }  # right ankle roll
+default_joint_state { joint: "left_hip_aa_joint" value: 0.0 }  # left hip roll
+default_joint_state { joint: "left_hip_ie_joint" value: 0.0 }  # left hip yaw
+default_joint_state { joint: "left_hip_fe_joint" value: -0.30 }  # left hip pitch
+default_joint_state { joint: "left_knee_fe_joint" value: 0.70 }  # left knee
+default_joint_state { joint: "left_ankle_fe_joint" value: -0.40 }  # left ankle pitch
+default_joint_state { joint: "left_ankle_aa_joint" value: 0.0 }  # left ankle roll
+default_joint_state { joint: "right_hip_aa_joint" value: 0.0 }  # right hip roll
+default_joint_state { joint: "right_hip_ie_joint" value: 0.0 }  # right hip yaw
+default_joint_state { joint: "right_hip_fe_joint" value: -0.30 }  # right hip pitch
+default_joint_state { joint: "right_knee_fe_joint" value: 0.70 }  # right knee
+default_joint_state { joint: "right_ankle_fe_joint" value: -0.40 }  # right ankle pitch
+default_joint_state { joint: "right_ankle_aa_joint" value: 0.0 }  # right ankle roll
 # LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/test/testPinocchioModel.cpp:sa01_nominal_pose)
 
 initial_mode_schedule {

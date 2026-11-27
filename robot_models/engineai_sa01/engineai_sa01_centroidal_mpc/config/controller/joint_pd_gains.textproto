@@ -31,17 +31,17 @@ default_gains {
   max_joint_torque: 140.0
 }
 # Left Leg - hip roll, yaw and pitch and the knee are 140 N*m actuators; both ankle joints are 24 N*m.
-joint_gains { joint: "leg_l1_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # left hip roll
-joint_gains { joint: "leg_l2_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # left hip yaw
-joint_gains { joint: "leg_l3_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # left hip pitch - main sagittal driver
-joint_gains { joint: "leg_l4_joint" kp: 200.0 kd: 12.0 max_joint_torque: 140.0 }  # left knee - weight bearing
-joint_gains { joint: "leg_l5_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # left ankle pitch
-joint_gains { joint: "leg_l6_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # left ankle roll
+joint_gains { joint: "left_hip_aa_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # left hip roll
+joint_gains { joint: "left_hip_ie_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # left hip yaw
+joint_gains { joint: "left_hip_fe_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # left hip pitch - main sagittal driver
+joint_gains { joint: "left_knee_fe_joint" kp: 200.0 kd: 12.0 max_joint_torque: 140.0 }  # left knee - weight bearing
+joint_gains { joint: "left_ankle_fe_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # left ankle pitch
+joint_gains { joint: "left_ankle_aa_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # left ankle roll
 
 # Right Leg (symmetric)
-joint_gains { joint: "leg_r1_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # right hip roll
-joint_gains { joint: "leg_r2_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # right hip yaw
-joint_gains { joint: "leg_r3_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # right hip pitch
-joint_gains { joint: "leg_r4_joint" kp: 200.0 kd: 12.0 max_joint_torque: 140.0 }  # right knee
-joint_gains { joint: "leg_r5_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # right ankle pitch
-joint_gains { joint: "leg_r6_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # right ankle roll
+joint_gains { joint: "right_hip_aa_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # right hip roll
+joint_gains { joint: "right_hip_ie_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # right hip yaw
+joint_gains { joint: "right_hip_fe_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # right hip pitch
+joint_gains { joint: "right_knee_fe_joint" kp: 200.0 kd: 12.0 max_joint_torque: 140.0 }  # right knee
+joint_gains { joint: "right_ankle_fe_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # right ankle pitch
+joint_gains { joint: "right_ankle_aa_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # right ankle roll

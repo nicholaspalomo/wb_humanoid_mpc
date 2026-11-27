@@ -625,8 +625,8 @@ model_settings {
 
   # The Parent frames on which the contact frames are added. leg_?6_joint is the ankle ROLL joint, whose origin
   # coincides with the ankle pitch joint, so contacts.pos_contact_rt_link_ewrt_link below is measured from there.
-  contact_parent_joint_names: "leg_l6_joint"
-  contact_parent_joint_names: "leg_r6_joint"
+  contact_parent_joint_names: "left_ankle_aa_joint"
+  contact_parent_joint_names: "right_ankle_aa_joint"
 
   # arm_joint_names is deliberately absent: SA01 has no arms, so there is no procedural arm swing to configure.
   # ModelSettings treats the block as optional and leaves the swing disabled (hasArmSwingJoints false); naming
@@ -735,18 +735,18 @@ initial_state {
   }
 
   # ; Joint Positions: ;;
-  joint_positions { joint: "leg_l1_joint" value: 0.0 }  # leg_l1_joint - left hip roll
-  joint_positions { joint: "leg_l2_joint" value: 0.0 }  # leg_l2_joint - left hip yaw
-  joint_positions { joint: "leg_l3_joint" value: -0.30 }  # leg_l3_joint - left hip pitch
-  joint_positions { joint: "leg_l4_joint" value: 0.70 }  # leg_l4_joint - left knee
-  joint_positions { joint: "leg_l5_joint" value: -0.40 }  # leg_l5_joint - left ankle pitch
-  joint_positions { joint: "leg_l6_joint" value: 0.0 }  # leg_l6_joint - left ankle roll
-  joint_positions { joint: "leg_r1_joint" value: 0.0 }  # leg_r1_joint - right hip roll
-  joint_positions { joint: "leg_r2_joint" value: 0.0 }  # leg_r2_joint - right hip yaw
-  joint_positions { joint: "leg_r3_joint" value: -0.30 }  # leg_r3_joint - right hip pitch
-  joint_positions { joint: "leg_r4_joint" value: 0.70 }  # leg_r4_joint - right knee
-  joint_positions { joint: "leg_r5_joint" value: -0.40 }  # leg_r5_joint - right ankle pitch
-  joint_positions { joint: "leg_r6_joint" value: 0.0 }  # leg_r6_joint - right ankle roll
+  joint_positions { joint: "left_hip_aa_joint" value: 0.0 }  # left_hip_aa_joint - left hip roll
+  joint_positions { joint: "left_hip_ie_joint" value: 0.0 }  # left_hip_ie_joint - left hip yaw
+  joint_positions { joint: "left_hip_fe_joint" value: -0.30 }  # left_hip_fe_joint - left hip pitch
+  joint_positions { joint: "left_knee_fe_joint" value: 0.70 }  # left_knee_fe_joint - left knee
+  joint_positions { joint: "left_ankle_fe_joint" value: -0.40 }  # left_ankle_fe_joint - left ankle pitch
+  joint_positions { joint: "left_ankle_aa_joint" value: 0.0 }  # left_ankle_aa_joint - left ankle roll
+  joint_positions { joint: "right_hip_aa_joint" value: 0.0 }  # right_hip_aa_joint - right hip roll
+  joint_positions { joint: "right_hip_ie_joint" value: 0.0 }  # right_hip_ie_joint - right hip yaw
+  joint_positions { joint: "right_hip_fe_joint" value: -0.30 }  # right_hip_fe_joint - right hip pitch
+  joint_positions { joint: "right_knee_fe_joint" value: 0.70 }  # right_knee_fe_joint - right knee
+  joint_positions { joint: "right_ankle_fe_joint" value: -0.40 }  # right_ankle_fe_joint - right ankle pitch
+  joint_positions { joint: "right_ankle_aa_joint" value: 0.0 }  # right_ankle_aa_joint - right ankle roll
 }
 
 # standard state weight matrix
@@ -786,18 +786,18 @@ state_weights {
   # Hip roll and hip yaw are regularized, the sagittal chain is left almost free so the leg can stride. Keep hip roll
   # low: its nominal is 0, i.e. legs vertical in the frontal plane, so a large weight here directly opposes the
   # lateral pelvis shift that unloads the swing foot. Self-collision is enforced by collision_constraint, not by this.
-  joint_positions { joint: "leg_l1_joint" value: 1.25 }  # leg_l1_joint - left hip roll
-  joint_positions { joint: "leg_l2_joint" value: 4.0 }  # leg_l2_joint - left hip yaw
-  joint_positions { joint: "leg_l3_joint" value: 0.02 }  # leg_l3_joint - left hip pitch
-  joint_positions { joint: "leg_l4_joint" value: 0.02 }  # leg_l4_joint - left knee
-  joint_positions { joint: "leg_l5_joint" value: 0.01 }  # leg_l5_joint - left ankle pitch
-  joint_positions { joint: "leg_l6_joint" value: 0.01 }  # leg_l6_joint - left ankle roll
-  joint_positions { joint: "leg_r1_joint" value: 1.25 }  # leg_r1_joint - right hip roll
-  joint_positions { joint: "leg_r2_joint" value: 4.0 }  # leg_r2_joint - right hip yaw
-  joint_positions { joint: "leg_r3_joint" value: 0.02 }  # leg_r3_joint - right hip pitch
-  joint_positions { joint: "leg_r4_joint" value: 0.02 }  # leg_r4_joint - right knee
-  joint_positions { joint: "leg_r5_joint" value: 0.01 }  # leg_r5_joint - right ankle pitch
-  joint_positions { joint: "leg_r6_joint" value: 0.01 }  # leg_r6_joint - right ankle roll
+  joint_positions { joint: "left_hip_aa_joint" value: 1.25 }  # left_hip_aa_joint - left hip roll
+  joint_positions { joint: "left_hip_ie_joint" value: 4.0 }  # left_hip_ie_joint - left hip yaw
+  joint_positions { joint: "left_hip_fe_joint" value: 0.02 }  # left_hip_fe_joint - left hip pitch
+  joint_positions { joint: "left_knee_fe_joint" value: 0.02 }  # left_knee_fe_joint - left knee
+  joint_positions { joint: "left_ankle_fe_joint" value: 0.01 }  # left_ankle_fe_joint - left ankle pitch
+  joint_positions { joint: "left_ankle_aa_joint" value: 0.01 }  # left_ankle_aa_joint - left ankle roll
+  joint_positions { joint: "right_hip_aa_joint" value: 1.25 }  # right_hip_aa_joint - right hip roll
+  joint_positions { joint: "right_hip_ie_joint" value: 4.0 }  # right_hip_ie_joint - right hip yaw
+  joint_positions { joint: "right_hip_fe_joint" value: 0.02 }  # right_hip_fe_joint - right hip pitch
+  joint_positions { joint: "right_knee_fe_joint" value: 0.02 }  # right_knee_fe_joint - right knee
+  joint_positions { joint: "right_ankle_fe_joint" value: 0.01 }  # right_ankle_fe_joint - right ankle pitch
+  joint_positions { joint: "right_ankle_aa_joint" value: 0.01 }  # right_ankle_aa_joint - right ankle roll
 }
 
 # control weight matrix
@@ -835,18 +835,18 @@ input_weights {
   # ; Joint Velocities ;;
   # Hip yaw is held an order of magnitude stiffer than the rest: it is the one leg degree of freedom the gait does
   # not need and the one that scuffs the foot when it moves.
-  joint_velocities { joint: "leg_l1_joint" value: 20.0 }  # leg_l1_joint - left hip roll
-  joint_velocities { joint: "leg_l2_joint" value: 200.0 }  # leg_l2_joint - left hip yaw
-  joint_velocities { joint: "leg_l3_joint" value: 10.0 }  # leg_l3_joint - left hip pitch
-  joint_velocities { joint: "leg_l4_joint" value: 10.0 }  # leg_l4_joint - left knee
-  joint_velocities { joint: "leg_l5_joint" value: 20.0 }  # leg_l5_joint - left ankle pitch
-  joint_velocities { joint: "leg_l6_joint" value: 20.0 }  # leg_l6_joint - left ankle roll
-  joint_velocities { joint: "leg_r1_joint" value: 20.0 }  # leg_r1_joint - right hip roll
-  joint_velocities { joint: "leg_r2_joint" value: 200.0 }  # leg_r2_joint - right hip yaw
-  joint_velocities { joint: "leg_r3_joint" value: 10.0 }  # leg_r3_joint - right hip pitch
-  joint_velocities { joint: "leg_r4_joint" value: 10.0 }  # leg_r4_joint - right knee
-  joint_velocities { joint: "leg_r5_joint" value: 20.0 }  # leg_r5_joint - right ankle pitch
-  joint_velocities { joint: "leg_r6_joint" value: 20.0 }  # leg_r6_joint - right ankle roll
+  joint_velocities { joint: "left_hip_aa_joint" value: 20.0 }  # left_hip_aa_joint - left hip roll
+  joint_velocities { joint: "left_hip_ie_joint" value: 200.0 }  # left_hip_ie_joint - left hip yaw
+  joint_velocities { joint: "left_hip_fe_joint" value: 10.0 }  # left_hip_fe_joint - left hip pitch
+  joint_velocities { joint: "left_knee_fe_joint" value: 10.0 }  # left_knee_fe_joint - left knee
+  joint_velocities { joint: "left_ankle_fe_joint" value: 20.0 }  # left_ankle_fe_joint - left ankle pitch
+  joint_velocities { joint: "left_ankle_aa_joint" value: 20.0 }  # left_ankle_aa_joint - left ankle roll
+  joint_velocities { joint: "right_hip_aa_joint" value: 20.0 }  # right_hip_aa_joint - right hip roll
+  joint_velocities { joint: "right_hip_ie_joint" value: 200.0 }  # right_hip_ie_joint - right hip yaw
+  joint_velocities { joint: "right_hip_fe_joint" value: 10.0 }  # right_hip_fe_joint - right hip pitch
+  joint_velocities { joint: "right_knee_fe_joint" value: 10.0 }  # right_knee_fe_joint - right knee
+  joint_velocities { joint: "right_ankle_fe_joint" value: 20.0 }  # right_ankle_fe_joint - right ankle pitch
+  joint_velocities { joint: "right_ankle_aa_joint" value: 20.0 }  # right_ankle_aa_joint - right ankle roll
 }
 
 # DCM (capture point) terminal cost, active when costs lists dcm_terminal_cost (as shipped; it is the alternative to
@@ -907,18 +907,18 @@ final_state_weights {
   }
 
   # ; Joint Positions ;;
-  joint_positions { joint: "leg_l1_joint" value: 1.25 }  # leg_l1_joint - left hip roll
-  joint_positions { joint: "leg_l2_joint" value: 4.0 }  # leg_l2_joint - left hip yaw
-  joint_positions { joint: "leg_l3_joint" value: 0.02 }  # leg_l3_joint - left hip pitch
-  joint_positions { joint: "leg_l4_joint" value: 0.02 }  # leg_l4_joint - left knee
-  joint_positions { joint: "leg_l5_joint" value: 0.01 }  # leg_l5_joint - left ankle pitch
-  joint_positions { joint: "leg_l6_joint" value: 0.01 }  # leg_l6_joint - left ankle roll
-  joint_positions { joint: "leg_r1_joint" value: 1.25 }  # leg_r1_joint - right hip roll
-  joint_positions { joint: "leg_r2_joint" value: 4.0 }  # leg_r2_joint - right hip yaw
-  joint_positions { joint: "leg_r3_joint" value: 0.02 }  # leg_r3_joint - right hip pitch
-  joint_positions { joint: "leg_r4_joint" value: 0.02 }  # leg_r4_joint - right knee
-  joint_positions { joint: "leg_r5_joint" value: 0.01 }  # leg_r5_joint - right ankle pitch
-  joint_positions { joint: "leg_r6_joint" value: 0.01 }  # leg_r6_joint - right ankle roll
+  joint_positions { joint: "left_hip_aa_joint" value: 1.25 }  # left_hip_aa_joint - left hip roll
+  joint_positions { joint: "left_hip_ie_joint" value: 4.0 }  # left_hip_ie_joint - left hip yaw
+  joint_positions { joint: "left_hip_fe_joint" value: 0.02 }  # left_hip_fe_joint - left hip pitch
+  joint_positions { joint: "left_knee_fe_joint" value: 0.02 }  # left_knee_fe_joint - left knee
+  joint_positions { joint: "left_ankle_fe_joint" value: 0.01 }  # left_ankle_fe_joint - left ankle pitch
+  joint_positions { joint: "left_ankle_aa_joint" value: 0.01 }  # left_ankle_aa_joint - left ankle roll
+  joint_positions { joint: "right_hip_aa_joint" value: 1.25 }  # right_hip_aa_joint - right hip roll
+  joint_positions { joint: "right_hip_ie_joint" value: 4.0 }  # right_hip_ie_joint - right hip yaw
+  joint_positions { joint: "right_hip_fe_joint" value: 0.02 }  # right_hip_fe_joint - right hip pitch
+  joint_positions { joint: "right_knee_fe_joint" value: 0.02 }  # right_knee_fe_joint - right knee
+  joint_positions { joint: "right_ankle_fe_joint" value: 0.01 }  # right_ankle_fe_joint - right ankle pitch
+  joint_positions { joint: "right_ankle_aa_joint" value: 0.01 }  # right_ankle_aa_joint - right ankle roll
 }
 
 
@@ -966,26 +966,26 @@ task_space_foot_cost {
 left_leg_torque_cost {
   scaling: 1.0e-4
 
-  joints { joint: "leg_l1_joint" value: 2.0 }  # leg_l1_joint - left hip roll
-  joints { joint: "leg_l2_joint" value: 1.0 }  # leg_l2_joint - left hip yaw
-  joints { joint: "leg_l3_joint" value: 2.0 }  # leg_l3_joint - left hip pitch
-  joints { joint: "leg_l4_joint" value: 8.0 }  # leg_l4_joint - left knee
+  joints { joint: "left_hip_aa_joint" value: 2.0 }  # left_hip_aa_joint - left hip roll
+  joints { joint: "left_hip_ie_joint" value: 1.0 }  # left_hip_ie_joint - left hip yaw
+  joints { joint: "left_hip_fe_joint" value: 2.0 }  # left_hip_fe_joint - left hip pitch
+  joints { joint: "left_knee_fe_joint" value: 8.0 }  # left_knee_fe_joint - left knee
   # The ankle entries are 5x R1's 0.2. SA01's ankle actuators are 24 N.m against R1's 50 N.m while the robot is
   # 15% heavier, so ankle torque is the scarcest resource on this machine and the cost has to say so. Scaled by the
   # ratio of the squared torque limits, (50/24)^2 = 4.3.
-  joints { joint: "leg_l5_joint" value: 1.0 }  # leg_l5_joint - left ankle pitch
-  joints { joint: "leg_l6_joint" value: 1.0 }  # leg_l6_joint - left ankle roll
+  joints { joint: "left_ankle_fe_joint" value: 1.0 }  # left_ankle_fe_joint - left ankle pitch
+  joints { joint: "left_ankle_aa_joint" value: 1.0 }  # left_ankle_aa_joint - left ankle roll
 }
 
 right_leg_torque_cost {
   scaling: 1.0e-4
 
-  joints { joint: "leg_r1_joint" value: 2.0 }  # leg_r1_joint - right hip roll
-  joints { joint: "leg_r2_joint" value: 1.0 }  # leg_r2_joint - right hip yaw
-  joints { joint: "leg_r3_joint" value: 2.0 }  # leg_r3_joint - right hip pitch
-  joints { joint: "leg_r4_joint" value: 8.0 }  # leg_r4_joint - right knee
-  joints { joint: "leg_r5_joint" value: 1.0 }  # leg_r5_joint - right ankle pitch
-  joints { joint: "leg_r6_joint" value: 1.0 }  # leg_r6_joint - right ankle roll
+  joints { joint: "right_hip_aa_joint" value: 2.0 }  # right_hip_aa_joint - right hip roll
+  joints { joint: "right_hip_ie_joint" value: 1.0 }  # right_hip_ie_joint - right hip yaw
+  joints { joint: "right_hip_fe_joint" value: 2.0 }  # right_hip_fe_joint - right hip pitch
+  joints { joint: "right_knee_fe_joint" value: 8.0 }  # right_knee_fe_joint - right knee
+  joints { joint: "right_ankle_fe_joint" value: 1.0 }  # right_ankle_fe_joint - right ankle pitch
+  joints { joint: "right_ankle_aa_joint" value: 1.0 }  # right_ankle_aa_joint - right ankle roll
 }
 
 contacts {
@@ -1112,8 +1112,8 @@ joint_limits {
 
 collision_constraint {
   foot {
-    left_ankle_frame: "leg_l6_joint"
-    right_ankle_frame: "leg_r6_joint"
+    left_ankle_frame: "left_ankle_aa_joint"
+    right_ankle_frame: "right_ankle_aa_joint"
 
     # The constraint keeps the two contact frames 2 * radius apart. SA01's ankles are 0.1503 m apart at the nominal
     # stance. The MuJoCo contact spheres nearest the centerline sit 0.035 m inboard of each ankle with a 0.010 m
@@ -1125,8 +1125,8 @@ collision_constraint {
     foot_collision_sphere_radius: 0.045
   }
   knee {
-    left_knee_frame: "leg_l4_joint"
-    right_knee_frame: "leg_r4_joint"
+    left_knee_frame: "left_knee_fe_joint"
+    right_knee_frame: "right_knee_fe_joint"
 
     # Same reasoning: the knees are 0.150 m apart at the nominal stance and the 0.04 m thigh capsules of zq_sa01.xml
     # touch at 0.080 m.

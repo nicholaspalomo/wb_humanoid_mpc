@@ -70,14 +70,14 @@
       <body name="leg_l1_link" pos="0 0.075 0">
         <inertial pos="0.0003501 0.00043844 -0.0020201" mass="1.6592"
                   fullinertia="0.00170970094 0.00222453198 0.00296249862 3.39099e-06 -3.64314e-06 -1.8428e-05"/>
-        <joint name="leg_l1_joint" pos="0 0 0" axis="1 0 0" range="-0.523 0.523" actuatorfrcrange="-140 140" armature="0.042"/>
+        <joint name="left_hip_aa_joint" pos="0 0 0" axis="1 0 0" range="-0.523 0.523" actuatorfrcrange="-140 140" armature="0.042"/>
         <geom class="visual" type="mesh" mesh="left_leg_link_01"/>
         <!-- Hip roll housing, fitted to the LeftLeg_Link_01 mesh AABB. -->
         <geom class="collision" type="box" size="0.066 0.0575 0.0304" pos="0.0016 0 -0.0006"/>
         <body name="leg_l2_link" pos="0 0 0">
           <inertial pos="0.00038352 0.0010044 -0.12214" mass="1.8008"
                     fullinertia="0.0028514924 0.00367928378 0.00191736965 -8.11841e-06 8.1779e-07 1.485978e-05"/>
-          <joint name="leg_l2_joint" pos="0 0 0" axis="0 0 1" range="-0.3 0.3" actuatorfrcrange="-140 140" armature="0.042"/>
+          <joint name="left_hip_ie_joint" pos="0 0 0" axis="0 0 1" range="-0.3 0.3" actuatorfrcrange="-140 140" armature="0.042"/>
           <geom class="visual" type="mesh" mesh="left_leg_link_02"/>
           <!-- Hip yaw link, fitted to the LeftLeg_Link_02 mesh AABB. It reaches up into the base shell,
           so the pair is excluded explicitly below - leg_?2 is the base's grandchild and MuJoCo's
@@ -86,7 +86,7 @@
           <body name="leg_l3_link" pos="0 0 -0.1311">
             <inertial pos="-0.0017654 0.0012877 -0.13954" mass="3.9299"
                       fullinertia="0.03203144433 0.0356106115 0.01016719156 3.937845e-05 0.00141442438 -0.00080953754"/>
-            <joint name="leg_l3_joint" pos="0 0 0" axis="0 1 0" range="-1.204 1.204" actuatorfrcrange="-140 140" armature="0.042"/>
+            <joint name="left_hip_fe_joint" pos="0 0 0" axis="0 1 0" range="-1.204 1.204" actuatorfrcrange="-140 140" armature="0.042"/>
             <geom class="visual" type="mesh" mesh="left_leg_link_03"/>
             <!-- Hip axis to knee axis. Radius 0.045 fits inside the mesh (y half-width 0.057) and equals
                  task.textproto collision_constraint.knee.knee_collision_sphere_radius, so the simulator and the MPC
@@ -95,7 +95,7 @@
             <body name="leg_l4_link" pos="0 5.9998e-05 -0.3">
               <inertial pos="-0.00751 -0.00041 -0.16322" mass="2.7251"
                         fullinertia="0.03032295461 0.03234908064 0.00389340359 -7.371616e-05 -0.00028406531 0.00021740427"/>
-              <joint name="leg_l4_joint" pos="0 0 0" axis="0 1 0" range="0.0 2.268" actuatorfrcrange="-140 140" armature="0.042"/>
+              <joint name="left_knee_fe_joint" pos="0 0 0" axis="0 1 0" range="0.0 2.268" actuatorfrcrange="-140 140" armature="0.042"/>
               <geom class="visual" type="mesh" mesh="left_leg_link_04"/>
               <!-- Knee axis towards the ankle. Radius 0.035 fits the mesh (y half-width 0.047); the lower cap
                    stops at -0.385 so it stays clear of the foot contact spheres, whose tops sit at -0.405 in
@@ -104,14 +104,14 @@
               <body name="leg_l5_link" pos="0 7.0122e-05 -0.37">
                 <inertial pos="-2.5946e-10 -5e-05 -3.4499e-09" mass="0.16135"
                           fullinertia="3.0975e-05 3.1274e-05 3.1681e-05 0 0 0"/>
-                <joint name="leg_l5_joint" pos="0 0 0" axis="0 1 0" range="-1.0 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
+                <joint name="left_ankle_fe_joint" pos="0 0 0" axis="0 1 0" range="-1.0 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
                 <geom class="visual" type="mesh" mesh="left_leg_link_05"/>
                 <!-- Ankle pitch link: a small sphere over the LeftLeg_Link_05 mesh. -->
                 <geom class="collision" type="sphere" size="0.0175" pos="0.0016 0 0.0021"/>
                 <body name="leg_l6_link" pos="0 0 0">
                   <inertial pos="0.030366 0.0019502 -0.03549" mass="1.1926"
                             fullinertia="0.00105334189 0.00606712875 0.00646061141 0 0 0"/>
-                  <joint name="leg_l6_joint" pos="0 0 0" axis="1 0 0" range="-0.6 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
+                  <joint name="left_ankle_aa_joint" pos="0 0 0" axis="1 0 0" range="-0.6 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
                   <geom class="visual" type="mesh" mesh="left_leg_link_06"/>
                   <!-- Foot sole contact geoms - 4 corner spheres only (no box) for clean point contacts. Their centres
                        are the corners of the MPC contact rectangle: the sole plane is 0.055 below the ankle, the
@@ -132,14 +132,14 @@
       <body name="leg_r1_link" pos="0 -0.075 0">
         <inertial pos="0.0003501 0.00043844 -0.0020201" mass="1.6592"
                   fullinertia="0.00170970094 0.00222453198 0.00296249862 3.39099e-06 -3.64314e-06 -1.8428e-05"/>
-        <joint name="leg_r1_joint" pos="0 0 0" axis="1 0 0" range="-0.523 0.523" actuatorfrcrange="-140 140" armature="0.042"/>
+        <joint name="right_hip_aa_joint" pos="0 0 0" axis="1 0 0" range="-0.523 0.523" actuatorfrcrange="-140 140" armature="0.042"/>
         <geom class="visual" type="mesh" mesh="right_leg_link_01"/>
         <!-- Hip roll housing, fitted to the LeftLeg_Link_01 mesh AABB. -->
         <geom class="collision" type="box" size="0.066 0.0575 0.0304" pos="0.0016 0 -0.0006"/>
         <body name="leg_r2_link" pos="0 0 0">
           <inertial pos="-0.00038352 -0.0010044 -0.12214" mass="1.8008"
                     fullinertia="0.0028514924 0.00367928378 0.00191736965 -8.11841e-06 -8.1779e-07 -1.485978e-05"/>
-          <joint name="leg_r2_joint" pos="0 0 0" axis="0 0 1" range="-0.3 0.3" actuatorfrcrange="-140 140" armature="0.042"/>
+          <joint name="right_hip_ie_joint" pos="0 0 0" axis="0 0 1" range="-0.3 0.3" actuatorfrcrange="-140 140" armature="0.042"/>
           <geom class="visual" type="mesh" mesh="right_leg_link_02"/>
           <!-- Hip yaw link, fitted to the LeftLeg_Link_02 mesh AABB. It reaches up into the base shell,
           so the pair is excluded explicitly below - leg_?2 is the base's grandchild and MuJoCo's
@@ -148,7 +148,7 @@
           <body name="leg_r3_link" pos="0 0 -0.1311">
             <inertial pos="-0.0017403 -0.0012919 -0.13954" mass="3.9294"
                       fullinertia="0.03202203311 0.03559852831 0.01016409159 -3.371707e-05 0.00139789064 0.00081210058"/>
-            <joint name="leg_r3_joint" pos="0 0 0" axis="0 1 0" range="-1.204 1.204" actuatorfrcrange="-140 140" armature="0.042"/>
+            <joint name="right_hip_fe_joint" pos="0 0 0" axis="0 1 0" range="-1.204 1.204" actuatorfrcrange="-140 140" armature="0.042"/>
             <geom class="visual" type="mesh" mesh="right_leg_link_03"/>
             <!-- Hip axis to knee axis. Radius 0.045 fits inside the mesh (y half-width 0.057) and equals
                  task.textproto collision_constraint.knee.knee_collision_sphere_radius, so the simulator and the MPC
@@ -157,7 +157,7 @@
             <body name="leg_r4_link" pos="0 -5.9998e-05 -0.3">
               <inertial pos="-0.00751 0.00047274 -0.16321" mass="2.72497"
                         fullinertia="0.03032110864 0.0323473304 0.00389339565 7.373941e-05 -0.00028430637 -0.00021746443"/>
-              <joint name="leg_r4_joint" pos="0 0 0" axis="0 1 0" range="0.0 2.268" actuatorfrcrange="-140 140" armature="0.042"/>
+              <joint name="right_knee_fe_joint" pos="0 0 0" axis="0 1 0" range="0.0 2.268" actuatorfrcrange="-140 140" armature="0.042"/>
               <geom class="visual" type="mesh" mesh="right_leg_link_04"/>
               <!-- Knee axis towards the ankle. Radius 0.035 fits the mesh (y half-width 0.047); the lower cap
                    stops at -0.385 so it stays clear of the foot contact spheres, whose tops sit at -0.405 in
@@ -166,14 +166,14 @@
               <body name="leg_r5_link" pos="0 -7.0122e-05 -0.37">
                 <inertial pos="2.5946e-10 5e-05 -3.4499e-09" mass="0.16135"
                           fullinertia="3.0975e-05 3.1274e-05 3.1274e-05 0 0 0"/>
-                <joint name="leg_r5_joint" pos="0 0 0" axis="0 1 0" range="-1.0 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
+                <joint name="right_ankle_fe_joint" pos="0 0 0" axis="0 1 0" range="-1.0 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
                 <geom class="visual" type="mesh" mesh="right_leg_link_05"/>
                 <!-- Ankle pitch link: a small sphere over the LeftLeg_Link_05 mesh. -->
                 <geom class="collision" type="sphere" size="0.0175" pos="0.0016 0 0.0021"/>
                 <body name="leg_r6_link" pos="0 0 0">
                   <inertial pos="0.030366 -0.0019504 -0.03549" mass="1.1926"
                             fullinertia="0.00105336111 0.00606728572 0.00646075577 0 0 0"/>
-                  <joint name="leg_r6_joint" pos="0 0 0" axis="1 0 0" range="-0.6 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
+                  <joint name="right_ankle_aa_joint" pos="0 0 0" axis="1 0 0" range="-0.6 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
                   <geom class="visual" type="mesh" mesh="right_leg_link_06"/>
                   <!-- Mirrored: the sole is offset 0.005 outboard, so the inner corners sit at y = +0.035. -->
                   <geom class="collision" type="sphere" size="0.010" pos="-0.065 0.035 -0.045"/>
@@ -203,19 +203,19 @@
        ankle. -->
   <actuator>
     <!-- Left leg -->
-    <motor name="leg_l1_joint" joint="leg_l1_joint"/>
-    <motor name="leg_l2_joint" joint="leg_l2_joint"/>
-    <motor name="leg_l3_joint" joint="leg_l3_joint"/>
-    <motor name="leg_l4_joint" joint="leg_l4_joint"/>
-    <motor name="leg_l5_joint" joint="leg_l5_joint"/>
-    <motor name="leg_l6_joint" joint="leg_l6_joint"/>
+    <motor name="left_hip_aa_joint" joint="left_hip_aa_joint"/>
+    <motor name="left_hip_ie_joint" joint="left_hip_ie_joint"/>
+    <motor name="left_hip_fe_joint" joint="left_hip_fe_joint"/>
+    <motor name="left_knee_fe_joint" joint="left_knee_fe_joint"/>
+    <motor name="left_ankle_fe_joint" joint="left_ankle_fe_joint"/>
+    <motor name="left_ankle_aa_joint" joint="left_ankle_aa_joint"/>
     <!-- Right leg -->
-    <motor name="leg_r1_joint" joint="leg_r1_joint"/>
-    <motor name="leg_r2_joint" joint="leg_r2_joint"/>
-    <motor name="leg_r3_joint" joint="leg_r3_joint"/>
-    <motor name="leg_r4_joint" joint="leg_r4_joint"/>
-    <motor name="leg_r5_joint" joint="leg_r5_joint"/>
-    <motor name="leg_r6_joint" joint="leg_r6_joint"/>
+    <motor name="right_hip_aa_joint" joint="right_hip_aa_joint"/>
+    <motor name="right_hip_ie_joint" joint="right_hip_ie_joint"/>
+    <motor name="right_hip_fe_joint" joint="right_hip_fe_joint"/>
+    <motor name="right_knee_fe_joint" joint="right_knee_fe_joint"/>
+    <motor name="right_ankle_fe_joint" joint="right_ankle_fe_joint"/>
+    <motor name="right_ankle_aa_joint" joint="right_ankle_aa_joint"/>
   </actuator>
   <!-- Virtual gantry. A real weld the constraint solver satisfies inside mj_step, so the base is supported
        WHILE the dynamics are integrated. MujocoSimInterface drives eq_active from the lock state and writes

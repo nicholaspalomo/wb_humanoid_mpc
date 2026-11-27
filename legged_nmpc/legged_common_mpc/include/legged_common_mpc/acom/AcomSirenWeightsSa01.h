@@ -37,7 +37,7 @@ struct AcomSirenWeightsSa01 {
 
   // Joint ordering the network was trained on. Must match the
   // MPC's Pinocchio joint ordering exactly.
-  static inline const char* absl_nonnull const joint_names[12] = {"leg_l1_joint", "leg_l2_joint", "leg_l3_joint", "leg_l4_joint", "leg_l5_joint", "leg_l6_joint", "leg_r1_joint", "leg_r2_joint", "leg_r3_joint", "leg_r4_joint", "leg_r5_joint", "leg_r6_joint"};
+  static inline const char* absl_nonnull const joint_names[12] = {"left_hip_aa_joint", "left_hip_ie_joint", "left_hip_fe_joint", "left_knee_fe_joint", "left_ankle_fe_joint", "left_ankle_aa_joint", "right_hip_aa_joint", "right_hip_ie_joint", "right_hip_fe_joint", "right_knee_fe_joint", "right_ankle_fe_joint", "right_ankle_aa_joint"};
 
   // Layer 0: (64 x 12)
   static constexpr size_t W0_rows = 64;

@@ -32,20 +32,22 @@ first; see `.devcontainer/README.md`. The launch files are `engineai_sa01_centro
 ## Kinematics
 
 Joints are declared left leg first, and that declaration order is the order of the MPC state vector. The configuration
-files specify joints by name (`joint_positions { joint: "leg_l1_joint" value: 0.0 }`), in any order.
+files specify joints by name (`joint_positions { joint: "left_hip_aa_joint" value: 0.0 }`), in any order.
 
 | Joint | Function | Axis | Origin (from parent) | Range [rad] | Torque [N·m] |
 | --- | --- | --- | --- | --- | --- |
-| `leg_?1_joint` | hip roll | x | `0 ±0.075 0` from `base_link` | ±0.523 | 140 |
-| `leg_?2_joint` | hip yaw | z | coincident with hip roll | ±0.300 | 140 |
-| `leg_?3_joint` | hip pitch | y | `0 0 -0.1311` | ±1.204 | 140 |
-| `leg_?4_joint` | knee | y | `0 0 -0.30` | 0.0 … 2.268 | 140 |
-| `leg_?5_joint` | ankle pitch | y | `0 0 -0.37` | −1.0 … 0.6 | 24 |
-| `leg_?6_joint` | ankle roll | x | coincident with ankle pitch | ±0.600 | 24 |
+| `<side>_hip_aa_joint` | hip roll: abduction / adduction | x | `0 ±0.075 0` from `base_link` | ±0.523 | 140 |
+| `<side>_hip_ie_joint` | hip yaw: internal / external rotation | z | coincident with hip roll | ±0.300 | 140 |
+| `<side>_hip_fe_joint` | hip pitch: flexion / extension | y | `0 0 -0.1311` | ±1.204 | 140 |
+| `<side>_knee_fe_joint` | knee: flexion / extension | y | `0 0 -0.30` | 0.0 … 2.268 | 140 |
+| `<side>_ankle_fe_joint` | ankle pitch: flexion / extension | y | `0 0 -0.37` | −1.0 … 0.6 | 24 |
+| `<side>_ankle_aa_joint` | ankle roll: abduction / adduction | x | coincident with ankle pitch | ±0.600 | 24 |
 
-`?` is `l` or `r`; the right leg mirrors the left about y. The floating base link is `base_link` (there is no
-`pelvis` or `torso`), so `telemetry_frames` uses `base_link` and `task_space_torso_cost` is omitted
-from the cost list.
+`<side>` is `left` or `right`; the right leg mirrors the left about y. The names give the motion of each joint, as in
+the gains and posture files: `aa` abduction / adduction, `ie` internal / external rotation, `fe` flexion / extension.
+EngineAI's URDF named them `leg_l1_joint` to `leg_r6_joint`, in the order of the table. The floating base link is
+`base_link` (there is no `pelvis` or `torso`), so `telemetry_frames` uses `base_link` and `task_space_torso_cost` is
+omitted from the cost list.
 
 ## Derived constants
 

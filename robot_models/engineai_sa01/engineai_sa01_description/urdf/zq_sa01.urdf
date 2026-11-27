@@ -96,7 +96,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_l1_joint"
+    name="left_hip_aa_joint"
     type="revolute">
     <origin
       xyz="0 0.075 0"
@@ -157,7 +157,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_l2_joint"
+    name="left_hip_ie_joint"
     type="revolute">
     <origin
       xyz="0 0 0"
@@ -218,7 +218,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_l3_joint"
+    name="left_hip_fe_joint"
     type="revolute">
     <origin
       xyz="0 0 -0.1311"
@@ -279,7 +279,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_l4_joint"
+    name="left_knee_fe_joint"
     type="revolute">
     <origin
       xyz="0 5.9998E-05 -0.3"
@@ -347,7 +347,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_l5_joint"
+    name="left_ankle_fe_joint"
     type="revolute">
     <origin
       xyz="0 7.0122E-05 -0.37"
@@ -434,7 +434,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_l6_joint"
+    name="left_ankle_aa_joint"
     type="revolute">
     <origin
       xyz="0 0 0"
@@ -495,7 +495,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_r1_joint"
+    name="right_hip_aa_joint"
     type="revolute">
     <origin
       xyz="0 -0.075 0"
@@ -556,7 +556,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_r2_joint"
+    name="right_hip_ie_joint"
     type="revolute">
     <origin
       xyz="0 0 0"
@@ -617,7 +617,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_r3_joint"
+    name="right_hip_fe_joint"
     type="revolute">
     <origin
       xyz="0 0 -0.1311"
@@ -678,7 +678,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_r4_joint"
+    name="right_knee_fe_joint"
     type="revolute">
     <origin
       xyz="0 -5.9998E-05 -0.3"
@@ -746,7 +746,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_r5_joint"
+    name="right_ankle_fe_joint"
     type="revolute">
     <origin
       xyz="0 -7.0122E-05 -0.37"
@@ -833,7 +833,7 @@ Stephen Brawner (brawner@gmail.com)
   </link>
 
   <joint
-    name="leg_r6_joint"
+    name="right_ankle_aa_joint"
     type="revolute">
     <origin
       xyz="0 0 0"
