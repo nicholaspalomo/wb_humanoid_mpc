@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/constraint/StateInputConstraintCppAd.h>
 
+#include <memory>
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -36,14 +38,9 @@ namespace ocs2 {
 /******************************************************************************************************/
 void StateInputConstraintCppAd::initialize(size_t stateDim, size_t inputDim, size_t parameterDim, const std::string& modelName,
                                            const std::string& modelFolder, bool recompileLibraries, bool verbose) {
-  auto constraintAd = [=](const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) {
-    assert(x.rows() == 1 + stateDim + inputDim);
-    const ad_scalar_t time = x(0);
-    const ad_vector_t state = x.segment(1, stateDim);
-    const ad_vector_t input = x.tail(inputDim);
-    y = this->constraintFunction(time, state, input, p);
-  };
-  adInterfacePtr_.reset(new ocs2::CppAdInterface(constraintAd, 1 + stateDim + inputDim, parameterDim, modelName, modelFolder));
+  stateDim_ = stateDim;
+  inputDim_ = inputDim;
+  adInterfacePtr_ = std::make_unique<CppAdInterface>(tapedFunction(), 1 + stateDim + inputDim, parameterDim, modelName, modelFolder);
 
   ocs2::CppAdInterface::ApproximationOrder orderCppAd;
   if (getOrder() == ConstraintOrder::Linear) {
@@ -63,7 +60,25 @@ void StateInputConstraintCppAd::initialize(size_t stateDim, size_t inputDim, siz
 /******************************************************************************************************/
 /******************************************************************************************************/
 StateInputConstraintCppAd::StateInputConstraintCppAd(const StateInputConstraintCppAd& rhs)
-    : StateInputConstraint(rhs), adInterfacePtr_(new ocs2::CppAdInterface(*rhs.adInterfacePtr_)) {}
+    : StateInputConstraint(rhs),
+      stateDim_(rhs.stateDim_),
+      inputDim_(rhs.inputDim_),
+      adInterfacePtr_(std::make_unique<CppAdInterface>(*rhs.adInterfacePtr_, tapedFunction())) {}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+CppAdInterface::ad_parameterized_function_t StateInputConstraintCppAd::tapedFunction() const {
+  const size_t stateDim = stateDim_;
+  const size_t inputDim = inputDim_;
+  return [this, stateDim, inputDim](const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) {
+    assert(x.rows() == 1 + stateDim + inputDim);
+    const ad_scalar_t time = x(0);
+    const ad_vector_t state = x.segment(1, stateDim);
+    const ad_vector_t input = x.tail(inputDim);
+    y = this->constraintFunction(time, state, input, p);
+  };
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -124,7 +139,7 @@ VectorFunctionQuadraticApproximation StateInputConstraintCppAd::getQuadraticAppr
   constraint.dfdxx.resize(numConstraints);
   constraint.dfdux.resize(numConstraints);
   constraint.dfduu.resize(numConstraints);
-  for (int i = 0; i < numConstraints; i++) {
+  for (int i = 0; static_cast<size_t>(i) < numConstraints; i++) {
     const matrix_t H = adInterfacePtr_->getHessian(i, tapedTimeStateInput, params);
     constraint.dfdxx[i] = H.block(1, 1, stateDim, stateDim);
     constraint.dfdux[i] = H.block(1 + stateDim, 1, inputDim, stateDim);

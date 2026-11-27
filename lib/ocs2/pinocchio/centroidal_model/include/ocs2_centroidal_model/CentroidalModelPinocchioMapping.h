@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
@@ -44,19 +46,26 @@ using CentroidalModelPinocchioMappingCppAd = CentroidalModelPinocchioMappingTpl<
 /**
  * Centroidal Dynamics:
  *
- * State: x = [ linear_momentum / mass, angular_momentum / mass, base_position, base_orientation_zyx, joint_positions ]'
+ * State: x = [ mnorm_cmom_com_rt_world_ewrt_world (linear and angular momentum / mass), pos_base_rt_world_ewrt_world,
+ *              quat_base_rt_world_xyzw, joint_positions ]'
+ * @remark: The base orientation is the quaternion (x, y, z, w) from the base frame to the inertial frame, as the state stores
+ * it (not normalized); the state has one entry more than its tangent [h, dp, dphi_body, dq_j].
  * @remark: The linear and angular momenta are expressed with respect to the centroidal frame (a frame centered at
  * the CoM and aligned with the inertial frame).
  *
- * Input: u = [ contact_forces, contact_wrenches, joint_velocities ]'
+ * Input: u = [ force_contacts_ewrt_world (3-DoF contacts), wrench_contacts_ewrt_world (6-DoF contacts), joint_velocities ]'
  * @remark: Contact forces and wrenches are expressed with respect to the inertial frame.
  *
  *
- * Pinocchio Joint Positions: qPinocchio = [ base_position, base_orientation_zyx, joint_positions ]'
- * @remark: Base position is expressed with respect to the inertial frame
+ * Pinocchio Joint Positions: qPinocchio = [ pos_base_rt_world_ewrt_world, quat_base_rt_world_xyzw, joint_positions ]' (nq entries), of the
+ * root joint Composite(Translation, Spherical)
+ * @remark: Base position is expressed with respect to the inertial frame; the quaternion is the state's, safely normalized
+ * (ocs2::quaternionSafeNormalize).
  *
- * Pinocchio Joint Velocities: vPinocchio = [ base_linear_velocity, base_orientation_zyx_derivatives, joint_velocities ]'
- * @remark: Base linear velocity is expressed with respect to the inertial frame
+ * Pinocchio Joint Velocities: vPinocchio = [ linvel_base_rt_world_ewrt_world, angvel_base_rt_world_ewrt_base, joint_velocities ]' (nv = nq - 1)
+ * @remark: Base linear velocity is expressed with respect to the inertial frame, the base angular velocity w_B in the base
+ * frame. vPinocchio is the tangent of qPinocchio, not its time derivative (computeConfigurationDerivative() maps one to
+ * the other).
  */
 template <typename SCALAR>
 class CentroidalModelPinocchioMappingTpl final : public PinocchioStateInputMapping<SCALAR> {
@@ -73,7 +82,7 @@ class CentroidalModelPinocchioMappingTpl final : public PinocchioStateInputMappi
   explicit CentroidalModelPinocchioMappingTpl(CentroidalModelInfoTpl<SCALAR> centroidalModelInfo);
 
   ~CentroidalModelPinocchioMappingTpl() override = default;
-  CentroidalModelPinocchioMappingTpl* clone() const override;
+  CentroidalModelPinocchioMappingTpl* absl_nonnull clone() const override;
 
   /** Sets the pinocchio interface for caching
    * @param [in] pinocchioInterface: pinocchio interface on which computations are expected. It will keep a pointer for the getters.
@@ -85,8 +94,9 @@ class CentroidalModelPinocchioMappingTpl final : public PinocchioStateInputMappi
    * Computes the vector of generalized coordinates (qPinocchio) used by pinocchio functions from the robot state variables
    *
    * @param [in] state: system state vector
-   * @return pinocchio joint positions, which are also the robot's generalized positions with a ZYX-Euler angle
-   * parameterization of the base orientation
+   * @return pinocchio joint positions [p_W, xi_hat, q_j]: the state's generalized coordinates with the quaternion safely
+   * normalized (ocs2::quaternionSafeNormalize, a CppAD conditional on its squared norm), so that a state whose |xi| drifts
+   * from 1 still gives Pinocchio a unit quaternion
    */
   vector_t getPinocchioJointPosition(const vector_t& state) const override;
 
@@ -94,7 +104,8 @@ class CentroidalModelPinocchioMappingTpl final : public PinocchioStateInputMappi
    * Computes the vector of generalized velocities (vPinocchio) used by pinocchio functions from the robot state and input variables
    * @param [in] state: system state vector
    * @param [in] input: system input vector
-   * @return pinocchio joint velocities, which are also the time derivatives of the pinocchio joint positions
+   * @return pinocchio joint velocities [dp_W, w_B, dq_j] (nv entries), the base block A_b^-1 (m h - A_j dq_j) of the
+   * centroidal momentum map
    *
    * @note requires pinocchioInterface to be updated with:
    *       ocs2::updateCentroidalDynamics(interface, info, q)
@@ -102,16 +113,9 @@ class CentroidalModelPinocchioMappingTpl final : public PinocchioStateInputMappi
   vector_t getPinocchioJointVelocity(const vector_t& state, const vector_t& input) const override;
 
   /**
-   * Maps pinocchio jacobians dfdq, dfdv to OCS2 jacobians dfdx, dfdu.
-   * @param [in] state: system state vector
-   * @param [in] Jq: jacobian with respect to pinocchio joint positions
-   * @param [in] Jv: jacobian with respect to pinocchio joint velocities
-   * @return a pair {dfdx, dfdu} containing the jacobians with respect to the system state and input
-   *
-   * @note requires pinocchioInterface to be updated with:
-   *       ocs2::updateCentroidalDynamicsDerivatives(interface, info, q, v)
-   *
-   * TODO: Add Jacobian w.r.t generalized accelerations as argument to get a full implicit dependence on the inputs
+   * Not supported: throws std::runtime_error. The analytic chain from Pinocchio's Jacobians to the state needs the
+   * derivative of the centroidal momentum map with respect to the quaternion, which this mapping does not compute; every
+   * term on it is differentiated by CppAD instead (the CppAD end-effector kinematics and the flow maps).
    */
   std::pair<matrix_t, matrix_t> getOcs2Jacobian(const vector_t& state, const matrix_t& Jq, const matrix_t& Jv) const override;
 
@@ -123,7 +127,7 @@ class CentroidalModelPinocchioMappingTpl final : public PinocchioStateInputMappi
  private:
   CentroidalModelPinocchioMappingTpl(const CentroidalModelPinocchioMappingTpl& rhs);
 
-  const PinocchioInterfaceTpl<SCALAR>* pinocchioInterfacePtr_;
+  const PinocchioInterfaceTpl<SCALAR>* absl_nullable pinocchioInterfacePtr_;
   const CentroidalModelInfoTpl<SCALAR> centroidalModelInfo_;
 };
 

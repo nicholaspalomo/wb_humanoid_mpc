@@ -34,11 +34,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2 {
 namespace sqp {
 
+namespace {
+
+/** The digits of a logged value: those of a double down to its machine epsilon (~10^-16). */
+constexpr int kLogValuePrecision = 16;
+
+}  // namespace
+
 std::ostream& operator<<(std::ostream& stream, const LogEntry& logEntry) {
   const std::string delim = ", ";
   const std::string lineEnd = "\n";
   // clang-format off
-  stream  << std::setprecision(16) // print decimals up to machine epsilon of double (~10^-16)
+  stream  << std::setprecision(kLogValuePrecision)
           << logEntry.problemNumber << delim
           << logEntry.time << delim
           << logEntry.iteration << delim

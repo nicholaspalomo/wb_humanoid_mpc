@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package nproto_test;
+
+import "nproto/options.proto";
+
+// The package of this file before a rename, which a configuration file's header may still give.
+option (nproto.former_package) = "nproto_former_test";
+
+// A message whose package was renamed, for the parsers' header check (testTextproto.cpp and
+// tools/nproto/test/test_nproto_textproto.py): a header that gives nproto_former_test.Renamed names it, as
+// nproto_test.Renamed does.
+// Next ID: 2
+message Renamed {
+  option (nproto.generate_struct) = "nproto::test::Renamed";
+
+  reserved 2 to max;
+
+  double gain = 1;
+}

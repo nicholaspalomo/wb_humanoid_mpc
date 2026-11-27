@@ -1,0 +1,1154 @@
+# assembled OCP-QPs: per problem x0 and per stage the dimensions and hashes (nnz hash) of the matrices
+# recorded by testContactPlanningRegression; regenerate with REGENERATE_CONTACT_PLANNING_FIXTURES
+standing.lip.x0 0 0 0 0 0 0.125 0 -0.125
+standing.lip.stage0.dims 8 8 27 18
+standing.lip.stage0.Q 10 97392bfc6f0b3127
+standing.lip.stage0.R 8 781f436d17a08643
+standing.lip.stage0.S 2 286dbf979c64fa53
+standing.lip.stage0.q 2 e6f98c114dada897
+standing.lip.stage0.r 0 14650fb0739d0383
+standing.lip.stage0.A 12 127dce9f9365f357
+standing.lip.stage0.B 8 da1b8446484a5ef
+standing.lip.stage0.b 0 14650fb0739d0383
+standing.lip.stage0.bounds 6 7604294eb2d1152a
+standing.lip.stage0.rows 154dcbf8c49ce497
+standing.lip.stage1.dims 8 8 27 18
+standing.lip.stage1.Q 10 97392bfc6f0b3127
+standing.lip.stage1.R 8 781f436d17a08643
+standing.lip.stage1.S 2 286dbf979c64fa53
+standing.lip.stage1.q 2 e6f98c114dada897
+standing.lip.stage1.r 0 14650fb0739d0383
+standing.lip.stage1.A 12 127dce9f9365f357
+standing.lip.stage1.B 8 da1b8446484a5ef
+standing.lip.stage1.b 0 14650fb0739d0383
+standing.lip.stage1.bounds 6 7604294eb2d1152a
+standing.lip.stage1.rows 154dcbf8c49ce497
+standing.lip.stage2.dims 8 8 27 18
+standing.lip.stage2.Q 10 97392bfc6f0b3127
+standing.lip.stage2.R 8 781f436d17a08643
+standing.lip.stage2.S 2 286dbf979c64fa53
+standing.lip.stage2.q 2 e6f98c114dada897
+standing.lip.stage2.r 0 14650fb0739d0383
+standing.lip.stage2.A 12 127dce9f9365f357
+standing.lip.stage2.B 8 da1b8446484a5ef
+standing.lip.stage2.b 0 14650fb0739d0383
+standing.lip.stage2.bounds 6 7604294eb2d1152a
+standing.lip.stage2.rows 154dcbf8c49ce497
+standing.lip.stage3.dims 8 8 27 18
+standing.lip.stage3.Q 10 97392bfc6f0b3127
+standing.lip.stage3.R 8 781f436d17a08643
+standing.lip.stage3.S 2 286dbf979c64fa53
+standing.lip.stage3.q 2 e6f98c114dada897
+standing.lip.stage3.r 0 14650fb0739d0383
+standing.lip.stage3.A 12 127dce9f9365f357
+standing.lip.stage3.B 8 da1b8446484a5ef
+standing.lip.stage3.b 0 14650fb0739d0383
+standing.lip.stage3.bounds 6 7604294eb2d1152a
+standing.lip.stage3.rows 154dcbf8c49ce497
+standing.lip.stage4.dims 8 8 27 18
+standing.lip.stage4.Q 10 97392bfc6f0b3127
+standing.lip.stage4.R 8 781f436d17a08643
+standing.lip.stage4.S 2 286dbf979c64fa53
+standing.lip.stage4.q 2 e6f98c114dada897
+standing.lip.stage4.r 0 14650fb0739d0383
+standing.lip.stage4.A 12 127dce9f9365f357
+standing.lip.stage4.B 8 da1b8446484a5ef
+standing.lip.stage4.b 0 14650fb0739d0383
+standing.lip.stage4.bounds 6 7604294eb2d1152a
+standing.lip.stage4.rows 154dcbf8c49ce497
+standing.lip.stage5.dims 8 8 27 18
+standing.lip.stage5.Q 10 97392bfc6f0b3127
+standing.lip.stage5.R 8 781f436d17a08643
+standing.lip.stage5.S 2 286dbf979c64fa53
+standing.lip.stage5.q 2 e6f98c114dada897
+standing.lip.stage5.r 0 14650fb0739d0383
+standing.lip.stage5.A 12 127dce9f9365f357
+standing.lip.stage5.B 8 da1b8446484a5ef
+standing.lip.stage5.b 0 14650fb0739d0383
+standing.lip.stage5.bounds 6 7604294eb2d1152a
+standing.lip.stage5.rows 154dcbf8c49ce497
+standing.lip.stage6.dims 8 8 27 18
+standing.lip.stage6.Q 10 97392bfc6f0b3127
+standing.lip.stage6.R 8 781f436d17a08643
+standing.lip.stage6.S 2 286dbf979c64fa53
+standing.lip.stage6.q 2 e6f98c114dada897
+standing.lip.stage6.r 0 14650fb0739d0383
+standing.lip.stage6.A 12 127dce9f9365f357
+standing.lip.stage6.B 8 da1b8446484a5ef
+standing.lip.stage6.b 0 14650fb0739d0383
+standing.lip.stage6.bounds 6 7604294eb2d1152a
+standing.lip.stage6.rows 154dcbf8c49ce497
+standing.lip.stage7.dims 8 8 27 18
+standing.lip.stage7.Q 10 97392bfc6f0b3127
+standing.lip.stage7.R 8 781f436d17a08643
+standing.lip.stage7.S 2 286dbf979c64fa53
+standing.lip.stage7.q 2 e6f98c114dada897
+standing.lip.stage7.r 0 14650fb0739d0383
+standing.lip.stage7.A 12 127dce9f9365f357
+standing.lip.stage7.B 8 da1b8446484a5ef
+standing.lip.stage7.b 0 14650fb0739d0383
+standing.lip.stage7.bounds 6 7604294eb2d1152a
+standing.lip.stage7.rows 154dcbf8c49ce497
+standing.lip.stage8.dims 8 8 27 18
+standing.lip.stage8.Q 10 97392bfc6f0b3127
+standing.lip.stage8.R 8 781f436d17a08643
+standing.lip.stage8.S 2 286dbf979c64fa53
+standing.lip.stage8.q 2 e6f98c114dada897
+standing.lip.stage8.r 0 14650fb0739d0383
+standing.lip.stage8.A 12 127dce9f9365f357
+standing.lip.stage8.B 8 da1b8446484a5ef
+standing.lip.stage8.b 0 14650fb0739d0383
+standing.lip.stage8.bounds 6 7604294eb2d1152a
+standing.lip.stage8.rows 154dcbf8c49ce497
+standing.lip.stage9.dims 8 8 27 18
+standing.lip.stage9.Q 10 97392bfc6f0b3127
+standing.lip.stage9.R 8 781f436d17a08643
+standing.lip.stage9.S 2 286dbf979c64fa53
+standing.lip.stage9.q 2 e6f98c114dada897
+standing.lip.stage9.r 0 14650fb0739d0383
+standing.lip.stage9.A 12 127dce9f9365f357
+standing.lip.stage9.B 8 da1b8446484a5ef
+standing.lip.stage9.b 0 14650fb0739d0383
+standing.lip.stage9.bounds 6 7604294eb2d1152a
+standing.lip.stage9.rows 154dcbf8c49ce497
+standing.lip.stage10.dims 8 8 27 18
+standing.lip.stage10.Q 10 97392bfc6f0b3127
+standing.lip.stage10.R 8 781f436d17a08643
+standing.lip.stage10.S 2 286dbf979c64fa53
+standing.lip.stage10.q 2 e6f98c114dada897
+standing.lip.stage10.r 0 14650fb0739d0383
+standing.lip.stage10.A 12 127dce9f9365f357
+standing.lip.stage10.B 8 da1b8446484a5ef
+standing.lip.stage10.b 0 14650fb0739d0383
+standing.lip.stage10.bounds 6 7604294eb2d1152a
+standing.lip.stage10.rows 154dcbf8c49ce497
+standing.lip.stage11.dims 8 8 27 18
+standing.lip.stage11.Q 14 ca28ac5ae1cc4fef
+standing.lip.stage11.R 8 7c7beb8de731284b
+standing.lip.stage11.S 4 b947a4eebe89fb37
+standing.lip.stage11.q 2 e6f98c114dada897
+standing.lip.stage11.r 0 14650fb0739d0383
+standing.lip.stage11.A 12 127dce9f9365f357
+standing.lip.stage11.B 8 da1b8446484a5ef
+standing.lip.stage11.b 0 14650fb0739d0383
+standing.lip.stage11.bounds 6 7604294eb2d1152a
+standing.lip.stage11.rows 154dcbf8c49ce497
+standing.lip.stage12.dims 8 0 6 6
+standing.lip.stage12.Q 10 6d4f52cb0b587833
+standing.lip.stage12.R 0 14650fb0739d0383
+standing.lip.stage12.S 0 14650fb0739d0383
+standing.lip.stage12.q 2 e6f98c114dada897
+standing.lip.stage12.r 0 14650fb0739d0383
+standing.lip.stage12.A 0 14650fb0739d0383
+standing.lip.stage12.B 0 14650fb0739d0383
+standing.lip.stage12.b 0 14650fb0739d0383
+standing.lip.stage12.bounds 0 14650fb0739d0383
+standing.lip.stage12.rows 6946811909a786b0
+walking.lip.x0 0 0 0.2 0 0 0.125 0 -0.125
+walking.lip.stage0.dims 8 8 27 18
+walking.lip.stage0.Q 20 758de64473c5a2c7
+walking.lip.stage0.R 8 781f436d17a08643
+walking.lip.stage0.S 2 286dbf979c64fa53
+walking.lip.stage0.q 6 25ec49ab459c7c55
+walking.lip.stage0.r 0 14650fb0739d0383
+walking.lip.stage0.A 12 127dce9f9365f357
+walking.lip.stage0.B 8 da1b8446484a5ef
+walking.lip.stage0.b 0 14650fb0739d0383
+walking.lip.stage0.bounds 6 7604294eb2d1152a
+walking.lip.stage0.rows ea990614451de789
+walking.lip.stage1.dims 8 8 27 18
+walking.lip.stage1.Q 20 e16696c7a478e62f
+walking.lip.stage1.R 8 781f436d17a08643
+walking.lip.stage1.S 2 286dbf979c64fa53
+walking.lip.stage1.q 6 26c03f32ef37167c
+walking.lip.stage1.r 0 14650fb0739d0383
+walking.lip.stage1.A 12 127dce9f9365f357
+walking.lip.stage1.B 8 da1b8446484a5ef
+walking.lip.stage1.b 0 14650fb0739d0383
+walking.lip.stage1.bounds 6 7604294eb2d1152a
+walking.lip.stage1.rows 9a1b2a687d539d31
+walking.lip.stage2.dims 8 8 27 18
+walking.lip.stage2.Q 20 b751d6c28e103fab
+walking.lip.stage2.R 8 781f436d17a08643
+walking.lip.stage2.S 2 286dbf979c64fa53
+walking.lip.stage2.q 6 4b5b40c447c2153c
+walking.lip.stage2.r 0 14650fb0739d0383
+walking.lip.stage2.A 12 127dce9f9365f357
+walking.lip.stage2.B 8 da1b8446484a5ef
+walking.lip.stage2.b 0 14650fb0739d0383
+walking.lip.stage2.bounds 6 7604294eb2d1152a
+walking.lip.stage2.rows e19900925f1a4b9b
+walking.lip.stage3.dims 8 8 27 18
+walking.lip.stage3.Q 20 107195f5f77a383f
+walking.lip.stage3.R 8 781f436d17a08643
+walking.lip.stage3.S 2 286dbf979c64fa53
+walking.lip.stage3.q 6 520e0dacaddb56b4
+walking.lip.stage3.r 0 14650fb0739d0383
+walking.lip.stage3.A 12 127dce9f9365f357
+walking.lip.stage3.B 8 da1b8446484a5ef
+walking.lip.stage3.b 0 14650fb0739d0383
+walking.lip.stage3.bounds 6 7604294eb2d1152a
+walking.lip.stage3.rows 46a130561e0b8d37
+walking.lip.stage4.dims 8 8 27 18
+walking.lip.stage4.Q 20 f3204806c508407f
+walking.lip.stage4.R 8 781f436d17a08643
+walking.lip.stage4.S 2 286dbf979c64fa53
+walking.lip.stage4.q 6 941fbd6b3dcd668a
+walking.lip.stage4.r 0 14650fb0739d0383
+walking.lip.stage4.A 12 127dce9f9365f357
+walking.lip.stage4.B 8 da1b8446484a5ef
+walking.lip.stage4.b 0 14650fb0739d0383
+walking.lip.stage4.bounds 6 7604294eb2d1152a
+walking.lip.stage4.rows cb413092ce8520f
+walking.lip.stage5.dims 8 8 27 18
+walking.lip.stage5.Q 20 9e14c55485f9400f
+walking.lip.stage5.R 8 781f436d17a08643
+walking.lip.stage5.S 2 286dbf979c64fa53
+walking.lip.stage5.q 6 c7e9876dcf6cbd00
+walking.lip.stage5.r 0 14650fb0739d0383
+walking.lip.stage5.A 12 127dce9f9365f357
+walking.lip.stage5.B 8 da1b8446484a5ef
+walking.lip.stage5.b 0 14650fb0739d0383
+walking.lip.stage5.bounds 6 7604294eb2d1152a
+walking.lip.stage5.rows 750fe3ce1da1819b
+walking.lip.stage6.dims 8 8 27 18
+walking.lip.stage6.Q 20 7f36151282bef8ff
+walking.lip.stage6.R 8 781f436d17a08643
+walking.lip.stage6.S 2 286dbf979c64fa53
+walking.lip.stage6.q 6 fa95134431ea2636
+walking.lip.stage6.r 0 14650fb0739d0383
+walking.lip.stage6.A 12 127dce9f9365f357
+walking.lip.stage6.B 8 da1b8446484a5ef
+walking.lip.stage6.b 0 14650fb0739d0383
+walking.lip.stage6.bounds 6 7604294eb2d1152a
+walking.lip.stage6.rows fe57c26ef5fc7b1b
+walking.lip.stage7.dims 8 8 27 18
+walking.lip.stage7.Q 20 69f055b820d4ebc3
+walking.lip.stage7.R 8 781f436d17a08643
+walking.lip.stage7.S 2 286dbf979c64fa53
+walking.lip.stage7.q 6 df4613da36d95e3f
+walking.lip.stage7.r 0 14650fb0739d0383
+walking.lip.stage7.A 12 127dce9f9365f357
+walking.lip.stage7.B 8 da1b8446484a5ef
+walking.lip.stage7.b 0 14650fb0739d0383
+walking.lip.stage7.bounds 6 7604294eb2d1152a
+walking.lip.stage7.rows f7b5b632302175ab
+walking.lip.stage8.dims 8 8 27 18
+walking.lip.stage8.Q 20 fc5147bb82e228f7
+walking.lip.stage8.R 8 781f436d17a08643
+walking.lip.stage8.S 2 286dbf979c64fa53
+walking.lip.stage8.q 6 964064f141e8959e
+walking.lip.stage8.r 0 14650fb0739d0383
+walking.lip.stage8.A 12 127dce9f9365f357
+walking.lip.stage8.B 8 da1b8446484a5ef
+walking.lip.stage8.b 0 14650fb0739d0383
+walking.lip.stage8.bounds 6 7604294eb2d1152a
+walking.lip.stage8.rows 49cbb34a41ce0b25
+walking.lip.stage9.dims 8 8 27 18
+walking.lip.stage9.Q 20 811d578b03bfe3ff
+walking.lip.stage9.R 8 781f436d17a08643
+walking.lip.stage9.S 2 286dbf979c64fa53
+walking.lip.stage9.q 6 2f535d97b73c348a
+walking.lip.stage9.r 0 14650fb0739d0383
+walking.lip.stage9.A 12 127dce9f9365f357
+walking.lip.stage9.B 8 da1b8446484a5ef
+walking.lip.stage9.b 0 14650fb0739d0383
+walking.lip.stage9.bounds 6 7604294eb2d1152a
+walking.lip.stage9.rows fee0b75eb009131f
+walking.lip.stage10.dims 8 8 27 18
+walking.lip.stage10.Q 20 10d0b5800b306087
+walking.lip.stage10.R 8 781f436d17a08643
+walking.lip.stage10.S 2 286dbf979c64fa53
+walking.lip.stage10.q 6 3be0556c4e6742db
+walking.lip.stage10.r 0 14650fb0739d0383
+walking.lip.stage10.A 12 127dce9f9365f357
+walking.lip.stage10.B 8 da1b8446484a5ef
+walking.lip.stage10.b 0 14650fb0739d0383
+walking.lip.stage10.bounds 6 7604294eb2d1152a
+walking.lip.stage10.rows 4292ff50bed9251
+walking.lip.stage11.dims 8 8 27 18
+walking.lip.stage11.Q 24 d764beb4053c3a9b
+walking.lip.stage11.R 8 7c7beb8de731284b
+walking.lip.stage11.S 4 b947a4eebe89fb37
+walking.lip.stage11.q 6 218f28987aaea34f
+walking.lip.stage11.r 0 14650fb0739d0383
+walking.lip.stage11.A 12 127dce9f9365f357
+walking.lip.stage11.B 8 da1b8446484a5ef
+walking.lip.stage11.b 0 14650fb0739d0383
+walking.lip.stage11.bounds 6 7604294eb2d1152a
+walking.lip.stage11.rows a2b81e9ff9e79827
+walking.lip.stage12.dims 8 0 6 6
+walking.lip.stage12.Q 20 d91a16b897fd592b
+walking.lip.stage12.R 0 14650fb0739d0383
+walking.lip.stage12.S 0 14650fb0739d0383
+walking.lip.stage12.q 6 913fb539271bd875
+walking.lip.stage12.r 0 14650fb0739d0383
+walking.lip.stage12.A 0 14650fb0739d0383
+walking.lip.stage12.B 0 14650fb0739d0383
+walking.lip.stage12.b 0 14650fb0739d0383
+walking.lip.stage12.bounds 0 14650fb0739d0383
+walking.lip.stage12.rows a5afbe17f0b42a20
+pushed.lip.x0 0.05 0.02 0.6 -0.2 0 0.125 0 -0.125
+pushed.lip.stage0.dims 8 8 27 18
+pushed.lip.stage0.Q 10 97392bfc6f0b3127
+pushed.lip.stage0.R 8 781f436d17a08643
+pushed.lip.stage0.S 2 286dbf979c64fa53
+pushed.lip.stage0.q 2 e6f98c114dada897
+pushed.lip.stage0.r 0 14650fb0739d0383
+pushed.lip.stage0.A 12 127dce9f9365f357
+pushed.lip.stage0.B 8 da1b8446484a5ef
+pushed.lip.stage0.b 0 14650fb0739d0383
+pushed.lip.stage0.bounds 6 7604294eb2d1152a
+pushed.lip.stage0.rows 154dcbf8c49ce497
+pushed.lip.stage1.dims 8 8 27 18
+pushed.lip.stage1.Q 10 97392bfc6f0b3127
+pushed.lip.stage1.R 8 781f436d17a08643
+pushed.lip.stage1.S 2 286dbf979c64fa53
+pushed.lip.stage1.q 2 e6f98c114dada897
+pushed.lip.stage1.r 0 14650fb0739d0383
+pushed.lip.stage1.A 12 127dce9f9365f357
+pushed.lip.stage1.B 8 da1b8446484a5ef
+pushed.lip.stage1.b 0 14650fb0739d0383
+pushed.lip.stage1.bounds 6 7604294eb2d1152a
+pushed.lip.stage1.rows 154dcbf8c49ce497
+pushed.lip.stage2.dims 8 8 27 18
+pushed.lip.stage2.Q 10 97392bfc6f0b3127
+pushed.lip.stage2.R 8 781f436d17a08643
+pushed.lip.stage2.S 2 286dbf979c64fa53
+pushed.lip.stage2.q 2 e6f98c114dada897
+pushed.lip.stage2.r 0 14650fb0739d0383
+pushed.lip.stage2.A 12 127dce9f9365f357
+pushed.lip.stage2.B 8 da1b8446484a5ef
+pushed.lip.stage2.b 0 14650fb0739d0383
+pushed.lip.stage2.bounds 6 7604294eb2d1152a
+pushed.lip.stage2.rows 154dcbf8c49ce497
+pushed.lip.stage3.dims 8 8 27 18
+pushed.lip.stage3.Q 10 97392bfc6f0b3127
+pushed.lip.stage3.R 8 781f436d17a08643
+pushed.lip.stage3.S 2 286dbf979c64fa53
+pushed.lip.stage3.q 2 e6f98c114dada897
+pushed.lip.stage3.r 0 14650fb0739d0383
+pushed.lip.stage3.A 12 127dce9f9365f357
+pushed.lip.stage3.B 8 da1b8446484a5ef
+pushed.lip.stage3.b 0 14650fb0739d0383
+pushed.lip.stage3.bounds 6 7604294eb2d1152a
+pushed.lip.stage3.rows 154dcbf8c49ce497
+pushed.lip.stage4.dims 8 8 27 18
+pushed.lip.stage4.Q 10 97392bfc6f0b3127
+pushed.lip.stage4.R 8 781f436d17a08643
+pushed.lip.stage4.S 2 286dbf979c64fa53
+pushed.lip.stage4.q 2 e6f98c114dada897
+pushed.lip.stage4.r 0 14650fb0739d0383
+pushed.lip.stage4.A 12 127dce9f9365f357
+pushed.lip.stage4.B 8 da1b8446484a5ef
+pushed.lip.stage4.b 0 14650fb0739d0383
+pushed.lip.stage4.bounds 6 7604294eb2d1152a
+pushed.lip.stage4.rows 154dcbf8c49ce497
+pushed.lip.stage5.dims 8 8 27 18
+pushed.lip.stage5.Q 10 97392bfc6f0b3127
+pushed.lip.stage5.R 8 781f436d17a08643
+pushed.lip.stage5.S 2 286dbf979c64fa53
+pushed.lip.stage5.q 2 e6f98c114dada897
+pushed.lip.stage5.r 0 14650fb0739d0383
+pushed.lip.stage5.A 12 127dce9f9365f357
+pushed.lip.stage5.B 8 da1b8446484a5ef
+pushed.lip.stage5.b 0 14650fb0739d0383
+pushed.lip.stage5.bounds 6 7604294eb2d1152a
+pushed.lip.stage5.rows 154dcbf8c49ce497
+pushed.lip.stage6.dims 8 8 27 18
+pushed.lip.stage6.Q 10 97392bfc6f0b3127
+pushed.lip.stage6.R 8 781f436d17a08643
+pushed.lip.stage6.S 2 286dbf979c64fa53
+pushed.lip.stage6.q 2 e6f98c114dada897
+pushed.lip.stage6.r 0 14650fb0739d0383
+pushed.lip.stage6.A 12 127dce9f9365f357
+pushed.lip.stage6.B 8 da1b8446484a5ef
+pushed.lip.stage6.b 0 14650fb0739d0383
+pushed.lip.stage6.bounds 6 7604294eb2d1152a
+pushed.lip.stage6.rows 154dcbf8c49ce497
+pushed.lip.stage7.dims 8 8 27 18
+pushed.lip.stage7.Q 10 97392bfc6f0b3127
+pushed.lip.stage7.R 8 781f436d17a08643
+pushed.lip.stage7.S 2 286dbf979c64fa53
+pushed.lip.stage7.q 2 e6f98c114dada897
+pushed.lip.stage7.r 0 14650fb0739d0383
+pushed.lip.stage7.A 12 127dce9f9365f357
+pushed.lip.stage7.B 8 da1b8446484a5ef
+pushed.lip.stage7.b 0 14650fb0739d0383
+pushed.lip.stage7.bounds 6 7604294eb2d1152a
+pushed.lip.stage7.rows 154dcbf8c49ce497
+pushed.lip.stage8.dims 8 8 27 18
+pushed.lip.stage8.Q 10 97392bfc6f0b3127
+pushed.lip.stage8.R 8 781f436d17a08643
+pushed.lip.stage8.S 2 286dbf979c64fa53
+pushed.lip.stage8.q 2 e6f98c114dada897
+pushed.lip.stage8.r 0 14650fb0739d0383
+pushed.lip.stage8.A 12 127dce9f9365f357
+pushed.lip.stage8.B 8 da1b8446484a5ef
+pushed.lip.stage8.b 0 14650fb0739d0383
+pushed.lip.stage8.bounds 6 7604294eb2d1152a
+pushed.lip.stage8.rows 154dcbf8c49ce497
+pushed.lip.stage9.dims 8 8 27 18
+pushed.lip.stage9.Q 10 97392bfc6f0b3127
+pushed.lip.stage9.R 8 781f436d17a08643
+pushed.lip.stage9.S 2 286dbf979c64fa53
+pushed.lip.stage9.q 2 e6f98c114dada897
+pushed.lip.stage9.r 0 14650fb0739d0383
+pushed.lip.stage9.A 12 127dce9f9365f357
+pushed.lip.stage9.B 8 da1b8446484a5ef
+pushed.lip.stage9.b 0 14650fb0739d0383
+pushed.lip.stage9.bounds 6 7604294eb2d1152a
+pushed.lip.stage9.rows 154dcbf8c49ce497
+pushed.lip.stage10.dims 8 8 27 18
+pushed.lip.stage10.Q 10 97392bfc6f0b3127
+pushed.lip.stage10.R 8 781f436d17a08643
+pushed.lip.stage10.S 2 286dbf979c64fa53
+pushed.lip.stage10.q 2 e6f98c114dada897
+pushed.lip.stage10.r 0 14650fb0739d0383
+pushed.lip.stage10.A 12 127dce9f9365f357
+pushed.lip.stage10.B 8 da1b8446484a5ef
+pushed.lip.stage10.b 0 14650fb0739d0383
+pushed.lip.stage10.bounds 6 7604294eb2d1152a
+pushed.lip.stage10.rows 154dcbf8c49ce497
+pushed.lip.stage11.dims 8 8 27 18
+pushed.lip.stage11.Q 14 ca28ac5ae1cc4fef
+pushed.lip.stage11.R 8 7c7beb8de731284b
+pushed.lip.stage11.S 4 b947a4eebe89fb37
+pushed.lip.stage11.q 2 e6f98c114dada897
+pushed.lip.stage11.r 0 14650fb0739d0383
+pushed.lip.stage11.A 12 127dce9f9365f357
+pushed.lip.stage11.B 8 da1b8446484a5ef
+pushed.lip.stage11.b 0 14650fb0739d0383
+pushed.lip.stage11.bounds 6 7604294eb2d1152a
+pushed.lip.stage11.rows 154dcbf8c49ce497
+pushed.lip.stage12.dims 8 0 6 6
+pushed.lip.stage12.Q 10 6d4f52cb0b587833
+pushed.lip.stage12.R 0 14650fb0739d0383
+pushed.lip.stage12.S 0 14650fb0739d0383
+pushed.lip.stage12.q 2 e6f98c114dada897
+pushed.lip.stage12.r 0 14650fb0739d0383
+pushed.lip.stage12.A 0 14650fb0739d0383
+pushed.lip.stage12.B 0 14650fb0739d0383
+pushed.lip.stage12.b 0 14650fb0739d0383
+pushed.lip.stage12.bounds 0 14650fb0739d0383
+pushed.lip.stage12.rows 6946811909a786b0
+mid_swing.lip.x0 0 0 0.2 0 0.1 0.13 0 -0.125
+mid_swing.lip.stage0.dims 8 8 27 18
+mid_swing.lip.stage0.Q 20 758de64473c5a2c7
+mid_swing.lip.stage0.R 8 781f436d17a08643
+mid_swing.lip.stage0.S 2 286dbf979c64fa53
+mid_swing.lip.stage0.q 6 25ec49ab459c7c55
+mid_swing.lip.stage0.r 0 14650fb0739d0383
+mid_swing.lip.stage0.A 12 127dce9f9365f357
+mid_swing.lip.stage0.B 8 da1b8446484a5ef
+mid_swing.lip.stage0.b 0 14650fb0739d0383
+mid_swing.lip.stage0.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage0.rows ea990614451de789
+mid_swing.lip.stage1.dims 8 8 27 18
+mid_swing.lip.stage1.Q 20 e16696c7a478e62f
+mid_swing.lip.stage1.R 8 781f436d17a08643
+mid_swing.lip.stage1.S 2 286dbf979c64fa53
+mid_swing.lip.stage1.q 6 26c03f32ef37167c
+mid_swing.lip.stage1.r 0 14650fb0739d0383
+mid_swing.lip.stage1.A 12 127dce9f9365f357
+mid_swing.lip.stage1.B 8 da1b8446484a5ef
+mid_swing.lip.stage1.b 0 14650fb0739d0383
+mid_swing.lip.stage1.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage1.rows 9a1b2a687d539d31
+mid_swing.lip.stage2.dims 8 8 27 18
+mid_swing.lip.stage2.Q 20 b751d6c28e103fab
+mid_swing.lip.stage2.R 8 781f436d17a08643
+mid_swing.lip.stage2.S 2 286dbf979c64fa53
+mid_swing.lip.stage2.q 6 4b5b40c447c2153c
+mid_swing.lip.stage2.r 0 14650fb0739d0383
+mid_swing.lip.stage2.A 12 127dce9f9365f357
+mid_swing.lip.stage2.B 8 da1b8446484a5ef
+mid_swing.lip.stage2.b 0 14650fb0739d0383
+mid_swing.lip.stage2.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage2.rows e19900925f1a4b9b
+mid_swing.lip.stage3.dims 8 8 27 18
+mid_swing.lip.stage3.Q 20 107195f5f77a383f
+mid_swing.lip.stage3.R 8 781f436d17a08643
+mid_swing.lip.stage3.S 2 286dbf979c64fa53
+mid_swing.lip.stage3.q 6 520e0dacaddb56b4
+mid_swing.lip.stage3.r 0 14650fb0739d0383
+mid_swing.lip.stage3.A 12 127dce9f9365f357
+mid_swing.lip.stage3.B 8 da1b8446484a5ef
+mid_swing.lip.stage3.b 0 14650fb0739d0383
+mid_swing.lip.stage3.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage3.rows 46a130561e0b8d37
+mid_swing.lip.stage4.dims 8 8 27 18
+mid_swing.lip.stage4.Q 20 f3204806c508407f
+mid_swing.lip.stage4.R 8 781f436d17a08643
+mid_swing.lip.stage4.S 2 286dbf979c64fa53
+mid_swing.lip.stage4.q 6 941fbd6b3dcd668a
+mid_swing.lip.stage4.r 0 14650fb0739d0383
+mid_swing.lip.stage4.A 12 127dce9f9365f357
+mid_swing.lip.stage4.B 8 da1b8446484a5ef
+mid_swing.lip.stage4.b 0 14650fb0739d0383
+mid_swing.lip.stage4.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage4.rows cb413092ce8520f
+mid_swing.lip.stage5.dims 8 8 27 18
+mid_swing.lip.stage5.Q 20 9e14c55485f9400f
+mid_swing.lip.stage5.R 8 781f436d17a08643
+mid_swing.lip.stage5.S 2 286dbf979c64fa53
+mid_swing.lip.stage5.q 6 c7e9876dcf6cbd00
+mid_swing.lip.stage5.r 0 14650fb0739d0383
+mid_swing.lip.stage5.A 12 127dce9f9365f357
+mid_swing.lip.stage5.B 8 da1b8446484a5ef
+mid_swing.lip.stage5.b 0 14650fb0739d0383
+mid_swing.lip.stage5.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage5.rows 750fe3ce1da1819b
+mid_swing.lip.stage6.dims 8 8 27 18
+mid_swing.lip.stage6.Q 20 7f36151282bef8ff
+mid_swing.lip.stage6.R 8 781f436d17a08643
+mid_swing.lip.stage6.S 2 286dbf979c64fa53
+mid_swing.lip.stage6.q 6 fa95134431ea2636
+mid_swing.lip.stage6.r 0 14650fb0739d0383
+mid_swing.lip.stage6.A 12 127dce9f9365f357
+mid_swing.lip.stage6.B 8 da1b8446484a5ef
+mid_swing.lip.stage6.b 0 14650fb0739d0383
+mid_swing.lip.stage6.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage6.rows fe57c26ef5fc7b1b
+mid_swing.lip.stage7.dims 8 8 27 18
+mid_swing.lip.stage7.Q 20 69f055b820d4ebc3
+mid_swing.lip.stage7.R 8 781f436d17a08643
+mid_swing.lip.stage7.S 2 286dbf979c64fa53
+mid_swing.lip.stage7.q 6 df4613da36d95e3f
+mid_swing.lip.stage7.r 0 14650fb0739d0383
+mid_swing.lip.stage7.A 12 127dce9f9365f357
+mid_swing.lip.stage7.B 8 da1b8446484a5ef
+mid_swing.lip.stage7.b 0 14650fb0739d0383
+mid_swing.lip.stage7.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage7.rows f7b5b632302175ab
+mid_swing.lip.stage8.dims 8 8 27 18
+mid_swing.lip.stage8.Q 20 fc5147bb82e228f7
+mid_swing.lip.stage8.R 8 781f436d17a08643
+mid_swing.lip.stage8.S 2 286dbf979c64fa53
+mid_swing.lip.stage8.q 6 964064f141e8959e
+mid_swing.lip.stage8.r 0 14650fb0739d0383
+mid_swing.lip.stage8.A 12 127dce9f9365f357
+mid_swing.lip.stage8.B 8 da1b8446484a5ef
+mid_swing.lip.stage8.b 0 14650fb0739d0383
+mid_swing.lip.stage8.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage8.rows 49cbb34a41ce0b25
+mid_swing.lip.stage9.dims 8 8 27 18
+mid_swing.lip.stage9.Q 20 811d578b03bfe3ff
+mid_swing.lip.stage9.R 8 781f436d17a08643
+mid_swing.lip.stage9.S 2 286dbf979c64fa53
+mid_swing.lip.stage9.q 6 2f535d97b73c348a
+mid_swing.lip.stage9.r 0 14650fb0739d0383
+mid_swing.lip.stage9.A 12 127dce9f9365f357
+mid_swing.lip.stage9.B 8 da1b8446484a5ef
+mid_swing.lip.stage9.b 0 14650fb0739d0383
+mid_swing.lip.stage9.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage9.rows fee0b75eb009131f
+mid_swing.lip.stage10.dims 8 8 27 18
+mid_swing.lip.stage10.Q 20 10d0b5800b306087
+mid_swing.lip.stage10.R 8 781f436d17a08643
+mid_swing.lip.stage10.S 2 286dbf979c64fa53
+mid_swing.lip.stage10.q 6 3be0556c4e6742db
+mid_swing.lip.stage10.r 0 14650fb0739d0383
+mid_swing.lip.stage10.A 12 127dce9f9365f357
+mid_swing.lip.stage10.B 8 da1b8446484a5ef
+mid_swing.lip.stage10.b 0 14650fb0739d0383
+mid_swing.lip.stage10.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage10.rows 4292ff50bed9251
+mid_swing.lip.stage11.dims 8 8 27 18
+mid_swing.lip.stage11.Q 24 d764beb4053c3a9b
+mid_swing.lip.stage11.R 8 7c7beb8de731284b
+mid_swing.lip.stage11.S 4 b947a4eebe89fb37
+mid_swing.lip.stage11.q 6 218f28987aaea34f
+mid_swing.lip.stage11.r 0 14650fb0739d0383
+mid_swing.lip.stage11.A 12 127dce9f9365f357
+mid_swing.lip.stage11.B 8 da1b8446484a5ef
+mid_swing.lip.stage11.b 0 14650fb0739d0383
+mid_swing.lip.stage11.bounds 6 7604294eb2d1152a
+mid_swing.lip.stage11.rows a2b81e9ff9e79827
+mid_swing.lip.stage12.dims 8 0 6 6
+mid_swing.lip.stage12.Q 20 d91a16b897fd592b
+mid_swing.lip.stage12.R 0 14650fb0739d0383
+mid_swing.lip.stage12.S 0 14650fb0739d0383
+mid_swing.lip.stage12.q 6 913fb539271bd875
+mid_swing.lip.stage12.r 0 14650fb0739d0383
+mid_swing.lip.stage12.A 0 14650fb0739d0383
+mid_swing.lip.stage12.B 0 14650fb0739d0383
+mid_swing.lip.stage12.b 0 14650fb0739d0383
+mid_swing.lip.stage12.bounds 0 14650fb0739d0383
+mid_swing.lip.stage12.rows a5afbe17f0b42a20
+standing.heading.x0 0 0 0 0 0 0.125 0 -0.125 0 0 0 0
+standing.heading.stage0.dims 12 12 41 20
+standing.heading.stage0.Q 14 f0114b47bb674200
+standing.heading.stage0.R 12 6c6891c4c7e6ed3
+standing.heading.stage0.S 2 286dbf979c64fa53
+standing.heading.stage0.q 2 e6f98c114dada897
+standing.heading.stage0.r 0 14650fb0739d0383
+standing.heading.stage0.A 17 542b6468daf9aec3
+standing.heading.stage0.B 14 f2f6933f911f8e5f
+standing.heading.stage0.b 0 14650fb0739d0383
+standing.heading.stage0.bounds 10 ea6c98f4d75113aa
+standing.heading.stage0.rows bf99850e846fbd62
+standing.heading.stage1.dims 12 12 41 20
+standing.heading.stage1.Q 14 f0114b47bb674200
+standing.heading.stage1.R 12 6c6891c4c7e6ed3
+standing.heading.stage1.S 2 286dbf979c64fa53
+standing.heading.stage1.q 2 e6f98c114dada897
+standing.heading.stage1.r 0 14650fb0739d0383
+standing.heading.stage1.A 17 542b6468daf9aec3
+standing.heading.stage1.B 14 f2f6933f911f8e5f
+standing.heading.stage1.b 0 14650fb0739d0383
+standing.heading.stage1.bounds 10 ea6c98f4d75113aa
+standing.heading.stage1.rows bf99850e846fbd62
+standing.heading.stage2.dims 12 12 41 20
+standing.heading.stage2.Q 14 f0114b47bb674200
+standing.heading.stage2.R 12 6c6891c4c7e6ed3
+standing.heading.stage2.S 2 286dbf979c64fa53
+standing.heading.stage2.q 2 e6f98c114dada897
+standing.heading.stage2.r 0 14650fb0739d0383
+standing.heading.stage2.A 17 542b6468daf9aec3
+standing.heading.stage2.B 14 f2f6933f911f8e5f
+standing.heading.stage2.b 0 14650fb0739d0383
+standing.heading.stage2.bounds 10 ea6c98f4d75113aa
+standing.heading.stage2.rows bf99850e846fbd62
+standing.heading.stage3.dims 12 12 41 20
+standing.heading.stage3.Q 14 f0114b47bb674200
+standing.heading.stage3.R 12 6c6891c4c7e6ed3
+standing.heading.stage3.S 2 286dbf979c64fa53
+standing.heading.stage3.q 2 e6f98c114dada897
+standing.heading.stage3.r 0 14650fb0739d0383
+standing.heading.stage3.A 17 542b6468daf9aec3
+standing.heading.stage3.B 14 f2f6933f911f8e5f
+standing.heading.stage3.b 0 14650fb0739d0383
+standing.heading.stage3.bounds 10 ea6c98f4d75113aa
+standing.heading.stage3.rows bf99850e846fbd62
+standing.heading.stage4.dims 12 12 41 20
+standing.heading.stage4.Q 14 f0114b47bb674200
+standing.heading.stage4.R 12 6c6891c4c7e6ed3
+standing.heading.stage4.S 2 286dbf979c64fa53
+standing.heading.stage4.q 2 e6f98c114dada897
+standing.heading.stage4.r 0 14650fb0739d0383
+standing.heading.stage4.A 17 542b6468daf9aec3
+standing.heading.stage4.B 14 f2f6933f911f8e5f
+standing.heading.stage4.b 0 14650fb0739d0383
+standing.heading.stage4.bounds 10 ea6c98f4d75113aa
+standing.heading.stage4.rows bf99850e846fbd62
+standing.heading.stage5.dims 12 12 41 20
+standing.heading.stage5.Q 14 f0114b47bb674200
+standing.heading.stage5.R 12 6c6891c4c7e6ed3
+standing.heading.stage5.S 2 286dbf979c64fa53
+standing.heading.stage5.q 2 e6f98c114dada897
+standing.heading.stage5.r 0 14650fb0739d0383
+standing.heading.stage5.A 17 542b6468daf9aec3
+standing.heading.stage5.B 14 f2f6933f911f8e5f
+standing.heading.stage5.b 0 14650fb0739d0383
+standing.heading.stage5.bounds 10 ea6c98f4d75113aa
+standing.heading.stage5.rows bf99850e846fbd62
+standing.heading.stage6.dims 12 12 41 20
+standing.heading.stage6.Q 14 f0114b47bb674200
+standing.heading.stage6.R 12 6c6891c4c7e6ed3
+standing.heading.stage6.S 2 286dbf979c64fa53
+standing.heading.stage6.q 2 e6f98c114dada897
+standing.heading.stage6.r 0 14650fb0739d0383
+standing.heading.stage6.A 17 542b6468daf9aec3
+standing.heading.stage6.B 14 f2f6933f911f8e5f
+standing.heading.stage6.b 0 14650fb0739d0383
+standing.heading.stage6.bounds 10 ea6c98f4d75113aa
+standing.heading.stage6.rows bf99850e846fbd62
+standing.heading.stage7.dims 12 12 41 20
+standing.heading.stage7.Q 14 f0114b47bb674200
+standing.heading.stage7.R 12 6c6891c4c7e6ed3
+standing.heading.stage7.S 2 286dbf979c64fa53
+standing.heading.stage7.q 2 e6f98c114dada897
+standing.heading.stage7.r 0 14650fb0739d0383
+standing.heading.stage7.A 17 542b6468daf9aec3
+standing.heading.stage7.B 14 f2f6933f911f8e5f
+standing.heading.stage7.b 0 14650fb0739d0383
+standing.heading.stage7.bounds 10 ea6c98f4d75113aa
+standing.heading.stage7.rows bf99850e846fbd62
+standing.heading.stage8.dims 12 12 41 20
+standing.heading.stage8.Q 14 f0114b47bb674200
+standing.heading.stage8.R 12 6c6891c4c7e6ed3
+standing.heading.stage8.S 2 286dbf979c64fa53
+standing.heading.stage8.q 2 e6f98c114dada897
+standing.heading.stage8.r 0 14650fb0739d0383
+standing.heading.stage8.A 17 542b6468daf9aec3
+standing.heading.stage8.B 14 f2f6933f911f8e5f
+standing.heading.stage8.b 0 14650fb0739d0383
+standing.heading.stage8.bounds 10 ea6c98f4d75113aa
+standing.heading.stage8.rows bf99850e846fbd62
+standing.heading.stage9.dims 12 12 41 20
+standing.heading.stage9.Q 14 f0114b47bb674200
+standing.heading.stage9.R 12 6c6891c4c7e6ed3
+standing.heading.stage9.S 2 286dbf979c64fa53
+standing.heading.stage9.q 2 e6f98c114dada897
+standing.heading.stage9.r 0 14650fb0739d0383
+standing.heading.stage9.A 17 542b6468daf9aec3
+standing.heading.stage9.B 14 f2f6933f911f8e5f
+standing.heading.stage9.b 0 14650fb0739d0383
+standing.heading.stage9.bounds 10 ea6c98f4d75113aa
+standing.heading.stage9.rows bf99850e846fbd62
+standing.heading.stage10.dims 12 12 41 20
+standing.heading.stage10.Q 14 f0114b47bb674200
+standing.heading.stage10.R 12 6c6891c4c7e6ed3
+standing.heading.stage10.S 2 286dbf979c64fa53
+standing.heading.stage10.q 2 e6f98c114dada897
+standing.heading.stage10.r 0 14650fb0739d0383
+standing.heading.stage10.A 17 542b6468daf9aec3
+standing.heading.stage10.B 14 f2f6933f911f8e5f
+standing.heading.stage10.b 0 14650fb0739d0383
+standing.heading.stage10.bounds 10 ea6c98f4d75113aa
+standing.heading.stage10.rows bf99850e846fbd62
+standing.heading.stage11.dims 12 12 41 20
+standing.heading.stage11.Q 18 5d8db22ddcee30d8
+standing.heading.stage11.R 12 78d063fb5508a23b
+standing.heading.stage11.S 4 b947a4eebe89fb37
+standing.heading.stage11.q 2 e6f98c114dada897
+standing.heading.stage11.r 0 14650fb0739d0383
+standing.heading.stage11.A 17 542b6468daf9aec3
+standing.heading.stage11.B 14 f2f6933f911f8e5f
+standing.heading.stage11.b 0 14650fb0739d0383
+standing.heading.stage11.bounds 10 ea6c98f4d75113aa
+standing.heading.stage11.rows bf99850e846fbd62
+standing.heading.stage12.dims 12 0 8 8
+standing.heading.stage12.Q 14 4a491c2c010897e4
+standing.heading.stage12.R 0 14650fb0739d0383
+standing.heading.stage12.S 0 14650fb0739d0383
+standing.heading.stage12.q 2 e6f98c114dada897
+standing.heading.stage12.r 0 14650fb0739d0383
+standing.heading.stage12.A 0 14650fb0739d0383
+standing.heading.stage12.B 0 14650fb0739d0383
+standing.heading.stage12.b 0 14650fb0739d0383
+standing.heading.stage12.bounds 0 14650fb0739d0383
+standing.heading.stage12.rows be9c627d7ab71e65
+walking.heading.x0 0 0 0.2 0 0 0.125 0 -0.125 0.3 0 0.25 0.35
+walking.heading.stage0.dims 12 12 41 20
+walking.heading.stage0.Q 32 ac798f7b9d0b27ff
+walking.heading.stage0.R 12 6c6891c4c7e6ed3
+walking.heading.stage0.S 2 286dbf979c64fa53
+walking.heading.stage0.q 10 8d531c1744806f7f
+walking.heading.stage0.r 0 14650fb0739d0383
+walking.heading.stage0.A 17 542b6468daf9aec3
+walking.heading.stage0.B 14 f2f6933f911f8e5f
+walking.heading.stage0.b 0 14650fb0739d0383
+walking.heading.stage0.bounds 10 ea6c98f4d75113aa
+walking.heading.stage0.rows 79a712de1679d980
+walking.heading.stage1.dims 12 12 41 20
+walking.heading.stage1.Q 32 1cbf3c0bf044bf4c
+walking.heading.stage1.R 12 6c6891c4c7e6ed3
+walking.heading.stage1.S 2 286dbf979c64fa53
+walking.heading.stage1.q 10 5bce851a06ba47f4
+walking.heading.stage1.r 0 14650fb0739d0383
+walking.heading.stage1.A 17 542b6468daf9aec3
+walking.heading.stage1.B 14 f2f6933f911f8e5f
+walking.heading.stage1.b 0 14650fb0739d0383
+walking.heading.stage1.bounds 10 ea6c98f4d75113aa
+walking.heading.stage1.rows 19b693312033725d
+walking.heading.stage2.dims 12 12 41 20
+walking.heading.stage2.Q 32 75c68cb76043ab5d
+walking.heading.stage2.R 12 6c6891c4c7e6ed3
+walking.heading.stage2.S 2 286dbf979c64fa53
+walking.heading.stage2.q 10 35169e98bebc3c1c
+walking.heading.stage2.r 0 14650fb0739d0383
+walking.heading.stage2.A 17 542b6468daf9aec3
+walking.heading.stage2.B 14 f2f6933f911f8e5f
+walking.heading.stage2.b 0 14650fb0739d0383
+walking.heading.stage2.bounds 10 ea6c98f4d75113aa
+walking.heading.stage2.rows a8ddd18458eb58aa
+walking.heading.stage3.dims 12 12 41 20
+walking.heading.stage3.Q 32 1b7493d0106ae2d0
+walking.heading.stage3.R 12 6c6891c4c7e6ed3
+walking.heading.stage3.S 2 286dbf979c64fa53
+walking.heading.stage3.q 10 9c73763bacd83c97
+walking.heading.stage3.r 0 14650fb0739d0383
+walking.heading.stage3.A 17 542b6468daf9aec3
+walking.heading.stage3.B 14 f2f6933f911f8e5f
+walking.heading.stage3.b 0 14650fb0739d0383
+walking.heading.stage3.bounds 10 ea6c98f4d75113aa
+walking.heading.stage3.rows 3a1d73c15b6aa811
+walking.heading.stage4.dims 12 12 41 20
+walking.heading.stage4.Q 32 34e8e38e761272c3
+walking.heading.stage4.R 12 6c6891c4c7e6ed3
+walking.heading.stage4.S 2 286dbf979c64fa53
+walking.heading.stage4.q 10 ff8c023fae5e73aa
+walking.heading.stage4.r 0 14650fb0739d0383
+walking.heading.stage4.A 17 542b6468daf9aec3
+walking.heading.stage4.B 14 f2f6933f911f8e5f
+walking.heading.stage4.b 0 14650fb0739d0383
+walking.heading.stage4.bounds 10 ea6c98f4d75113aa
+walking.heading.stage4.rows 769f14cd7403a479
+walking.heading.stage5.dims 12 12 41 20
+walking.heading.stage5.Q 32 22d119a949612cc4
+walking.heading.stage5.R 12 6c6891c4c7e6ed3
+walking.heading.stage5.S 2 286dbf979c64fa53
+walking.heading.stage5.q 10 cae0bebd102a0c42
+walking.heading.stage5.r 0 14650fb0739d0383
+walking.heading.stage5.A 17 542b6468daf9aec3
+walking.heading.stage5.B 14 f2f6933f911f8e5f
+walking.heading.stage5.b 0 14650fb0739d0383
+walking.heading.stage5.bounds 10 ea6c98f4d75113aa
+walking.heading.stage5.rows db93d5065165fec6
+walking.heading.stage6.dims 12 12 41 20
+walking.heading.stage6.Q 32 393b96c5c0112f49
+walking.heading.stage6.R 12 6c6891c4c7e6ed3
+walking.heading.stage6.S 2 286dbf979c64fa53
+walking.heading.stage6.q 10 2d2bab55ce373382
+walking.heading.stage6.r 0 14650fb0739d0383
+walking.heading.stage6.A 17 542b6468daf9aec3
+walking.heading.stage6.B 14 f2f6933f911f8e5f
+walking.heading.stage6.b 0 14650fb0739d0383
+walking.heading.stage6.bounds 10 ea6c98f4d75113aa
+walking.heading.stage6.rows 807d64b1ca3c2f54
+walking.heading.stage7.dims 12 12 41 20
+walking.heading.stage7.Q 32 4fc2b79bd62fb35b
+walking.heading.stage7.R 12 6c6891c4c7e6ed3
+walking.heading.stage7.S 2 286dbf979c64fa53
+walking.heading.stage7.q 10 74b183b9b5c94d7e
+walking.heading.stage7.r 0 14650fb0739d0383
+walking.heading.stage7.A 17 542b6468daf9aec3
+walking.heading.stage7.B 14 f2f6933f911f8e5f
+walking.heading.stage7.b 0 14650fb0739d0383
+walking.heading.stage7.bounds 10 ea6c98f4d75113aa
+walking.heading.stage7.rows b0e440963124f9b
+walking.heading.stage8.dims 12 12 41 20
+walking.heading.stage8.Q 32 50fe6a0e38293f8f
+walking.heading.stage8.R 12 6c6891c4c7e6ed3
+walking.heading.stage8.S 2 286dbf979c64fa53
+walking.heading.stage8.q 10 ded0209573d4de1f
+walking.heading.stage8.r 0 14650fb0739d0383
+walking.heading.stage8.A 17 542b6468daf9aec3
+walking.heading.stage8.B 14 f2f6933f911f8e5f
+walking.heading.stage8.b 0 14650fb0739d0383
+walking.heading.stage8.bounds 10 ea6c98f4d75113aa
+walking.heading.stage8.rows 83e574a16bbc26ae
+walking.heading.stage9.dims 12 12 41 20
+walking.heading.stage9.Q 32 52479144ad94d4aa
+walking.heading.stage9.R 12 6c6891c4c7e6ed3
+walking.heading.stage9.S 2 286dbf979c64fa53
+walking.heading.stage9.q 10 61f4eda7d92bf627
+walking.heading.stage9.r 0 14650fb0739d0383
+walking.heading.stage9.A 17 542b6468daf9aec3
+walking.heading.stage9.B 14 f2f6933f911f8e5f
+walking.heading.stage9.b 0 14650fb0739d0383
+walking.heading.stage9.bounds 10 ea6c98f4d75113aa
+walking.heading.stage9.rows b1bd89c988a998b7
+walking.heading.stage10.dims 12 12 41 20
+walking.heading.stage10.Q 32 df25befcbf49324f
+walking.heading.stage10.R 12 6c6891c4c7e6ed3
+walking.heading.stage10.S 2 286dbf979c64fa53
+walking.heading.stage10.q 10 77f133f39e58e233
+walking.heading.stage10.r 0 14650fb0739d0383
+walking.heading.stage10.A 17 542b6468daf9aec3
+walking.heading.stage10.B 14 f2f6933f911f8e5f
+walking.heading.stage10.b 0 14650fb0739d0383
+walking.heading.stage10.bounds 10 ea6c98f4d75113aa
+walking.heading.stage10.rows f2943c3c9c265269
+walking.heading.stage11.dims 12 12 41 20
+walking.heading.stage11.Q 36 9283ef52dd84a55c
+walking.heading.stage11.R 12 78d063fb5508a23b
+walking.heading.stage11.S 4 b947a4eebe89fb37
+walking.heading.stage11.q 10 3710ef527c6050e3
+walking.heading.stage11.r 0 14650fb0739d0383
+walking.heading.stage11.A 17 542b6468daf9aec3
+walking.heading.stage11.B 14 f2f6933f911f8e5f
+walking.heading.stage11.b 0 14650fb0739d0383
+walking.heading.stage11.bounds 10 ea6c98f4d75113aa
+walking.heading.stage11.rows 758a8ccdd12aa5bd
+walking.heading.stage12.dims 12 0 8 8
+walking.heading.stage12.Q 32 22d5af31ac86d0e9
+walking.heading.stage12.R 0 14650fb0739d0383
+walking.heading.stage12.S 0 14650fb0739d0383
+walking.heading.stage12.q 10 846b75616786b6c7
+walking.heading.stage12.r 0 14650fb0739d0383
+walking.heading.stage12.A 0 14650fb0739d0383
+walking.heading.stage12.B 0 14650fb0739d0383
+walking.heading.stage12.b 0 14650fb0739d0383
+walking.heading.stage12.bounds 0 14650fb0739d0383
+walking.heading.stage12.rows af6bc37b4e62e9fa
+pushed.heading.x0 0.05 0.02 0.6 -0.2 0 0.125 0 -0.125 0 0 0 0
+pushed.heading.stage0.dims 12 12 41 20
+pushed.heading.stage0.Q 14 f0114b47bb674200
+pushed.heading.stage0.R 12 6c6891c4c7e6ed3
+pushed.heading.stage0.S 2 286dbf979c64fa53
+pushed.heading.stage0.q 2 e6f98c114dada897
+pushed.heading.stage0.r 0 14650fb0739d0383
+pushed.heading.stage0.A 17 542b6468daf9aec3
+pushed.heading.stage0.B 14 f2f6933f911f8e5f
+pushed.heading.stage0.b 0 14650fb0739d0383
+pushed.heading.stage0.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage0.rows dc16a8e7d0519830
+pushed.heading.stage1.dims 12 12 41 20
+pushed.heading.stage1.Q 14 f0114b47bb674200
+pushed.heading.stage1.R 12 6c6891c4c7e6ed3
+pushed.heading.stage1.S 2 286dbf979c64fa53
+pushed.heading.stage1.q 2 e6f98c114dada897
+pushed.heading.stage1.r 0 14650fb0739d0383
+pushed.heading.stage1.A 17 542b6468daf9aec3
+pushed.heading.stage1.B 14 f2f6933f911f8e5f
+pushed.heading.stage1.b 0 14650fb0739d0383
+pushed.heading.stage1.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage1.rows 3c1cb975308da49a
+pushed.heading.stage2.dims 12 12 41 20
+pushed.heading.stage2.Q 14 f0114b47bb674200
+pushed.heading.stage2.R 12 6c6891c4c7e6ed3
+pushed.heading.stage2.S 2 286dbf979c64fa53
+pushed.heading.stage2.q 2 e6f98c114dada897
+pushed.heading.stage2.r 0 14650fb0739d0383
+pushed.heading.stage2.A 17 542b6468daf9aec3
+pushed.heading.stage2.B 14 f2f6933f911f8e5f
+pushed.heading.stage2.b 0 14650fb0739d0383
+pushed.heading.stage2.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage2.rows 7b84557deacf8bb4
+pushed.heading.stage3.dims 12 12 41 20
+pushed.heading.stage3.Q 14 f0114b47bb674200
+pushed.heading.stage3.R 12 6c6891c4c7e6ed3
+pushed.heading.stage3.S 2 286dbf979c64fa53
+pushed.heading.stage3.q 2 e6f98c114dada897
+pushed.heading.stage3.r 0 14650fb0739d0383
+pushed.heading.stage3.A 17 542b6468daf9aec3
+pushed.heading.stage3.B 14 f2f6933f911f8e5f
+pushed.heading.stage3.b 0 14650fb0739d0383
+pushed.heading.stage3.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage3.rows da8ddde4fabcdfc7
+pushed.heading.stage4.dims 12 12 41 20
+pushed.heading.stage4.Q 14 f0114b47bb674200
+pushed.heading.stage4.R 12 6c6891c4c7e6ed3
+pushed.heading.stage4.S 2 286dbf979c64fa53
+pushed.heading.stage4.q 2 e6f98c114dada897
+pushed.heading.stage4.r 0 14650fb0739d0383
+pushed.heading.stage4.A 17 542b6468daf9aec3
+pushed.heading.stage4.B 14 f2f6933f911f8e5f
+pushed.heading.stage4.b 0 14650fb0739d0383
+pushed.heading.stage4.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage4.rows a60bbe9195c7464d
+pushed.heading.stage5.dims 12 12 41 20
+pushed.heading.stage5.Q 14 f0114b47bb674200
+pushed.heading.stage5.R 12 6c6891c4c7e6ed3
+pushed.heading.stage5.S 2 286dbf979c64fa53
+pushed.heading.stage5.q 2 e6f98c114dada897
+pushed.heading.stage5.r 0 14650fb0739d0383
+pushed.heading.stage5.A 17 542b6468daf9aec3
+pushed.heading.stage5.B 14 f2f6933f911f8e5f
+pushed.heading.stage5.b 0 14650fb0739d0383
+pushed.heading.stage5.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage5.rows 205c819b711a83ea
+pushed.heading.stage6.dims 12 12 41 20
+pushed.heading.stage6.Q 14 f0114b47bb674200
+pushed.heading.stage6.R 12 6c6891c4c7e6ed3
+pushed.heading.stage6.S 2 286dbf979c64fa53
+pushed.heading.stage6.q 2 e6f98c114dada897
+pushed.heading.stage6.r 0 14650fb0739d0383
+pushed.heading.stage6.A 17 542b6468daf9aec3
+pushed.heading.stage6.B 14 f2f6933f911f8e5f
+pushed.heading.stage6.b 0 14650fb0739d0383
+pushed.heading.stage6.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage6.rows f6d900ddfe22759c
+pushed.heading.stage7.dims 12 12 41 20
+pushed.heading.stage7.Q 14 f0114b47bb674200
+pushed.heading.stage7.R 12 6c6891c4c7e6ed3
+pushed.heading.stage7.S 2 286dbf979c64fa53
+pushed.heading.stage7.q 2 e6f98c114dada897
+pushed.heading.stage7.r 0 14650fb0739d0383
+pushed.heading.stage7.A 17 542b6468daf9aec3
+pushed.heading.stage7.B 14 f2f6933f911f8e5f
+pushed.heading.stage7.b 0 14650fb0739d0383
+pushed.heading.stage7.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage7.rows d09b08596a1f9116
+pushed.heading.stage8.dims 12 12 41 20
+pushed.heading.stage8.Q 14 f0114b47bb674200
+pushed.heading.stage8.R 12 6c6891c4c7e6ed3
+pushed.heading.stage8.S 2 286dbf979c64fa53
+pushed.heading.stage8.q 2 e6f98c114dada897
+pushed.heading.stage8.r 0 14650fb0739d0383
+pushed.heading.stage8.A 17 542b6468daf9aec3
+pushed.heading.stage8.B 14 f2f6933f911f8e5f
+pushed.heading.stage8.b 0 14650fb0739d0383
+pushed.heading.stage8.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage8.rows 2979b6b89fce82b4
+pushed.heading.stage9.dims 12 12 41 20
+pushed.heading.stage9.Q 14 f0114b47bb674200
+pushed.heading.stage9.R 12 6c6891c4c7e6ed3
+pushed.heading.stage9.S 2 286dbf979c64fa53
+pushed.heading.stage9.q 2 e6f98c114dada897
+pushed.heading.stage9.r 0 14650fb0739d0383
+pushed.heading.stage9.A 17 542b6468daf9aec3
+pushed.heading.stage9.B 14 f2f6933f911f8e5f
+pushed.heading.stage9.b 0 14650fb0739d0383
+pushed.heading.stage9.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage9.rows e51cd2db406063b4
+pushed.heading.stage10.dims 12 12 41 20
+pushed.heading.stage10.Q 14 f0114b47bb674200
+pushed.heading.stage10.R 12 6c6891c4c7e6ed3
+pushed.heading.stage10.S 2 286dbf979c64fa53
+pushed.heading.stage10.q 2 e6f98c114dada897
+pushed.heading.stage10.r 0 14650fb0739d0383
+pushed.heading.stage10.A 17 542b6468daf9aec3
+pushed.heading.stage10.B 14 f2f6933f911f8e5f
+pushed.heading.stage10.b 0 14650fb0739d0383
+pushed.heading.stage10.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage10.rows 30cba476181536fb
+pushed.heading.stage11.dims 12 12 41 20
+pushed.heading.stage11.Q 18 5d8db22ddcee30d8
+pushed.heading.stage11.R 12 78d063fb5508a23b
+pushed.heading.stage11.S 4 b947a4eebe89fb37
+pushed.heading.stage11.q 2 e6f98c114dada897
+pushed.heading.stage11.r 0 14650fb0739d0383
+pushed.heading.stage11.A 17 542b6468daf9aec3
+pushed.heading.stage11.B 14 f2f6933f911f8e5f
+pushed.heading.stage11.b 0 14650fb0739d0383
+pushed.heading.stage11.bounds 10 ea6c98f4d75113aa
+pushed.heading.stage11.rows a5eacb4ac46333a
+pushed.heading.stage12.dims 12 0 8 8
+pushed.heading.stage12.Q 14 4a491c2c010897e4
+pushed.heading.stage12.R 0 14650fb0739d0383
+pushed.heading.stage12.S 0 14650fb0739d0383
+pushed.heading.stage12.q 2 e6f98c114dada897
+pushed.heading.stage12.r 0 14650fb0739d0383
+pushed.heading.stage12.A 0 14650fb0739d0383
+pushed.heading.stage12.B 0 14650fb0739d0383
+pushed.heading.stage12.b 0 14650fb0739d0383
+pushed.heading.stage12.bounds 0 14650fb0739d0383
+pushed.heading.stage12.rows fda9d2f983f6f7ff
+mid_swing.heading.x0 0 0 0.2 0 0.1 0.13 0 -0.125 0.3 0 0.25 0.35
+mid_swing.heading.stage0.dims 12 12 41 20
+mid_swing.heading.stage0.Q 32 3654b13dd8475c81
+mid_swing.heading.stage0.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage0.S 2 286dbf979c64fa53
+mid_swing.heading.stage0.q 10 d9d578f11cb530ac
+mid_swing.heading.stage0.r 0 14650fb0739d0383
+mid_swing.heading.stage0.A 17 542b6468daf9aec3
+mid_swing.heading.stage0.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage0.b 0 14650fb0739d0383
+mid_swing.heading.stage0.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage0.rows 43eacdbd92c505d
+mid_swing.heading.stage1.dims 12 12 41 20
+mid_swing.heading.stage1.Q 32 abf4adbf6e515d8e
+mid_swing.heading.stage1.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage1.S 2 286dbf979c64fa53
+mid_swing.heading.stage1.q 10 68b2bd96360bf20f
+mid_swing.heading.stage1.r 0 14650fb0739d0383
+mid_swing.heading.stage1.A 17 542b6468daf9aec3
+mid_swing.heading.stage1.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage1.b 0 14650fb0739d0383
+mid_swing.heading.stage1.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage1.rows fbeae3d26777468f
+mid_swing.heading.stage2.dims 12 12 41 20
+mid_swing.heading.stage2.Q 32 375feaed932818e5
+mid_swing.heading.stage2.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage2.S 2 286dbf979c64fa53
+mid_swing.heading.stage2.q 10 fafedd059bdd7d08
+mid_swing.heading.stage2.r 0 14650fb0739d0383
+mid_swing.heading.stage2.A 17 542b6468daf9aec3
+mid_swing.heading.stage2.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage2.b 0 14650fb0739d0383
+mid_swing.heading.stage2.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage2.rows 955959597bf807f3
+mid_swing.heading.stage3.dims 12 12 41 20
+mid_swing.heading.stage3.Q 32 5dd9eceb1ea50677
+mid_swing.heading.stage3.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage3.S 2 286dbf979c64fa53
+mid_swing.heading.stage3.q 10 341d7f625ec74685
+mid_swing.heading.stage3.r 0 14650fb0739d0383
+mid_swing.heading.stage3.A 17 542b6468daf9aec3
+mid_swing.heading.stage3.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage3.b 0 14650fb0739d0383
+mid_swing.heading.stage3.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage3.rows 5811c800d956cf7a
+mid_swing.heading.stage4.dims 12 12 41 20
+mid_swing.heading.stage4.Q 32 d16851249b07f9ba
+mid_swing.heading.stage4.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage4.S 2 286dbf979c64fa53
+mid_swing.heading.stage4.q 10 dbebf6c1102edb4c
+mid_swing.heading.stage4.r 0 14650fb0739d0383
+mid_swing.heading.stage4.A 17 542b6468daf9aec3
+mid_swing.heading.stage4.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage4.b 0 14650fb0739d0383
+mid_swing.heading.stage4.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage4.rows 2bf40ece9e2b9180
+mid_swing.heading.stage5.dims 12 12 41 20
+mid_swing.heading.stage5.Q 32 2ffb81a3758ea0c
+mid_swing.heading.stage5.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage5.S 2 286dbf979c64fa53
+mid_swing.heading.stage5.q 10 509ea6e6c7d9dd9d
+mid_swing.heading.stage5.r 0 14650fb0739d0383
+mid_swing.heading.stage5.A 17 542b6468daf9aec3
+mid_swing.heading.stage5.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage5.b 0 14650fb0739d0383
+mid_swing.heading.stage5.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage5.rows 9d031cf8f32cb4dd
+mid_swing.heading.stage6.dims 12 12 41 20
+mid_swing.heading.stage6.Q 32 142efed8fcabc9a4
+mid_swing.heading.stage6.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage6.S 2 286dbf979c64fa53
+mid_swing.heading.stage6.q 10 94dcd50e424855a3
+mid_swing.heading.stage6.r 0 14650fb0739d0383
+mid_swing.heading.stage6.A 17 542b6468daf9aec3
+mid_swing.heading.stage6.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage6.b 0 14650fb0739d0383
+mid_swing.heading.stage6.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage6.rows 9ae4d6114101b6cc
+mid_swing.heading.stage7.dims 12 12 41 20
+mid_swing.heading.stage7.Q 32 9e1f32feeae4b1d1
+mid_swing.heading.stage7.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage7.S 2 286dbf979c64fa53
+mid_swing.heading.stage7.q 10 15b54c1226b3440
+mid_swing.heading.stage7.r 0 14650fb0739d0383
+mid_swing.heading.stage7.A 17 542b6468daf9aec3
+mid_swing.heading.stage7.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage7.b 0 14650fb0739d0383
+mid_swing.heading.stage7.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage7.rows 35ed500c45ada7e
+mid_swing.heading.stage8.dims 12 12 41 20
+mid_swing.heading.stage8.Q 32 5fbe79a67077bb8e
+mid_swing.heading.stage8.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage8.S 2 286dbf979c64fa53
+mid_swing.heading.stage8.q 10 7e354e8cf4b590d2
+mid_swing.heading.stage8.r 0 14650fb0739d0383
+mid_swing.heading.stage8.A 17 542b6468daf9aec3
+mid_swing.heading.stage8.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage8.b 0 14650fb0739d0383
+mid_swing.heading.stage8.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage8.rows 47e512dec0aff4ec
+mid_swing.heading.stage9.dims 12 12 41 20
+mid_swing.heading.stage9.Q 32 b3dfde78c0e9d44e
+mid_swing.heading.stage9.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage9.S 2 286dbf979c64fa53
+mid_swing.heading.stage9.q 10 b009ec1a12fee55a
+mid_swing.heading.stage9.r 0 14650fb0739d0383
+mid_swing.heading.stage9.A 17 542b6468daf9aec3
+mid_swing.heading.stage9.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage9.b 0 14650fb0739d0383
+mid_swing.heading.stage9.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage9.rows 3a2c6f313f32a408
+mid_swing.heading.stage10.dims 12 12 41 20
+mid_swing.heading.stage10.Q 32 9f8d4a15de23ed85
+mid_swing.heading.stage10.R 12 6c6891c4c7e6ed3
+mid_swing.heading.stage10.S 2 286dbf979c64fa53
+mid_swing.heading.stage10.q 10 d7b490cdf38a4ae6
+mid_swing.heading.stage10.r 0 14650fb0739d0383
+mid_swing.heading.stage10.A 17 542b6468daf9aec3
+mid_swing.heading.stage10.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage10.b 0 14650fb0739d0383
+mid_swing.heading.stage10.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage10.rows afcdc0016ca2954c
+mid_swing.heading.stage11.dims 12 12 41 20
+mid_swing.heading.stage11.Q 36 9dfee5050ca69548
+mid_swing.heading.stage11.R 12 78d063fb5508a23b
+mid_swing.heading.stage11.S 4 b947a4eebe89fb37
+mid_swing.heading.stage11.q 10 f4e6f49bc6975c89
+mid_swing.heading.stage11.r 0 14650fb0739d0383
+mid_swing.heading.stage11.A 17 542b6468daf9aec3
+mid_swing.heading.stage11.B 14 f2f6933f911f8e5f
+mid_swing.heading.stage11.b 0 14650fb0739d0383
+mid_swing.heading.stage11.bounds 10 ea6c98f4d75113aa
+mid_swing.heading.stage11.rows 393d76e1ac6905b6
+mid_swing.heading.stage12.dims 12 0 8 8
+mid_swing.heading.stage12.Q 32 c2d33fc603721dd7
+mid_swing.heading.stage12.R 0 14650fb0739d0383
+mid_swing.heading.stage12.S 0 14650fb0739d0383
+mid_swing.heading.stage12.q 10 3cab7ad122bea58
+mid_swing.heading.stage12.r 0 14650fb0739d0383
+mid_swing.heading.stage12.A 0 14650fb0739d0383
+mid_swing.heading.stage12.B 0 14650fb0739d0383
+mid_swing.heading.stage12.b 0 14650fb0739d0383
+mid_swing.heading.stage12.bounds 0 14650fb0739d0383
+mid_swing.heading.stage12.rows c7507ec2f72b5e2f

@@ -1,0 +1,8 @@
+#pragma once
+
+namespace clang_tidy_testdata {
+
+int clampOnTwoLines(int value);
+int clampOnOneLine(int value);
+
+}  // namespace clang_tidy_testdata

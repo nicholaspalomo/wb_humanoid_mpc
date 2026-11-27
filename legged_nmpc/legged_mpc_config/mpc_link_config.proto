@@ -1,0 +1,24 @@
+edition = "2023";
+
+package legged_mpc_config;
+
+import "legged_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_config";
+
+// The remote MPC link of the robot process (the task file's mpc_link block, formerly mpcLink; RemoteMpcLink::Config).
+// Next ID: 2
+message MpcLinkConfig {
+  option (nproto.generate_struct) = "ocs2::legged::mpc_config::MpcLinkConfig";
+
+  reserved 2 to max;
+
+  // [s, robot clock] The link-loss timeout (formerly policyTimeout): a policy older than this swaps the MPC's action for
+  // the JOINT_PD hold. Longer than one TCP retransmission with margin (Linux retransmits a lost segment after at least
+  // 200 ms), so that a single lost packet is not a lost link; it must be positive.
+  // LINT.IfChange(policy_timeout_default)
+  double policy_timeout = 1 [default = 0.5, (legged_mpc_config.tuning) = { unit: "s" }];
+  // LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/RobotProcessSettings.h:policy_timeout_default, //legged_nmpc/legged_mpc_ipc/include/legged_mpc_ipc/RemoteMpcLink.h:policy_timeout_default)
+}

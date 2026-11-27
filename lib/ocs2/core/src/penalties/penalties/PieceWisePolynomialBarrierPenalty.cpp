@@ -36,10 +36,11 @@ namespace ocs2 {
 /******************************************************************************************************/
 scalar_t PieceWisePolynomialBarrierPenalty::getValue(scalar_t t, scalar_t h) const {
   if (h <= 0) {
-    scalar_t penalty = 0.5 * h * h - config_.delta * h / 2 + config_.delta * config_.delta / 6;
+    scalar_t penalty = 0.5 * h * h - config_.delta * h / kQuadraticFactorial + config_.delta * config_.delta / kCubicFactorial;
     return penalty * config_.mu;
   } else if (h > 0 && h < config_.delta) {
-    scalar_t penalty = -h * h * h / (6 * config_.delta) + 0.5 * h * h - config_.delta * h / 2 + config_.delta * config_.delta / 6;
+    scalar_t penalty = -h * h * h / (kCubicFactorial * config_.delta) + 0.5 * h * h - config_.delta * h / kQuadraticFactorial +
+                       config_.delta * config_.delta / kCubicFactorial;
     return penalty * config_.mu;
   } else {
     return 0;
@@ -51,10 +52,10 @@ scalar_t PieceWisePolynomialBarrierPenalty::getValue(scalar_t t, scalar_t h) con
 /******************************************************************************************************/
 scalar_t PieceWisePolynomialBarrierPenalty::getDerivative(scalar_t t, scalar_t h) const {
   if (h <= 0) {
-    scalar_t penalty = h - config_.delta / 2;
+    scalar_t penalty = h - config_.delta / kQuadraticFactorial;
     return penalty * config_.mu;
   } else if (h > 0 && h < config_.delta) {
-    scalar_t penalty = -h * h / (2 * config_.delta) + h - config_.delta / 2;
+    scalar_t penalty = -h * h / (kQuadraticFactorial * config_.delta) + h - config_.delta / kQuadraticFactorial;
     return penalty * config_.mu;
   } else {
     return 0;
@@ -78,7 +79,7 @@ scalar_t PieceWisePolynomialBarrierPenalty::getSecondDerivative(scalar_t t, scal
 /******************************************************************************************************/
 /******************************************************************************************************/
 void PieceWisePolynomialBarrierPenalty::setParameters(const vector_t& parameters) {
-  if (parameters.size() != 2) {
+  if (parameters.size() != kMuDeltaParameterCount) {
     throw std::runtime_error("PieceWisePolynomialBarrierPenalty::setParameters: Invalid number of parameters.");
   }
   config_.mu = parameters[0];
@@ -89,7 +90,7 @@ void PieceWisePolynomialBarrierPenalty::setParameters(const vector_t& parameters
 /******************************************************************************************************/
 /******************************************************************************************************/
 void PieceWisePolynomialBarrierPenalty::getParameters(vector_t& parameters) const {
-  parameters.resize(2);
+  parameters.resize(kMuDeltaParameterCount);
   parameters[0] = config_.mu;
   parameters[1] = config_.delta;
 }

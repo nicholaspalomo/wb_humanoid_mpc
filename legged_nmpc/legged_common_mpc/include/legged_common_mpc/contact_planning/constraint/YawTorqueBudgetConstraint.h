@@ -1,0 +1,80 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include <cstddef>
+#include <string>
+#include <vector>
+
+#include "absl/status/status.h"
+
+#include "legged_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "legged_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "legged_common_mpc/contact_planning/constraint/LipConstraintBase.h"
+#include "legged_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "legged_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
+#include "legged_common_mpc/contact_planning/problem/LipConstraint.h"
+#include "legged_common_mpc/contact_planning/problem/RowBuilder.h"
+
+namespace ocs2::legged {
+
+/**
+ * `yaw_torque_budget` (hard, running nodes): the yaw torque of a foot is the
+ * torsional friction of the weight it carries plus its half of the friction
+ * couple in double support. Alone a foot carries the whole weight, T_t; with
+ * both feet down each carries half of it and half of the couple, (T_t + T_c) /
+ * 2, so that the pair has T_t + T_c; a swinging foot, and either foot in
+ * flight, carries none. Two rows per foot and sign, the concave envelope of
+ * that budget over the two contact binaries (YawTorqueBudgetConstraint.cpp).
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
+ */
+class YawTorqueBudgetConstraint final : public LipConstraintBase {
+ public:
+  std::string describe() const override;
+  /** Refuses every contact set but two feet: the term is written for a left
+   * and a right foot. */
+  absl::Status validateContactSet(size_t numContacts) const override;
+  std::vector<std::string> requiredBlocks() const override {
+    return {term::kHeadingDoubleIntegrator};
+  }
+  void configure(const ContactPlanningConfig& config) override;
+  NodeSet nodeSet() const override { return NodeSet::kRunning; }
+  Softness softness() const override { return Softness::kHard; }
+  void addRows(const ContactPlanningContext& ctx,
+               int node,
+               RowBuilder& rows) const override;
+
+ private:
+  YawTorqueBudgetParameters params_;
+};
+
+}  // namespace ocs2::legged

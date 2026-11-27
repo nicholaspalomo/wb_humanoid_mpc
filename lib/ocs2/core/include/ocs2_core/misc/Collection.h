@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <unordered_map>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /**
@@ -47,7 +49,7 @@ class Collection {
  public:
   Collection() = default;
   virtual ~Collection() = default;
-  virtual Collection* clone() const { return new Collection(*this); }
+  virtual Collection* absl_nonnull clone() const { return new Collection(*this); }
 
   /** Checks if the collection has no elements */
   bool empty() const { return terms_.empty(); }

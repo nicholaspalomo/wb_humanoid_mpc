@@ -1,0 +1,15 @@
+load("//bazel:robot_files.bzl", "ROBOT_FILE_EXCLUDES")
+# tron1_description - URDF, MuJoCo model, mesh data files and license of the LimX Dynamics Tron1 wheel-foot biped
+
+package(default_visibility = ["//visibility:public"])
+
+# The model sandbox's launch file (tools/launch), for the test that checks it.
+exports_files(["launch/sandbox.textproto"])
+
+filegroup(
+    name = "tron1_description",
+    srcs = glob([
+        "urdf/**",
+        "meshes/**",
+    ], exclude = ROBOT_FILE_EXCLUDES, allow_empty = True) + ["LICENSE"],
+)

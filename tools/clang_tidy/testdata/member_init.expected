@@ -1,0 +1,2 @@
+# Located in the header, found by the .cpp action through the first-party header filter.
+tools/clang_tidy/testdata/MemberInit.h:11:7: modernize-use-default-member-init

@@ -39,7 +39,8 @@ namespace numeric_traits {
  */
 template <typename T>
 constexpr T limitEpsilon() {
-  return T(1e-6);
+  constexpr double kLimitEpsilon = 1e-6;
+  return T(kLimitEpsilon);
 }
 
 /**
@@ -49,7 +50,8 @@ constexpr T limitEpsilon() {
  */
 template <typename T>
 constexpr T weakEpsilon() {
-  return T(1e-9);
+  constexpr double kWeakEpsilon = 1e-9;
+  return T(kWeakEpsilon);
 }
 
 }  // namespace numeric_traits

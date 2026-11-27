@@ -136,7 +136,7 @@ auto interpolate(index_alpha_t indexAlpha, const std::vector<Data, Alloc>& dataA
     if (areSameSize(rhs, lhs)) {
       return alpha * lhs + (scalar_t(1.0) - alpha) * rhs;
     } else {
-      return (alpha > 0.5) ? lhs : rhs;
+      return (alpha > kMidpointWeight) ? lhs : rhs;
     }
   } else {  // dataArray.size() == 1
     // Time vector has only 1 element -> Constant function

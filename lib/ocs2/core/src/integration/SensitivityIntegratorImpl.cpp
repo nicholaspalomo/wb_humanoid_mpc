@@ -31,6 +31,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
+namespace {
+
+/** RK4 weighs its first and last stages by 1 / kRk4OuterStageWeightDenominator. */
+constexpr scalar_t kRk4OuterStageWeightDenominator = 6.0;
+/** RK4 weighs its two middle stages by 1 / kRk4InnerStageWeightDenominator. */
+constexpr scalar_t kRk4InnerStageWeightDenominator = 3.0;
+
+}  // namespace
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -43,8 +52,8 @@ vector_t eulerDiscretization(SystemDynamicsBase& system, scalar_t t, const vecto
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation eulerSensitivityDiscretization(SystemDynamicsBase& system, scalar_t t, const vector_t& x,
-                                                                 const vector_t& u, scalar_t dt) {
+VectorFunctionLinearApproximation eulerSensitivityDiscretization(
+    SystemDynamicsBase& system, scalar_t t, const vector_t& x, const vector_t& u, scalar_t dt) {
   // x_{k+1} = A_{k} * dx_{k} + B_{k} * du_{k} + b_{k}
   // A_{k} = Id + dt * dfdx
   // B_{k} = dt * dfdu
@@ -76,8 +85,8 @@ vector_t rk2Discretization(SystemDynamicsBase& system, scalar_t t, const vector_
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation rk2SensitivityDiscretization(SystemDynamicsBase& system, scalar_t t, const vector_t& x, const vector_t& u,
-                                                               scalar_t dt) {
+VectorFunctionLinearApproximation rk2SensitivityDiscretization(
+    SystemDynamicsBase& system, scalar_t t, const vector_t& x, const vector_t& u, scalar_t dt) {
   const scalar_t dt_halve = dt / 2.0;
 
   // System evaluations
@@ -108,8 +117,8 @@ VectorFunctionLinearApproximation rk2SensitivityDiscretization(SystemDynamicsBas
 /******************************************************************************************************/
 vector_t rk4Discretization(SystemDynamicsBase& system, scalar_t t, const vector_t& x, const vector_t& u, scalar_t dt) {
   const scalar_t dt_halve = dt / 2.0;
-  const scalar_t dt_sixth = dt / 6.0;
-  const scalar_t dt_third = dt / 3.0;
+  const scalar_t dt_sixth = dt / kRk4OuterStageWeightDenominator;
+  const scalar_t dt_third = dt / kRk4InnerStageWeightDenominator;
 
   // System evaluations
   const vector_t k1 = system.computeFlowMap(t, x, u);
@@ -127,11 +136,11 @@ vector_t rk4Discretization(SystemDynamicsBase& system, scalar_t t, const vector_
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation rk4SensitivityDiscretization(SystemDynamicsBase& system, scalar_t t, const vector_t& x, const vector_t& u,
-                                                               scalar_t dt) {
+VectorFunctionLinearApproximation rk4SensitivityDiscretization(
+    SystemDynamicsBase& system, scalar_t t, const vector_t& x, const vector_t& u, scalar_t dt) {
   const scalar_t dt_halve = dt / 2.0;
-  const scalar_t dt_sixth = dt / 6.0;
-  const scalar_t dt_third = dt / 3.0;
+  const scalar_t dt_sixth = dt / kRk4OuterStageWeightDenominator;
+  const scalar_t dt_third = dt / kRk4InnerStageWeightDenominator;
 
   // System evaluations
   VectorFunctionLinearApproximation k1 = system.linearApproximation(t, x, u);

@@ -29,10 +29,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 
-#include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/control/LinearController.h>
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
 
 namespace ocs2 {
+
+namespace {
+
+constexpr scalar_t kSecondsPerMillisecond = 1e-3;
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -45,7 +53,20 @@ MPC_MRT_Interface::MPC_MRT_Interface(MPC_BASE& mpc) : mpc_(mpc) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 void MPC_MRT_Interface::resetMpcNode(const TargetTrajectories& initTargetTrajectories) {
+  // A policy solved before the reset is dropped from the buffer; the one in use is replaced by the thread that calls
+  // updatePolicy(), which isActivePolicyCurrent() lets tell the two apart.
+  discardBufferedPolicy();
   mpc_.reset();
+  mpc_.getSolverPtr()->getReferenceManager().setTargetTrajectories(initTargetTrajectories);
+  mpcTimer_.reset();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void MPC_MRT_Interface::resetMpcSolver(const TargetTrajectories& initTargetTrajectories) {
+  discardBufferedPolicy();
+  mpc_.resetSolver();
   mpc_.getSolverPtr()->getReferenceManager().setTargetTrajectories(initTargetTrajectories);
   mpcTimer_.reset();
 }
@@ -84,14 +105,17 @@ const ReferenceManagerInterface& MPC_MRT_Interface::getReferenceManager() const 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void MPC_MRT_Interface::advanceMpc() {
+absl::Status MPC_MRT_Interface::advanceMpc() {
   // measure the delay in running MPC
   mpcTimer_.startTimer();
 
-  SystemObservation currentObservation;
   {
     std::lock_guard<std::mutex> lock(observationMutex_);
-    currentObservation = currentObservation_;
+    solverObservation_ = currentObservation_;
+  }
+  const SystemObservation& currentObservation = solverObservation_;
+  if (solverObservationObserver_) {
+    solverObservationObserver_(currentObservation);
   }
 
   bool controllerIsUpdated;
@@ -99,25 +123,30 @@ void MPC_MRT_Interface::advanceMpc() {
   try {
     controllerIsUpdated = mpc_.run(currentObservation.time, currentObservation.state, currentObservation.mode);
   } catch (const std::exception& e) {
-    std::cerr << e.what() << '\n';
-    std::cerr << "\n#####################################################"
-              << "\n###############   MPC HAS CRASHED.   ################"
-              << "\n#####################################################\n";
-    std::cerr << "Time: \n";
-    std::cerr << currentObservation.time << "\n";
-    std::cerr << "State: \n";
-    std::cerr << currentObservation.state << "\n";
-    std::cerr << "Desired Trajectories: \n";
-    std::cerr << mpc_.getSolverPtr()->getReferenceManager().getTargetTrajectories() << std::endl;
-    throw(std::runtime_error("MPC has crashed!"));
+    // The state and the targets of the solve that crashed are dumped once per run of failures, not once per failure:
+    // a caller that retries at its solve rate would otherwise flood the log with them. What to report, and how often,
+    // is the caller's decision; the returned status carries the reason.
+    if (consecutiveCrashes_++ == 0) {
+      const vector_t& state = currentObservation.state;
+      LOG(WARNING) << "MPC solver crashed at t = " << currentObservation.time << ": " << e.what()
+                   << "\nState: " << absl::StrJoin(state.data(), state.data() + state.size(), " ")
+                   << "\nDesired trajectories: " << mpc_.getSolverPtr()->getReferenceManager().getTargetTrajectories();
+    }
+    return absl::InternalError(absl::StrCat("MPC solver crashed at t = ", currentObservation.time, ": ", e.what()));
   }
+  consecutiveCrashes_ = 0;
 
   if (!controllerIsUpdated) {
-    return;
+    // MPC_BASE::run() refuses to run once the observation time has passed the end of the previous solution (a clock
+    // that jumped forward, or a solver thread starved for a whole horizon). Nothing is solved and nothing reaches the
+    // buffer until the MPC is reset, so this is a failure for the caller to act on, not a quiet success.
+    return absl::FailedPreconditionError(absl::StrCat("MPC not run: the observation time ", currentObservation.time,
+                                                      " is past the final time ", mpc_.getSolverPtr()->getFinalTime(),
+                                                      " of the previous solution; the MPC has to be reset."));
   }
   copyToBuffer(currentObservation);
 
-  // measure the delay for sending ROS messages
+  // measure the time of the solve and of handing its policy to the buffer
   mpcTimer_.endTimer();
 
   // check MPC delay and solution window compatibility
@@ -125,17 +154,16 @@ void MPC_MRT_Interface::advanceMpc() {
   if (mpc_.settings().solutionTimeWindow_ < 0) {
     timeWindow = mpc_.getSolverPtr()->getFinalTime() - currentObservation.time;
   }
-  if (timeWindow < 2.0 * mpcTimer_.getAverageInMilliseconds() * 1e-3) {
-    std::cerr << "[MPC_MRT_Interface::advanceMpc] WARNING: The solution time window might be shorter than the MPC delay!\n";
+  if (timeWindow < 2.0 * mpcTimer_.getAverageInMilliseconds() * kSecondsPerMillisecond) {
+    LOG(WARNING) << "The solution time window might be shorter than the MPC delay!";
   }
 
   // measure the delay
   if (mpc_.settings().debugPrint_) {
-    std::cerr << "\n### MPC_MRT Benchmarking";
-    std::cerr << "\n###   Maximum : " << mpcTimer_.getMaxIntervalInMilliseconds() << "[ms].";
-    std::cerr << "\n###   Average : " << mpcTimer_.getAverageInMilliseconds() << "[ms].";
-    std::cerr << "\n###   Latest  : " << mpcTimer_.getLastIntervalInMilliseconds() << "[ms]." << std::endl;
+    LOG(INFO) << "MPC_MRT Benchmarking - Max: " << mpcTimer_.getMaxIntervalInMilliseconds()
+              << "ms, Avg: " << mpcTimer_.getAverageInMilliseconds() << "ms, Latest: " << mpcTimer_.getLastIntervalInMilliseconds() << "ms";
   }
+  return absl::OkStatus();
 }
 
 /******************************************************************************************************/
@@ -159,40 +187,6 @@ void MPC_MRT_Interface::copyToBuffer(const SystemObservation& mpcInitObservation
   *performanceIndicesPtr = mpc_.getSolverPtr()->getPerformanceIndeces();
 
   this->moveToBuffer(std::move(commandPtr), std::move(primalSolutionPtr), std::move(performanceIndicesPtr));
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-matrix_t MPC_MRT_Interface::getLinearFeedbackGain(scalar_t time) {
-  auto controller = dynamic_cast<LinearController*>(this->getPolicy().controllerPtr_.get());
-  if (controller == nullptr) {
-    throw std::runtime_error("[MPC_MRT_Interface::getLinearFeedbackGain] Feedback gains only available with linear controller!");
-  }
-  matrix_t K;
-  controller->getFeedbackGain(time, K);
-  return K;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-ScalarFunctionQuadraticApproximation MPC_MRT_Interface::getValueFunction(scalar_t time, const vector_t& state) const {
-  return mpc_.getSolverPtr()->getValueFunction(time, state);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-vector_t MPC_MRT_Interface::getStateInputEqualityConstraintLagrangian(scalar_t time, const vector_t& state) const {
-  return mpc_.getSolverPtr()->getStateInputEqualityConstraintLagrangian(time, state);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-MultiplierCollection MPC_MRT_Interface::getIntermediateDualSolution(scalar_t time) const {
-  return mpc_.getSolverPtr()->getIntermediateDualSolution(time);
 }
 
 }  // namespace ocs2

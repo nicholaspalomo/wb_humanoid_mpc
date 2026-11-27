@@ -56,14 +56,20 @@ CentroidalModelInfoCppAd CentroidalModelInfo::toCppAd() const {
   cppAdInfo.numThreeDofContacts = this->numThreeDofContacts;
   cppAdInfo.numSixDofContacts = this->numSixDofContacts;
   cppAdInfo.endEffectorFrameIndices = this->endEffectorFrameIndices;
-  cppAdInfo.generalizedCoordinatesNum = this->generalizedCoordinatesNum;
+  cppAdInfo.configurationDim = this->configurationDim;
+  cppAdInfo.velocityDim = this->velocityDim;
   cppAdInfo.actuatedDofNum = this->actuatedDofNum;
   cppAdInfo.stateDim = this->stateDim;
+  cppAdInfo.stateTangentDim = this->stateTangentDim;
   cppAdInfo.inputDim = this->inputDim;
   cppAdInfo.robotMass = ad_scalar_t(this->robotMass);
   cppAdInfo.qPinocchioNominal = this->qPinocchioNominal.cast<ad_scalar_t>();
-  cppAdInfo.centroidalInertiaNominal = this->centroidalInertiaNominal.cast<ad_scalar_t>();
-  cppAdInfo.comToBasePositionNominal = this->comToBasePositionNominal.cast<ad_scalar_t>();
+  cppAdInfo.nomInertiaComEwrtBase = this->nomInertiaComEwrtBase.cast<ad_scalar_t>();
+  cppAdInfo.nomPosBaseRtComEwrtBase = this->nomPosBaseRtComEwrtBase.cast<ad_scalar_t>();
+  cppAdInfo.rollingContactWheelRadii.reserve(this->rollingContactWheelRadii.size());
+  for (const scalar_t wheelRadius : this->rollingContactWheelRadii) {
+    cppAdInfo.rollingContactWheelRadii.emplace_back(wheelRadius);
+  }
 
   return cppAdInfo;
 }

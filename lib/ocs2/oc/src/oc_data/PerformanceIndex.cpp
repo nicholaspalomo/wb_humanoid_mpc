@@ -35,6 +35,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
+namespace {
+
+/** The width, in characters, of every printed value of operator<<. */
+constexpr size_t kValueColumnWidth = 12;
+
+}  // namespace
+
 PerformanceIndex& PerformanceIndex::operator+=(const PerformanceIndex& rhs) {
   this->merit += rhs.merit;
   this->cost += rhs.cost;
@@ -89,8 +96,7 @@ PerformanceIndex toPerformanceIndex(const Metrics& m) {
   performanceIndex.equalityConstraintsSSE = getEqConstraintsSSE(m.stateEqConstraint) + getEqConstraintsSSE(m.stateInputEqConstraint);
   performanceIndex.inequalityConstraintsSSE =
       getIneqConstraintsSSE(m.stateIneqConstraint) + getIneqConstraintsSSE(m.stateInputIneqConstraint);
-  performanceIndex.equalityLagrangian = sumPenalties(m.stateEqLagrangian) + sumPenalties(m.stateInputEqLagrangian);
-  performanceIndex.inequalityLagrangian = sumPenalties(m.stateIneqLagrangian) + sumPenalties(m.stateInputIneqLagrangian);
+  // equalityLagrangian and inequalityLagrangian keep their 0: this fork has no augmented Lagrangian terms.
   return performanceIndex;
 }
 
@@ -105,25 +111,24 @@ PerformanceIndex toPerformanceIndex(const Metrics& m, const scalar_t dt) {
 }
 
 std::ostream& operator<<(std::ostream& stream, const PerformanceIndex& performanceIndex) {
-  const size_t tabSpace = 12;
   const auto indentation = stream.width();
   stream << std::left;  // fill from left
 
   stream << std::setw(indentation) << "";
-  stream << "Rollout Merit:              " << std::setw(tabSpace) << performanceIndex.merit;
-  stream << "Rollout Cost:               " << std::setw(tabSpace) << performanceIndex.cost << '\n';
+  stream << "Rollout Merit:              " << std::setw(kValueColumnWidth) << performanceIndex.merit;
+  stream << "Rollout Cost:               " << std::setw(kValueColumnWidth) << performanceIndex.cost << '\n';
 
   stream << std::setw(indentation) << "";
-  stream << "Dual feasibilities SSE:     " << std::setw(tabSpace) << performanceIndex.dualFeasibilitiesSSE;
-  stream << "Dynamics violation SSE:     " << std::setw(tabSpace) << performanceIndex.dynamicsViolationSSE << '\n';
+  stream << "Dual feasibilities SSE:     " << std::setw(kValueColumnWidth) << performanceIndex.dualFeasibilitiesSSE;
+  stream << "Dynamics violation SSE:     " << std::setw(kValueColumnWidth) << performanceIndex.dynamicsViolationSSE << '\n';
 
   stream << std::setw(indentation) << "";
-  stream << "Equality constraints SSE:   " << std::setw(tabSpace) << performanceIndex.equalityConstraintsSSE;
-  stream << "Inequality constraints SSE: " << std::setw(tabSpace) << performanceIndex.inequalityConstraintsSSE << '\n';
+  stream << "Equality constraints SSE:   " << std::setw(kValueColumnWidth) << performanceIndex.equalityConstraintsSSE;
+  stream << "Inequality constraints SSE: " << std::setw(kValueColumnWidth) << performanceIndex.inequalityConstraintsSSE << '\n';
 
   stream << std::setw(indentation) << "";
-  stream << "Equality Lagrangian:        " << std::setw(tabSpace) << performanceIndex.equalityLagrangian;
-  stream << "Inequality Lagrangian:      " << std::setw(tabSpace) << performanceIndex.inequalityLagrangian;
+  stream << "Equality Lagrangian:        " << std::setw(kValueColumnWidth) << performanceIndex.equalityLagrangian;
+  stream << "Inequality Lagrangian:      " << std::setw(kValueColumnWidth) << performanceIndex.inequalityLagrangian;
 
   return stream;
 }

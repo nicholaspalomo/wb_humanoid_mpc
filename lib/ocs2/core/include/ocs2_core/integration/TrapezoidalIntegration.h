@@ -40,11 +40,14 @@ namespace ocs2 {
  * @note It requires that the VALUE_T has overwrite operator+(VALUE_T, VALUE_T) and define VALUE_T::operator*(SCALAR_T)
  */
 template <typename SCALAR_T, typename VALUE_T>
-VALUE_T trapezoidalIntegration(const std::vector<SCALAR_T>& timeTrajectory, const std::vector<VALUE_T>& valueTrajectory,
+VALUE_T trapezoidalIntegration(const std::vector<SCALAR_T>& timeTrajectory,
+                               const std::vector<VALUE_T>& valueTrajectory,
                                VALUE_T initialValue) {
   assert(timeTrajectory.size() == valueTrajectory.size());
 
-  if (timeTrajectory.size() < 2) {
+  // The fewest samples that span an interval to integrate over.
+  constexpr int kMinSamples = 2;
+  if (timeTrajectory.size() < kMinSamples) {
     return initialValue;
   }
 

@@ -1,0 +1,117 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <system_error>
+#include <vector>
+
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
+
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
+#include "robot_model/RobotStateContactEstimator.h"
+
+namespace robot::model {
+namespace {
+
+class RobotStateContactEstimatorTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    tempDir_ = std::filesystem::temp_directory_path() /
+               "robot_model_contact_estimator_test";
+    std::filesystem::create_directories(tempDir_);
+    urdfPath_ = tempDir_ / "robot.urdf";
+    std::ofstream urdfFile(urdfPath_);
+    urdfFile << R"(<?xml version="1.0"?>
+        <robot name="biped">
+            <link name="base_link"/>
+            <link name="foot_l"/>
+            <link name="foot_r"/>
+            <joint name="hip_l" type="revolute">
+                <parent link="base_link"/>
+                <child link="foot_l"/>
+                <axis xyz="0 1 0"/>
+                <limit lower="-1.57" upper="1.57" effort="100" velocity="2.0"/>
+            </joint>
+            <joint name="hip_r" type="revolute">
+                <parent link="base_link"/>
+                <child link="foot_r"/>
+                <axis xyz="0 1 0"/>
+                <limit lower="-1.57" upper="1.57" effort="100" velocity="2.0"/>
+            </joint>
+        </robot>)";
+  }
+
+  void TearDown() override {
+    std::error_code ec;
+    std::filesystem::remove_all(tempDir_, ec);
+  }
+
+  std::filesystem::path tempDir_;
+  std::filesystem::path urdfPath_;
+};
+
+TEST_F(RobotStateContactEstimatorTest, reportsTheFlagsOfTheRobotState) {
+  const absl::StatusOr<RobotDescription> description =
+      // NOLINTNEXTLINE(build/include_what_you_use): path::string()
+      RobotDescription::Create(urdfPath_.string());
+  ASSERT_TRUE(description.ok()) << description.status();
+  RobotState state(*description, /*contactSize=*/2);
+  RobotStateContactEstimator estimator;
+  EXPECT_EQ(estimator.getName(), "RobotStateContactEstimator");
+
+  // A fresh state assumes every contact point is touching.
+  EXPECT_EQ(estimateContactFlags(estimator, state),
+            (std::vector<bool>{true, true}));
+
+  state.setContactFlag(/*index=*/0, /*contactFlag=*/false);
+  EXPECT_EQ(estimateContactFlags(estimator, state),
+            (std::vector<bool>{false, true}));
+  state.setContactFlag(/*index=*/1, /*contactFlag=*/false);
+  EXPECT_EQ(estimateContactFlags(estimator, state),
+            (std::vector<bool>{false, false}));
+
+  // The base-class interface is what controllers hold.
+  std::unique_ptr<ContactEstimator> base =
+      std::make_unique<RobotStateContactEstimator>();
+  EXPECT_EQ(estimateContactFlags(*base, state), state.getContactFlags());
+
+  // Into a vector that stores the flags already: resized, not grown, and
+  // rewritten in place.
+  std::vector<bool> flags = {true, true, true, true, true};
+  base->estimateContactFlags(state, flags);
+  EXPECT_EQ(flags, state.getContactFlags());
+}
+
+}  // namespace
+}  // namespace robot::model

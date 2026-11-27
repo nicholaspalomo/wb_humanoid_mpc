@@ -34,7 +34,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
+// LINT.IfChange(sensitivity_integrator_types)
 enum class SensitivityIntegratorType { EULER, RK2, RK4 };
+// LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/config/solver/SolverSettingsFromConfig.cpp:sensitivity_integrators)
 
 namespace sensitivity_integrator {
 

@@ -1,0 +1,57 @@
+edition = "2023";
+
+package legged_mpc_config;
+
+import "legged_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_config";
+
+// The noise model of the `kalman` state estimator of the robot process (the task file's kalman_state_estimator block;
+// legged_state_estimation/legged_state_estimator, KalmanBaseEstimator::Config): a linear Kalman filter of the base
+// position and velocity and of one position per contact point, driven by the IMU's acceleration and corrected by the
+// leg kinematics of the contact points in stance. Every standard deviation must be positive; a random walk's variance
+// grows by its square per second. Read when the robot process starts (state_estimator: "kalman").
+// Next ID: 12
+message KalmanStateEstimatorConfig {
+  option (nproto.generate_struct) = "ocs2::legged::mpc_config::KalmanStateEstimatorConfig";
+
+  reserved 12 to max;
+
+  // LINT.IfChange(kalman_state_estimator_defaults)
+  // [m/s^2] Standard deviation of the accelerometer's noise on one sample.
+  double imu_acceleration_noise = 1 [default = 0.5, (legged_mpc_config.tuning) = { unit: "m/s^2" }];
+  // [m/s/sqrt(s)] Random walk of the base velocity beyond the accelerometer's noise (its bias, the lever arm of an IMU
+  // off the base's origin).
+  double base_velocity_random_walk = 2 [default = 0.1, (legged_mpc_config.tuning) = { unit: "m/s/sqrt(s)" }];
+  // [m/sqrt(s)] Random walk of the base position.
+  double base_position_random_walk = 3 [default = 0.001, (legged_mpc_config.tuning) = { unit: "m/sqrt(s)" }];
+  // [m/sqrt(s)] Random walk of a contact point in stance: how far a standing foot may slip.
+  double stance_contact_random_walk = 4 [default = 0.01, (legged_mpc_config.tuning) = { unit: "m/sqrt(s)" }];
+  // [m/sqrt(s)] Random walk of a contact point in swing, large: the estimate forgets where a lifted foot was, and the
+  // leg kinematics place it anew at touch-down.
+  double swing_contact_random_walk = 5 [default = 10.0, (legged_mpc_config.tuning) = { unit: "m/sqrt(s)" }];
+  // [m] Standard deviation of a stance contact point's position relative to the base, from the leg kinematics.
+  double kinematic_position_noise = 6 [default = 0.005, (legged_mpc_config.tuning) = { unit: "m" }];
+  // [m/s] Standard deviation of the base velocity a stance contact point gives through the leg kinematics.
+  double kinematic_velocity_noise = 7 [default = 0.05, (legged_mpc_config.tuning) = { unit: "m/s" }];
+  // [m] Standard deviation of a stance contact point's height above the world frame, against the height of the surface
+  // it stands on.
+  double contact_height_noise = 8 [default = 0.01, (legged_mpc_config.tuning) = { unit: "m" }];
+  // [m] The flat ground's height: the surface height the robot process gives every stance contact while no
+  // multi-contact plan names one (under contact_schedule_source: "multi_contact_plan" the plan's patches give it). It
+  // makes the base height observable. The contact points are the MPC's (sole and pad centers, 3-DoF contact offsets), so
+  // 0 is flat ground at z = 0. No shipped task file sets it.
+  double nom_pos_contact_rt_world_ewrt_world_z = 9 [default = 0.0, (legged_mpc_config.tuning) = { unit: "m" }];
+  // [s] The contact-trust ramp around a planned contact switch, 0 = off (the default; the filter is then bit-identical to
+  // one without it). Within this time before a stance contact's planned liftoff and after its planned touchdown, as the
+  // MPC policy's mode schedule gives them, the contact's stance random walk and its kinematic velocity and contact
+  // height noise standard deviations are scaled up smoothly (a cubic smoothstep in the time to the nearer switch), from
+  // 1 at the window's edge to contact_trust_ramp_max_scale at the switch. Non-negative.
+  double contact_trust_ramp_duration = 10 [default = 0.0, (legged_mpc_config.tuning) = { unit: "s" }];
+  // The factor on those standard deviations at the planned switch itself; at least 1. Read only while
+  // contact_trust_ramp_duration is positive.
+  double contact_trust_ramp_max_scale = 11 [default = 1.0, (legged_mpc_config.tuning) = { minimum: 1.0 }];
+  // LINT.ThenChange(//legged_state_estimation/legged_state_estimator/include/legged_state_estimator/KalmanBaseEstimator.h:kalman_state_estimator_defaults)
+}

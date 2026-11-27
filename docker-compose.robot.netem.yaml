@@ -1,0 +1,15 @@
+# ==============================================================================
+# NETEM override for docker-compose.robot.yaml: lets the robot container shape the bus's packets with tc-netem
+#
+#   NETEM="delay 3ms 1ms loss 0.5%" ROBOT=drc_atlas docker compose -f docker-compose.robot.yaml \
+#       -f docker-compose.robot.netem.yaml up
+#
+# With NETEM set, the robot images' entry point applies it to NETEM_INTERFACE (default lo) for the bus's ports only, and
+# removes it when the robot process ends (tools/deploy/netem.sh). On the host's network that is the HOST's interface:
+# with lo, every bus connection on this machine is shaped while the container runs. Off unless this file is added.
+# ==============================================================================
+
+services:
+  robot:
+    cap_add:
+      - NET_ADMIN

@@ -1,0 +1,52 @@
+# proto-file: robot_runtime/robot_ipc/proto/network_config.proto
+# proto-message: robot_ipc_proto.NetworkConfig
+#
+# The Zenoh network of the bus (robot_runtime/robot_ipc, legged_nmpc/docs/distributed_runtime/README.md): every
+# process on this machine, over the loopback interface. The bus generates its Zenoh configuration from this file
+# (robot_ipc/SessionConfig.h); there is no JSON5 file and no ZENOH_CONFIG.
+#
+#   domain_id  the domain; its TCP ports are 7447 + 100 * domain_id + 0..19 (one per process, 20 processes);
+#   nodes      the processes that publish, and their machine (`host`), whose ports every process connects to;
+#   topics     the quality of service of each topic (robot_ipc/QosProfile.h) and the nodes that publish it, whose
+#              publishers then exist from start-up:
+#                latest           dropped under congestion, sent at once: streams whose next sample replaces a lost one;
+#                reliable_latest  dropped under congestion after a short wait, batched: large or infrequent latest
+#                                 values, such as the 0.5-0.75 MB policies;
+#                reliable_events  blocks under congestion, interactive priority: events that must each arrive.
+#
+# The file is parsed strictly: an unknown field or a value of the wrong type is an error reporting its line and column.
+# robot_ipc builds this file in as localhostNetworkConfig(), the network of a binary without --network_config.
+
+# LINT.IfChange(zenoh_ports)
+domain_id: 0
+# LINT.ThenChange(//config/ipc/two_machine.example.textproto:zenoh_ports, //tools/deploy/netem.sh:bus_ports, //docker-compose.bridge.yaml:bus_ports, //.devcontainer/README.md:bus_ports)
+
+# LINT.IfChange(localhost_nodes)
+nodes { name: "robot"        host: "127.0.0.1" }  # the robot process (or the dummy simulation)
+nodes { name: "mpc"          host: "127.0.0.1" }  # the MPC node, with its visualization publisher
+nodes { name: "operator"     host: "127.0.0.1" }  # the remote_control GUI
+nodes { name: "teleop"       host: "127.0.0.1" }  # keyboard / Xbox teleoperation
+nodes { name: "config_push"  host: "127.0.0.1" }  # push_robot_config: a configuration file to the robot
+# LINT.ThenChange(//config/ipc/two_machine.example.textproto:two_machine_nodes, //legged_nmpc/remote_control/remote_control/operator_bus.py:operator_nodes)
+
+# LINT.IfChange(topic_qos)
+topics { name: "robot/mpc_observation"             qos_profile: "latest"           publishers: "robot" }
+topics { name: "robot/state"                       qos_profile: "latest"           publishers: "robot" }
+topics { name: "robot/fsm_state"                   qos_profile: "reliable_latest"  publishers: "robot" }
+topics { name: "robot/loop_timing"                 qos_profile: "latest"           publishers: "robot" }
+topics { name: "robot/config_save_status"          qos_profile: "reliable_events"  publishers: "robot" }
+topics { name: "mpc/policy"                        qos_profile: "reliable_latest"  publishers: "mpc" }
+topics { name: "mpc/status"                        qos_profile: "reliable_latest"  publishers: "mpc" }
+topics { name: "viz/scene"                         qos_profile: "reliable_latest"  publishers: "mpc" }
+topics { name: "viz/telemetry"                     qos_profile: "latest"           publishers: "mpc" }
+topics { name: "operator/walking_velocity_command" qos_profile: "latest"           publishers: ["operator", "teleop"] }
+topics { name: "operator/fsm_command"              qos_profile: "reliable_events"  publishers: "operator" }
+topics { name: "operator/mpc_parameters"           qos_profile: "reliable_latest"  publishers: "operator" }
+topics { name: "operator/pd_gains"                 qos_profile: "reliable_latest"  publishers: "operator" }
+topics { name: "operator/joint_targets"            qos_profile: "reliable_latest"  publishers: "operator" }
+topics { name: "operator/dodgeball_throw"          qos_profile: "reliable_events"  publishers: "operator" }
+topics { name: "operator/config_save"              qos_profile: "reliable_events"  publishers: ["operator", "config_push"] }
+# LINT.ThenChange(//legged_nmpc/legged_mpc_ipc/include/legged_mpc_ipc/Topics.h:topics, //config/ipc/two_machine.example.textproto:two_machine_topics, //legged_nmpc/docs/distributed_runtime/README.md:topic_table)
+
+# A TCP receive buffer of several policies.
+transport { socket_receive_buffer_bytes: 8388608 }

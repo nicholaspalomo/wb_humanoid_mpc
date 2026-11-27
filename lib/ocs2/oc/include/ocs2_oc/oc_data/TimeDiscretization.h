@@ -48,9 +48,6 @@ struct AnnotatedTime {
   explicit AnnotatedTime(scalar_t t, Event e = Event::None) : time(t), event(e){};
 };
 
-/** Computes the time at which to interpolate, respecting interpolation rules around event times */
-scalar_t getInterpolationTime(const AnnotatedTime& annotatedTime);
-
 /** Computes the interval start that respects interpolation rules around event times */
 scalar_t getIntervalStart(const AnnotatedTime& start);
 
@@ -59,6 +56,9 @@ scalar_t getIntervalEnd(const AnnotatedTime& end);
 
 /** Computes the interval duration that respects interpolation rules around event times */
 scalar_t getIntervalDuration(const AnnotatedTime& start, const AnnotatedTime& end);
+
+/** The default minimum discretization step of timeDiscretizationWithEvents(), in multiples of limitEpsilon. */
+inline constexpr scalar_t kDefaultMinTimeStepInLimitEpsilons = 10.0;
 
 /**
  * Decides on time discretization along the horizon. Tries to makes step of dt, but will also ensure that event times are part of the
@@ -72,9 +72,12 @@ scalar_t getIntervalDuration(const AnnotatedTime& start, const AnnotatedTime& en
  * interpolation problems
  * @return vector of discrete time points
  */
-std::vector<AnnotatedTime> timeDiscretizationWithEvents(scalar_t initTime, scalar_t finalTime, scalar_t dt,
+std::vector<AnnotatedTime> timeDiscretizationWithEvents(scalar_t initTime,
+                                                        scalar_t finalTime,
+                                                        scalar_t dt,
                                                         const scalar_array_t& eventTimes,
-                                                        scalar_t dt_min = 10.0 * numeric_traits::limitEpsilon<scalar_t>());
+                                                        scalar_t dt_min = kDefaultMinTimeStepInLimitEpsilons *
+                                                                          numeric_traits::limitEpsilon<scalar_t>());
 
 /**
  * Extracts the time trajectory from the annotated time trajectory.
@@ -83,14 +86,6 @@ std::vector<AnnotatedTime> timeDiscretizationWithEvents(scalar_t initTime, scala
  * @return The time trajectory.
  */
 scalar_array_t toTime(const std::vector<AnnotatedTime>& annotatedTime);
-
-/**
- * Extracts the time trajectory from the annotated time trajectory respecting interpolation rules around event times.
- *
- * @param annotatedTime : Annotated time trajectory.
- * @return The time trajectory.
- */
-scalar_array_t toInterpolationTime(const std::vector<AnnotatedTime>& annotatedTime);
 
 /**
  * Extracts the array of indices indicating the post-event times from the annotated time trajectory.

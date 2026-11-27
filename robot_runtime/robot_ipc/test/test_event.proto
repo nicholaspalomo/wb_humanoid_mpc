@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package robot_ipc_test;
+
+import "nproto/options.proto";
+
+// A second message type, so that the tests can publish one type on a topic that is subscribed with another.
+// Next ID: 2
+message TestEvent {
+  option (nproto.generate_struct) = "robot::ipc::test::TestEvent";
+
+  reserved 2 to max;
+
+  string name = 1;
+}

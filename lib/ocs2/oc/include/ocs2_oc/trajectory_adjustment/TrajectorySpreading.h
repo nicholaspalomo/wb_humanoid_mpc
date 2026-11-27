@@ -29,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <algorithm>
+#include <vector>
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/reference/ModeSchedule.h>
 
@@ -36,29 +39,15 @@ namespace ocs2 {
 
 class TrajectorySpreading final {
  public:
-  struct Status {
-    bool willTruncate = false;
-    bool willPerformTrajectorySpreading = false;
-  };
-
-  /**
-   * Constructor
-   * @param [in] debugCaching: To activate the debug print.
-   */
-  explicit TrajectorySpreading(bool debugPrint = false) : debugPrint_(debugPrint) {}
-
   /**
    * Initialize trajectory spreading strategy. Run it before invoking other member functions
    *
    * @param [in] oldModeSchedule: The old mode schedule associated to the trajectories which should be adjusted.
    * @param [in] newModeSchedule: The new mode schedule that should be adapted to.
-   * @param [in] oldTimeTrajectory: The old time trajectories that is associated with the old mode schedule.
-   * @returns the status of the devised trajectory spreading strategy.
+   * @param [in] oldTimeTrajectory: The old time trajectories that is associated with the old mode schedule. A post-event sample lies
+   * after its event, as a rollout's does; a multiple-shooting solution's is first stamped there (stampPostEventSamplesAtIntervalStart()).
    */
-  Status set(const ModeSchedule& oldModeSchedule, const ModeSchedule& newModeSchedule, const scalar_array_t& oldTimeTrajectory);
-
-  /** Gets the trajectory-spreading strategy report. */
-  const Status& getStatus() const { return status_; }
+  void set(const ModeSchedule& oldModeSchedule, const ModeSchedule& newModeSchedule, const scalar_array_t& oldTimeTrajectory);
 
   /**
    * Adjust continuous-time trajectory.
@@ -68,16 +57,6 @@ class TrajectorySpreading final {
    */
   template <typename T>
   void adjustTrajectory(std::vector<T>& trajectory) const;
-
-  /**
-   * Extracts event-time data.
-   *
-   * @tparam data type.
-   * @param [in] array: The input array for rectification.
-   * @return: The output rectified array.
-   */
-  template <typename T>
-  std::vector<T> extractEventsArray(const std::vector<T>& array) const;
 
   /**
    * Adjust time stamp of the trajectories and post event indices of the trajectories.
@@ -136,11 +115,7 @@ class TrajectorySpreading final {
   /***********
    * Variables
    ***********/
-  const bool debugPrint_;
-
-  Status status_;
-  size_t eraseFromIndex_;                             /**< The first index to erase **/
-  std::pair<size_t, size_t> keepEventDataInInterval_; /**< Keep event data within [first, second) **/
+  size_t eraseFromIndex_; /**< The first index to erase **/
 
   size_array_t beginIndices_;
   size_array_t endIndices_;
@@ -154,32 +129,26 @@ class TrajectorySpreading final {
 /******************************************************************************************************/
 /******************************************************************************************************/
 template <typename T>
-std::vector<T> TrajectorySpreading::extractEventsArray(const std::vector<T>& array) const {
-  const auto firstItr = array.begin() + keepEventDataInInterval_.first;
-  const auto lastItr = array.begin() + keepEventDataInInterval_.second;
-  std::vector<T> out(firstItr, lastItr);
-  return out;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <typename T>
 void TrajectorySpreading::adjustTrajectory(std::vector<T>& trajectory) const {
+  // extract spreading values beforehand since they might be overridden, and before the erase: a backward spreading carries
+  // the post-event value of an old event, which lies at or after eraseFromIndex_ when the new schedule starts another mode
+  // before that event's samples
+  std::vector<T> spreadingValues;
+  spreadingValues.reserve(spreadingValueIndices_.size());
+  for (const size_t valueIndex : spreadingValueIndices_) {
+    spreadingValues.push_back(trajectory[valueIndex]);
+  }
+
   // erase segment of trajectory associated to mismatched modes
   trajectory.erase(trajectory.begin() + eraseFromIndex_, trajectory.end());
 
-  // extract spreading values beforehand since they might be overridden
-  std::vector<T> spreadingValues(spreadingValueIndices_.size());
-  std::transform(spreadingValueIndices_.begin(), spreadingValueIndices_.end(), spreadingValues.begin(),
-                 [&](const size_t& ind) { return trajectory[ind]; });
-
-  // spread
+  // spread over the kept samples only (computeSpreadingStrategy() already ends every spreading at eraseFromIndex_)
   for (size_t i = 0; i < spreadingValueIndices_.size(); i++) {
-    for (size_t j = beginIndices_[i]; j < endIndices_[i]; j++) {
+    const size_t endIndex = std::min(endIndices_[i], trajectory.size());
+    for (size_t j = beginIndices_[i]; j < endIndex; j++) {
       trajectory[j] = spreadingValues[i];
-    }  // end of i loop
-  }    // end of j loop
+    }  // end of j loop
+  }    // end of i loop
 }
 
 }  // namespace ocs2

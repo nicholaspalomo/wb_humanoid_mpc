@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 
 #include <ocs2_core/PreComputation.h>
@@ -56,7 +58,7 @@ class ControlledSystemBase : public OdeBase {
   ~ControlledSystemBase() override = default;
 
   /** Clone */
-  virtual ControlledSystemBase* clone() const = 0;
+  virtual ControlledSystemBase* absl_nonnull clone() const = 0;
 
   /** Resets the internal classes. */
   virtual void reset() { controllerPtr_ = nullptr; }
@@ -64,12 +66,12 @@ class ControlledSystemBase : public OdeBase {
   /**
    * Sets the control policy using the controller class.
    */
-  void setController(ControllerBase* controllerPtr) { controllerPtr_ = controllerPtr; };
+  void setController(ControllerBase* absl_nullable controllerPtr) { controllerPtr_ = controllerPtr; };
 
   /**
    * Returns the controller pointer.
    */
-  ControllerBase* controllerPtr() const { return controllerPtr_; };
+  ControllerBase* absl_nullable controllerPtr() const { return controllerPtr_; };
 
   /**
    * Computes the flow map of a system.
@@ -121,9 +123,6 @@ class ControlledSystemBase : public OdeBase {
    */
   vector_t computeJumpMap(scalar_t time, const vector_t& state) override final;
 
-  /** Get the pre-computation module */
-  const PreComputation& getPreComputation() const { return *preCompPtr_; }
-
  protected:
   /**
    * Copy constructor
@@ -136,7 +135,7 @@ class ControlledSystemBase : public OdeBase {
   std::unique_ptr<PreComputation> preCompPtr_;  //! pointer to pre-computation module
 
  private:
-  ControllerBase* controllerPtr_ = nullptr;  //! pointer to controller
+  ControllerBase* absl_nullable controllerPtr_ = nullptr;  //! pointer to controller
 };
 
 }  // namespace ocs2

@@ -54,6 +54,23 @@ struct StepInfo {
   // Performance result after the step
   PerformanceIndex performanceAfterStep;
   scalar_t totalConstraintViolationAfterStep;  // constraint metric used in the line search
+
+  // The line search's first trial, the full step (alpha = 1), whether it was accepted or not: the acceptance rule that
+  // judged it and its constraint metric. A rejected full step of type CONSTRAINT had a constraint metric above g_max.
+  // Recorded only; nothing in the solve reads them.
+  FilterLinesearch::StepType fullStepType = FilterLinesearch::StepType::UNKNOWN;
+  scalar_t fullStepConstraintViolation = 0.0;
+};
+
+/**
+ * One SQP iteration of a solve, as it ended: the performance the line search started from, the step it took and the
+ * convergence test after it (SqpSolver::getIterationRecords()). Passive data.
+ */
+struct IterationRecord {
+  PerformanceIndex baselinePerformance;       // at the iterate before the step
+  scalar_t baselineConstraintViolation = 0.0;  // the line search's constraint metric of baselinePerformance
+  StepInfo stepInfo;
+  Convergence convergence = Convergence::FALSE;
 };
 
 /** Transforms sqp::Convergence to string */

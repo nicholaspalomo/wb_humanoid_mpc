@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+// A dense vector of doubles (an Eigen vector_t). Packed on the wire.
+// Next ID: 2
+message Vector {
+  option (nproto.generate_struct) = "ocs2::legged::msgs::Vector";
+
+  reserved 2 to max;
+
+  repeated double data = 1;
+}

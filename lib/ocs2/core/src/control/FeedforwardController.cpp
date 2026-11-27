@@ -29,30 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iostream>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/control/FeedforwardController.h>
 
 namespace ocs2 {
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-FeedforwardController::FeedforwardController(const scalar_array_t& controllerTime, const vector_array_t& stateTrajectory,
-                                             ControllerBase* controller) {
-  if (controllerTime.size() != stateTrajectory.size()) {
-    throw std::runtime_error("FeedforwardController Constructor: controllerTime and stateTrajectory sizes mismatch.");
-  }
-
-  timeStamp_ = controllerTime;
-  uffArray_.clear();
-  uffArray_.reserve(controllerTime.size());
-
-  auto iTime = controllerTime.cbegin();
-  auto iState = stateTrajectory.cbegin();
-
-  for (; iTime != controllerTime.end() and iState != stateTrajectory.end(); ++iTime, ++iState) {
-    uffArray_.emplace_back(controller->computeInput(*iTime, *iState));
-  }
-}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -78,14 +59,6 @@ FeedforwardController& FeedforwardController::operator=(FeedforwardController rh
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void FeedforwardController::setController(const scalar_array_t& controllerTime, const vector_array_t& controllerFeedforward) {
-  timeStamp_ = controllerTime;
-  uffArray_ = controllerFeedforward;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 vector_t FeedforwardController::computeInput(scalar_t t, const vector_t& x) {
   return LinearInterpolation::interpolate(t, timeStamp_, uffArray_);
 }
@@ -93,7 +66,8 @@ vector_t FeedforwardController::computeInput(scalar_t t, const vector_t& x) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void FeedforwardController::flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>*>& flatArray2) const {
+void FeedforwardController::flatten(const scalar_array_t& timeArray,
+                                    const std::vector<std::vector<double>* absl_nonnull>& flatArray2) const {
   const auto timeSize = timeArray.size();
   const auto dataSize = flatArray2.size();
 
@@ -128,7 +102,7 @@ void FeedforwardController::flattenSingle(scalar_t time, std::vector<double>& fl
 /******************************************************************************************************/
 /******************************************************************************************************/
 FeedforwardController FeedforwardController::unFlatten(const scalar_array_t& timeArray,
-                                                       const std::vector<std::vector<double> const*>& flatArray2) {
+                                                       const std::vector<const std::vector<double>* absl_nonnull>& flatArray2) {
   vector_array_t uffArray;
   uffArray.reserve(flatArray2.size());
 
@@ -136,22 +110,6 @@ FeedforwardController FeedforwardController::unFlatten(const scalar_array_t& tim
     uffArray.emplace_back(Eigen::Map<const Eigen::VectorXd>(arr->data(), arr->size()));
   }
   return FeedforwardController(timeArray, std::move(uffArray));
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-void FeedforwardController::concatenate(const ControllerBase* nextController, int index, int length) {
-  if (auto nextFfwdCtrl = dynamic_cast<const FeedforwardController*>(nextController)) {
-    if (!timeStamp_.empty() && timeStamp_.back() > nextFfwdCtrl->timeStamp_.front()) {
-      throw std::runtime_error("Concatenate requires that the nextController comes later in time.");
-    }
-    int last = index + length;
-    timeStamp_.insert(timeStamp_.end(), nextFfwdCtrl->timeStamp_.begin() + index, nextFfwdCtrl->timeStamp_.begin() + last);
-    uffArray_.insert(uffArray_.end(), nextFfwdCtrl->uffArray_.begin() + index, nextFfwdCtrl->uffArray_.begin() + last);
-  } else {
-    throw std::runtime_error("Concatenate only works with controllers of the same type.");
-  }
 }
 
 /******************************************************************************************************/
@@ -186,7 +144,7 @@ bool FeedforwardController::empty() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-FeedforwardController* FeedforwardController::clone() const {
+FeedforwardController* absl_nonnull FeedforwardController::clone() const {
   return new FeedforwardController(*this);
 }
 
@@ -209,7 +167,7 @@ void swap(FeedforwardController& a, FeedforwardController& b) noexcept {
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::ostream& operator<<(std::ostream& out, const FeedforwardController& controller) {
-  for (int i = 0; i < controller.timeStamp_.size(); i++) {
+  for (size_t i = 0; i < controller.timeStamp_.size(); i++) {
     out << "t\t" << controller.timeStamp_[i] << "\tu\t" << controller.uffArray_[i].transpose() << '\n';
   }
   return out;

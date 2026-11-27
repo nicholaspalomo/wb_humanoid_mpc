@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+// The configuration files of a robot that the tuning GUI's Save delivers to the robot process (ConfigFileSave on
+// operator/config_save): each by its path below the robot's config/ directory and the legged_mpc_config message it
+// holds. The contact planner's file is the MPC's and has no kind: the robot process never stores a save of it.
+enum ConfigFileKind {
+  option (nproto.generate_enum) = "ocs2::legged::msgs::ConfigFileKind";
+
+  // LINT.IfChange(config_file_kinds)
+  CONFIG_FILE_KIND_UNSPECIFIED = 0;
+  // config/mpc/task.textproto, legged_mpc_config.TaskFile.
+  CONFIG_FILE_KIND_TASK = 1;
+  // config/command/reference.textproto, legged_mpc_config.ReferenceFile.
+  CONFIG_FILE_KIND_REFERENCE = 2;
+  // config/controller/joint_pd_gains.textproto, legged_mpc_config.JointPdGainsFile.
+  CONFIG_FILE_KIND_JOINT_PD_GAINS = 3;
+  // LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/StoredConfigFileKinds.h:stored_config_file_kinds, //legged_nmpc/legged_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout, //legged_nmpc/remote_control/remote_control/robot_config_save.py:file_kinds)
+}

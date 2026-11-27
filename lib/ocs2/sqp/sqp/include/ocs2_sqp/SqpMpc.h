@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_mpc/MPC_BASE.h>
 
 #include "ocs2_sqp/SqpSolver.h"
@@ -54,8 +56,8 @@ class SqpMpc final : public MPC_BASE {
 
   ~SqpMpc() override = default;
 
-  SqpSolver* getSolverPtr() override { return solverPtr_.get(); }
-  const SqpSolver* getSolverPtr() const override { return solverPtr_.get(); }
+  SqpSolver* absl_nonnull getSolverPtr() override { return solverPtr_.get(); }
+  const SqpSolver* absl_nonnull getSolverPtr() const override { return solverPtr_.get(); }
 
  protected:
   void calculateController(scalar_t initTime, const vector_t& initState, size_t initMode, scalar_t finalTime) override {

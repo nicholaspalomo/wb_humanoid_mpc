@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package robot_ipc_test;
+
+import "nproto/options.proto";
+import "robot_ipc_test/test_event.proto";
+
+// A configuration file's schema for the tests of the strict textproto parser (src/Textproto.h): a scalar, a field on
+// its way out, and nested messages.
+// Next ID: 4
+message TestSettings {
+  option (nproto.generate_struct) = "robot::ipc::test::TestSettings";
+
+  reserved 4 to max;
+
+  string name = 1;
+  // A file that still names it is an error.
+  int32 retired = 2 [deprecated = true];
+  repeated TestEvent events = 3;
+}

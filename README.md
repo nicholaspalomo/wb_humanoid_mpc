@@ -1,248 +1,587 @@
 # Whole-Body Humanoid MPC
 
-This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMPC) for humanoid loco-manipulation control. This approach enables to directly optimize through the **full-order torque-level dynamics in realtime** to generate a wide range of humanoid behaviors building up on an extended & updated version of [OCS2](https://github.com/leggedrobotics/ocs2) integrated natively into a **Bazel monorepo**.
+This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMPC) for the loco-manipulation control of humanoids and other legged robots: bipeds, quadrupeds and wheeled-legged robots. This approach directly optimizes through the **full-order torque-level dynamics in real time** to generate dynamic humanoid behaviors, building upon an extended and updated version of [OCS2](https://github.com/leggedrobotics/ocs2) integrated natively into a **Bazel monorepo**.
 
 **Interactive Velocity and Base Height Control via Joystick:**
 
 ![vokoscreenNG-2025-12-21_20-35-31-ezgif com-optimize](https://github.com/user-attachments/assets/daf374ba-fe82-469d-9270-63d18a51bb53)
 
-
-It contains the following hardware platform agnostic MPC formulations:
+## MPC Formulations
 
 ### Centroidal Dynamics MPC
-The centroidal MPC optimizes over the **whole-body kinematics** and the center of mass dynamics, with a choice to either use a single rigid body model or the full centroidal dynamics. This specific approach builds up on the centroidal model in OCS2 by generalizing costs and constraints to a 6 DoF contact among others. A concise explanation of the OCS2 centroidal model can be found in [Sleiman et. al., A Unified MPC Framework for Whole-Body Dynamic Locomotion and Manipulation](https://arxiv.org/abs/2103.00946).
+The centroidal MPC optimizes over the **whole-body kinematics** and the center of mass dynamics, with a choice to use either a Single Rigid Body Dynamics (SRBD) model or the full centroidal dynamics. This approach extends the OCS2 centroidal formulation by generalizing costs and constraints to 6-DoF contacts and arbitrary end-effectors. For theoretical background, see [Sleiman et al., *A Unified MPC Framework for Whole-Body Dynamic Locomotion and Manipulation*](https://arxiv.org/abs/2103.00946).
 
 ### Whole-Body Dynamics MPC
-The **whole-body dynamics** MPC optimizes over the contact forces and joint accelerations with the option to compute the joint torques for each step planned across the horizon. The most relevant information on the chosen approach can currently be found in [Galliker et al., Bipedal Locomotion with Nonlinear Model Predictive Control: Online Gait Generation using Whole-Body Dynamics](http://ames.caltech.edu/galliker2022bipedal.pdf).
+The **whole-body dynamics** MPC optimizes directly over contact forces, joint accelerations, and joint torques across the planning horizon. For details on the optimization and dynamic consistency formulation, see [Galliker et al., *Bipedal Locomotion with Nonlinear Model Predictive Control: Online Gait Generation using Whole-Body Dynamics*](http://ames.caltech.edu/galliker2022bipedal.pdf).
 
-### Robot Examples
+### System Overview
 
-The project supports the following robot examples:
+```mermaid
+flowchart LR
+    subgraph cmd["Commands"]
+        VEL["Velocity command<br/>(joystick / keyboard / GUI)"]
+        GUI["Controller GUI<br/>live task.textproto tuning"]
+    end
 
-- Unitree G1
-- DRC Atlas
-- 1X Neo (Coming soon)
+    subgraph ref["Reference generation (solver pre-solve hooks)"]
+        MM["Procedural motion manager<br/>target trajectories (CoM velocity, base pose)"]
+        GS["Gait schedule<br/>periodic mode templates"]
+        CP["Online contact planner<br/>H-LIP or LIP MIQP: contacts, timing, footholds<br/><i>contact_schedule_source: contact_planner</i>"]
+        RM["Switched-model reference manager<br/>mode schedule · swing-foot height · landing references"]
+    end
 
-![Screencast2024-12-16180254-ezgif com-optimize(3)](https://github.com/user-attachments/assets/d4b1f0da-39ca-4ce1-b53c-e1d040abe1be)
+    subgraph mpc["Centroidal NMPC (OCS2 SQP + HPIPM)"]
+        OCP["Costs: state / input / CoM+aCoM / foot & torso task-space<br/>Terminal: DCM viability (<i>dcm_terminal_cost</i>) or final_state_weights (<i>terminal_cost</i>)<br/>Constraints: contact wrench cone / basis vectors, zero velocity, normal velocity, joint limits"]
+        UPD["Parameter updater<br/>hot reload of task.textproto"]
+    end
 
-## Get Started
+    subgraph rt["Runtime"]
+        MRT["MRT joint controller<br/>inverse dynamics + PD tracking"]
+        SIM["MuJoCo simulation or robot"]
+        TEL["Visualization & telemetry<br/>Rerun"]
+    end
 
-### Repository Setup
-
-Clone the repository:
-
-```bash
-git clone https://github.com/1x-technologies/wb-humanoid-mpc.git
-cd wb-humanoid-mpc
+    VEL --> MM
+    MM --> RM
+    GS -. "default" .-> RM
+    CP -. "when enabled" .-> RM
+    MM -. "commanded velocity" .-> CP
+    RM --> OCP
+    OCP --> MRT
+    MRT --> SIM
+    SIM -- "state feedback" --> OCP
+    SIM -- "state feedback" --> CP
+    GUI --> UPD
+    UPD --> OCP
+    UPD -. "planner config" .-> CP
+    SIM --> TEL
 ```
 
-> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for native dependency resolution. Legacy ROS/colcon submodules are fully integrated into the monorepo structure.
+The reference layer decides *when* and *where* the feet touch the ground, the NMPC decides *how* the whole body moves. Two optional formulation features change the reference layer and the end of the NMPC horizon; both are selected by name in the robot's `config/mpc/task.textproto`:
 
-### Install Dependencies & Workspace Setup
-The project supports both Dockerized workspaces (recommended) or a local installation for developing and running the humanoid MPC.
+| Selection | What it does |
+| --- | --- |
+| `dcm_terminal_cost` in `costs` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic terminal cost `terminal_cost` on `final_state_weights`; the two are alternatives, and start-up refuses a list that includes both. Keeps the horizon end capturable for any gait cadence. |
+| `contact_schedule_source: "contact_planner"` | Replaces the periodic gait schedule (`gait_schedule`, the default, which every robot ships) with an online contact planner, selected by `planner.type` in `config/mpc/contact_planning.textproto`: the closed-form H-LIP stepper (`hlip`, both shipped robots; [legged_nmpc/docs/hlip_contact_planner/README.md](legged_nmpc/docs/hlip_contact_planner/README.md)) or the mixed-integer program (`lip_miqp`: LIP model, branch-and-bound over HPIPM relaxations). It chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Optional, off by default: the executed schedule can adapt to measured early / late touch-downs and the landing targets can follow the capture point (the `phase_resetting` and `dcm_step_adjustment` rules of the planner's `execution` list). The planner is assembled from named terms listed in `config/mpc/contact_planning.textproto`, like the NMPC from the task file's lists. |
 
-**Platform Support:** The Docker setup is fully compatible with **Linux** and **macOS** (including Apple Silicon via Rosetta 2 x86 emulation). On macOS, GUI visualization uses VNC instead of native X11 forwarding — see the [Visualization Guide](.devcontainer/VISUALIZATION.md) for details.
+Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost` and `use_contact_planning`: a task file that still contains one is refused when read, with an error reporting its replacement. The formulation and the math of both features are described in [legged_nmpc/docs/README.md](legged_nmpc/docs/README.md).
+
+## Supported Robot Models
+
+| Robot Platform | Centroidal NMPC | Whole-Body NMPC | MuJoCo Physics Sim | Dummy Sim |
+|---|:---:|:---:|:---:|:---:|
+| **Unitree G1** | Yes | Yes | Yes | Yes |
+| **Unitree R1** | Yes | - | Yes | Yes |
+| **DRC Atlas** | Yes | - | Yes | Yes |
+| **EngineAI SA01** | Yes | - | Yes | Yes |
+| **ANYbotics ANYmal B** (quadruped) | Yes | - | Yes | Yes |
+| **LimX Dynamics Tron1** (wheel-foot biped) | Yes | - | Yes | Yes |
+| **ANYbotics ANYmal C on wheels** (wheeled quadruped) | Yes | - | Yes | Yes |
+| **1X Neo** | *Coming Soon* | *Coming Soon* | *Coming Soon* | *Coming Soon* |
+
+ANYmal B is the first robot that is not a biped: four point-contact feet on the centroidal MPC, with the shared
+quadruped gait file. The whole-body MPC accepts only two 6-DoF feet, so it has no whole-body configuration
+([robot_models/anybotics_anymal_b/README.md](robot_models/anybotics_anymal_b/README.md)).
+
+LimX Tron1 stands and drives on two wheels: the centroidal MPC plans on one rolling contact per wheel, whose force acts
+at the wheel's lowest point and whose material there does not slip in stance
+([legged_nmpc/docs/rolling_contact/README.md](legged_nmpc/docs/rolling_contact/README.md)), with the wheeled
+bipeds' gait file ([robot_models/limx_tron1/README.md](robot_models/limx_tron1/README.md)). The wheeled ANYmal C drives
+on four rolling contacts and turns in a trot, with the wheeled quadrupeds' gait file
+([robot_models/anybotics_anymal_c_wheels/README.md](robot_models/anybotics_anymal_c_wheels/README.md)).
+
+**Unitree G1:**
+
+![Unitree G1](https://github.com/user-attachments/assets/d4b1f0da-39ca-4ce1-b53c-e1d040abe1be)
+
+**DRC Atlas:**
+
+![DRC Atlas](https://github.com/user-attachments/assets/ab7cd9c6-6919-4e9a-b6af-1a67725b5fcf)
+
+## Getting Started
+
+### 1. Repository Setup
+
+```bash
+mkdir -p ~/workspace
+git clone https://github.com/1x-technologies/wb-humanoid-mpc.git ~/workspace/wb_humanoid_mpc
+cd ~/workspace/wb_humanoid_mpc
+```
+
+> **Note:** The dev container expects the checkout at `<home>/workspace/wb_humanoid_mpc`. `docker-compose.yaml` mounts
+> the checkout's grandparent (your home) at `/wb_humanoid_mpc_ws` and starts in
+> `/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc`, where `.devcontainer/devcontainer.json` opens the workspace too. The
+> launch targets and the editor's clangd (`tools/ide/README.md`) reach the container's checkout through the same mount.
+
+> **Note:** The packages are named `legged_*` (`legged_nmpc`, `legged_state_estimation`, `legged_learning`, the C++
+> namespace `ocs2::legged`), since the controllers run quadrupeds and wheeled robots too. The repository, the Bazel
+> module `wb_humanoid_mpc` and the container mount `/wb_humanoid_mpc_ws` keep their names: renaming them would break
+> existing checkouts and dev setups.
+
+> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. There is no ROS: the robot, the MPC and the operator tools are separate processes on an Eclipse Zenoh + Protocol Buffers bus (plain Zenoh peers, no ROS middleware and no router), and Rerun draws the robot, the plan and the plots ([legged_nmpc/docs/distributed_runtime/README.md](legged_nmpc/docs/distributed_runtime/README.md)).
+
+### 2. Environment Setup
+
+The recommended way to develop and run the simulation is using the provided Docker container.
 
 <details>
-<summary>Build & run Dockerized workspace in VS Code</summary>
+<summary><b>Option A: VS Code Dev Containers (Recommended)</b></summary>
 
-We provide a [Dockerfile](docker/Dockerfile) to enable running and developing the project from a containerized environment. Check out [devcontainer.json](.devcontainer/devcontainer.json) for environment configuration.
-
-For working in **Visual Studio Code**, install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension. Open the repository in VS Code, press `Ctrl + Shift + P` (or `Cmd + Shift + P`), and select `Dev Containers: Rebuild and Reopen in Container`.
-
-Once the container starts, the Git pre-commit hooks and Bazel environment are automatically configured.
+1. Install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension in VS Code.
+2. Open the repository in VS Code, press `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS), and select **Dev Containers: Reopen in Container**.
+3. Once the container builds, the environment is automatically set up.
 
 </details>
 
 <details>
-<summary>Build & run Dockerized workspace in alternative IDE (e.g. Antigravity / Cursor)</summary>
+<summary><b>Option B: Docker Compose / Remote SSH (Antigravity / Cursor / Terminal)</b></summary>
 
-If you are not using VS Code or are connected via Remote SSH:
-
-1. Spin up the container from the repository root (`docker-compose.yaml`):
-
-```bash
-docker compose up -d --build
-```
-
-2. Attach your IDE terminal to the container:
-
-```bash
-docker compose exec app bash
-```
-
-Alternatively, use the provided helper scripts:
-```bash
-./docker/image_build.bash
-./docker/launch_wb_mpc.bash
-```
+1. Start the container in detached mode. The first command caps its memory at 85% of the host's RAM with no swap
+   beyond it (see `tools/resource_limits/set_container_memory_limit.sh`), so a runaway build is stopped inside the
+   container instead of freezing the machine:
+   ```bash
+   tools/resource_limits/set_container_memory_limit.sh && docker compose up -d --build
+   ```
+2. Attach a terminal into the container:
+   ```bash
+   docker compose exec app bash
+   ```
 
 </details>
 
 <details>
-<summary>Install Dependencies Locally</summary>
+<summary><b>Option C: Local Installation (Ubuntu 24.04)</b></summary>
 
-Make sure you have **ROS 2** installed on your system (e.g. ROS 2 Jazzy as specified in the [installation guide](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)).
-
-Install system dependencies and Bazel (via Bazelisk):
-
+Install Pinocchio from robotpkg into `/opt/openrobots`, then the system packages and Bazelisk, as the dev image does
+(`docker/Dockerfile`):
 ```bash
-envsubst < dependencies.txt | xargs sudo apt-get install -y --no-install-recommends
+sudo sh docker/install_robotpkg.sh
+grep -v '^\s*#' dependencies.txt | xargs sudo apt-get install -y --no-install-recommends
 curl -sSL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
 sudo chmod +x /usr/local/bin/bazel
-```
-
-Install Git pre-commit formatting hooks:
-```bash
 make install-hooks
 ```
 
 </details>
 
-### Building the MPC with Bazel
+## Build & Test Commands
 
-The repository uses **Bazel** for high-performance parallel compilation. Build limits are pre-configured in `.bazelrc` (`--jobs=8`) to optimize build times while preventing system RAM exhaustion.
+The repository includes a top-level `Makefile` for streamlined building and testing:
 
 ```bash
 # Build all Bazel targets across the monorepo
 make build-all
 
-# Run all unit tests
+# Run all unit and integration tests
 make test-all
 
-# Auto-format C++ and Python source files
+# Run a batch of them, as each of CI's test jobs does (Bazel target patterns; a leading - excludes)
+make test-all TEST_TARGETS="//robot_runtime/... //config/..."
+
+# Run code formatters (Clang-Format, Black, whitespace)
 make format
+
+# Run linter and verify IFTTT directives
+make lint
+
+# Apply every automatic lint fix, then lint what is left to fix by hand (build and test afterwards)
+make fix
+
+# Clean build artifacts
+make clean        # Incremental clean
+make clean-all    # Deep clean including external caches
 ```
 
-## Running the Examples
+## Launching Simulations
 
-Once you launch the NMPC, an RViz visualization window will appear. The first time you start the MPC for a robot model, CppAD auto-differentiation code generation will run (which may take a few minutes depending on your system). Subsequent runs reuse generated dynamic libraries instantly.
+### How it runs
+The robot and the MPC are separate processes on an Eclipse Zenoh + Protocol Buffers bus, as on hardware: the **robot process**
+(the realtime loop: MuJoCo as its backend, the MRT joint controller, the FSM) runs on the robot's computer, the **MPC
+node**, the **remote-control GUI** and the **Rerun bridge** on the laptop
+([architecture](legged_nmpc/docs/distributed_runtime/README.md)). Simulation mirrors that: `make launch-<robot>-sim`
+starts the robot process in the `robot-sim` container (the robot's own slim image and compose file, with its
+`SCHED_FIFO` and locked memory, plus only the MuJoCo viewer's GL) and the laptop side in the dev container, over the
+remote MPC link. Starting a container takes the host's Docker, so run the `-sim` targets **on the host** (Linux); they
+build and run the laptop side inside the dev container through `docker exec` (`DEV_CONTAINER=`). The dummy-sim and
+sandbox targets run anywhere.
 
-### Visualization Setup
+### Visualization Options
 
-- **Linux:** GUI applications render directly via X11 forwarding (`DISPLAY=:99` or host display).
-- **macOS / Remote SSH:** Use the `-vnc` suffixed Makefile targets which automatically launch the built-in VNC server. Open **http://localhost:6080/vnc.html** in your browser and click **Connect**. See the [Visualization Guide](.devcontainer/VISUALIZATION.md) for complete details.
+<!-- LINT.IfChange(views) -->
+Every launch target takes `VIEWS=`, one name for where its three views go, and prints the URL of each right before the
+laptop side starts ([Visualization Guide](.devcontainer/README.md#views-browser-tabs-or-the-vnc-desktop)):
 
-### Launch Commands
+| `VIEWS=` | MuJoCo (`-sim`) | Rerun | Operator GUI (Tk) |
+|----------|-----------------|-------|-------------------|
+| `browser` (default) | **`http://localhost:6090`** | **`http://localhost:9090/?url=rerun+http://localhost:9876/proxy`** | **`http://localhost:6080/vnc.html`** (noVNC) |
+| `vnc` (the `-vnc` targets) | window on the VNC desktop `:99` | native viewer on `:99` | on `:99`: one noVNC tab |
+| `display` | window on this shell's `DISPLAY` | native viewer on `DISPLAY` | window on `DISPLAY` |
 
-For **Centroidal Dynamics MPC**:
+`browser` and `vnc` start the VNC desktop first; `display` stops with a hint when no X server answers on `DISPLAY`.
+`VIEWER=` (MuJoCo: `glfw|web|none`) and `RERUN_SINK=` (`serve_web|spawn|connect|save`) override the view's choice.
+The laptop side is launched the same way in simulation and on the robot (`launch-<robot>-mpc[-vnc]`).
+<!-- LINT.ThenChange(//Makefile:views) -->
+
+- On **local Linux** with `VIEWS=display`, the windows draw on the display of the shell the target runs in. From the
+  host, allow the containers on it once: `xhost +SI:localuser:root +SI:localuser:$(id -un)`.
+- Over **remote SSH (Linux host)**, forward ports `6080`, `6090`, `9090` and `9876` (`devcontainer.json` does); the
+  default browser view needs nothing else.
+- On **macOS (Docker Desktop)**, the containers do not share a host network, so the MuJoCo `-sim` targets do not
+  run; use `make launch-<robot>-dummy-sim` and the sandbox targets, which run entirely in the dev container.
+- **The MuJoCo web viewer** renders offscreen without an X server or VNC. Without `VIEWS=` on the command line the plot
+  configuration chooses the viewer (`mujoco_viewer: "web"` in
+  [`plot_config.textproto`](legged_nmpc/legged_rerun_viewer/config/plot_config.textproto); `PLOT_CONFIG=` selects
+  another file). See the [Visualization Guide](.devcontainer/README.md#mujoco-web-viewer).
+
+### Launch Targets
+
+<!-- LINT.IfChange(launch_targets) -->
+For every robot configuration - `g1` (Unitree G1, centroidal MPC), `wb-g1` (G1, whole-body MPC), `drc-atlas`, `r1`
+(Unitree R1), `sa01` (EngineAI SA01), `anymal-b` (ANYbotics ANYmal B, centroidal MPC), `tron1` (LimX Tron1, centroidal
+MPC), `anymal-c-wheels` (the wheeled ANYbotics ANYmal C, centroidal MPC):
 
 ```bash
-# G1 Robot Dummy Simulation
-make launch-g1-dummy-sim          # X11 Forwarding (Linux)
-make launch-g1-dummy-sim-vnc      # VNC Browser Display (macOS / Remote)
-
-# DRC Atlas Robot Simulation
-make launch-drc-atlas-dummy-sim     # Dummy simulation (Linux)
-make launch-drc-atlas-dummy-sim-vnc # Dummy simulation (macOS / VNC)
-make launch-drc-atlas-sim           # MuJoCo simulation (Linux)
-make launch-drc-atlas-sim-vnc       # MuJoCo simulation (macOS / VNC)
+make launch-drc-atlas-sim             # MuJoCo sim: robot-sim container + MPC, GUI and Rerun bridge (run on the host);
+                                      # three browser tabs: MuJoCo, Rerun and the GUI through noVNC
+make launch-drc-atlas-sim-vnc         # ... all three on the VNC desktop (VIEWS=vnc; not on macOS: Docker Desktop)
+make launch-drc-atlas-dummy-sim       # the MPC against the dummy simulator (the MPC model's own rollout)
+make launch-drc-atlas-dummy-sim-vnc
+make launch-drc-atlas-sandbox-vnc     # the URDF in Rerun with a slider per joint (not for wb-g1: use g1)
+make launch-drc-atlas-sim NETEM="delay 3ms 1ms loss 0.5%"   # the bus over a delayed, lossy link (tc netem)
+make launch-drc-atlas-sim VIEWS=display     # native windows on this shell's DISPLAY
+make launch-drc-atlas-sim VIEWER=none RERUN_SINK=spawn    # no MuJoCo viewer; Rerun's native viewer
 ```
 
-For **Whole-Body Dynamics MPC**:
+On a real robot (the robot's computer needs only Docker; [tools/deploy](tools/deploy/README.md)):
 
 ```bash
-# G1 Robot Whole-Body Simulation
-make launch-wb-g1-dummy-sim       # X11 Forwarding (Linux)
-make launch-wb-g1-dummy-sim-vnc   # VNC Browser Display (macOS / Remote)
+cp config/ipc/two_machine.example.textproto my_network.textproto     # both machines' addresses
+make deploy-robot ROBOT=drc_atlas HOST=<robot ssh host> NETWORK=my_network.textproto SERVICE=enable
+make launch-drc-atlas-mpc NETWORK=my_network.textproto               # the laptop side (-mpc-vnc: on the VNC desktop)
+make launch-drc-atlas-robot HOST=<robot ssh host>                    # or the robot side in the foreground
 ```
 
-#### Interactive Robot Control
-Command a desired base velocity and root link height via the **Robot Base Controller GUI** and an **Xbox Controller Joystick**. For the joystick, connect via USB or Bluetooth. The GUI automatically detects connected joysticks and provides interactive velocity sliders.
+`make help` lists the targets and their variables; `make rerun-viewer` / `make rerun-web` start a bridge on its own,
+`make ipc-list`, `make ipc-echo TOPIC=mpc/status` and `make ipc-hz TOPIC=robot/mpc_observation` inspect the bus.
+<!-- LINT.ThenChange(//Makefile:launch_targets, //Makefile:robot_configurations) -->
+
+The DRC Atlas's multi-contact scenarios (stairs, climbing onto a box, car egress, getting up;
+[legged_nmpc/docs/multi_contact_planning](legged_nmpc/docs/multi_contact_planning/README.md)) each have a dummy sim
+of the centroidal MPC tracking the scenario's offline plan, with the terrain in Rerun:
+
+<!-- LINT.IfChange(multi_contact_targets) -->
+```bash
+make launch-drc-atlas-stairs-dummy-sim         # also stairs-steep, box-climb, box-climb-high, car-egress,
+make launch-drc-atlas-box-climb-dummy-sim-vnc  # get-up-supine and get-up-prone; -vnc on the VNC desktop
+```
+
+The stairs dummy sim walks up the stairs, stands on the top, walks backward down them, stands at the bottom and starts
+again, over and over (`multi_contact_plan.playback: "forward_and_reverse"`); every other scenario plays its plan once.
+<!-- LINT.ThenChange(//Makefile:multi_contact_targets, //Makefile:multi_contact_scenarios) -->
+
+Their plans come from the offline planner, and each plan plays back kinematically in Rerun:
+
+<!-- LINT.IfChange(multi_contact_plan_targets) -->
+```bash
+make plan-drc-atlas-box-climb       # plan the scenario with its own planner (MULTI_CONTACT_PLANNER=<name> overrides it):
+                                    # legged_nmpc/legged_multi_contact/plans/box_climb.binpb
+make playback-drc-atlas-box-climb   # play the plan in Rerun (RERUN_SINK=, default serve_web: http://localhost:9090)
+```
+<!-- LINT.ThenChange(//Makefile:multi_contact_plan_targets) -->
+
+> **Cleanup Tip:** Run `make kill-sims` at any time to stop what a launch target left running: its launcher, the
+> robot-sim container and a NETEM qdisc.
+
+## Interactive Controls & Simulation Lifecycle
+
+### Supervisory Finite State Machine (FSM)
+Simulations launch in a safe **Zero-Torque Mode** suspended on a virtual gantry so the robot settles safely while the MPC solver initializes:
+
+| FSM State / Mode | Description |
+|---|---|
+| `ZERO_TORQUE` | Passive spawn state; solver warms up without commanding torques. |
+| `JOINT_PD` | Joint-space proportional-derivative posture control tracking nominal stance. |
+| `WB_MPC` / `MPC_ACTIVE` | Active Whole-Body / Centroidal MPC solver closed-loop control. |
+| `LOCK_GANTRY` / `UNLOCK_GANTRY` | Suspends or releases the virtual gantry holding the floating base. |
+
+State transitions travel on the IPC bus (`legged_nmpc/legged_mpc_ipc/include/legged_mpc_ipc/Topics.h`):
+- The **command topic** is `operator/fsm_command` (`legged_mpc_msgs.FsmCommand`: the command and a sequence number).
+- The **state topic** is `robot/fsm_state` (`legged_mpc_msgs.FsmState`: `mode`, `gantry_locked`, `controller_resets`, `mpc_healthy`), published on every change and at 2 Hz, so a GUI that starts late learns the current state (the remote control re-centers its joysticks on a transition into a passive mode, a new lock and a new reset; see [legged_nmpc/remote_control/README.md](legged_nmpc/remote_control/README.md)).
+
+### Teleoperation & Root Height Control
+- Use the **Robot Base Controller GUI** or connect an **Xbox Controller** to command velocity vectors ($v_x, v_y, \omega_z$).
+- The **Height Slider** controls the **Virtual Gantry Height** when locked (allowing you to lift and lower the robot above the ground) and sets the **Desired Pelvis Height** when walking.
 
 ![robot_remote_control](https://github.com/user-attachments/assets/779be1da-97a1-4d0c-8f9b-b9d2df88384f)
 
-## Reinforcement Learning with MuJoCo Playground (`humanoid_learning`)
+### Interactive Controller GUI & Parameter Tuning Tabs
 
-The repository includes a GPU-accelerated Reinforcement Learning pipeline built on **Google DeepMind's [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**, **MuJoCo MJX**, **JAX**, and **Brax**.
+The joystick GUI (`base_velocity_controller_gui`, [legged_nmpc/remote_control/README.md](legged_nmpc/remote_control/README.md)) features a dark-themed tabbed interface:
+
+1. **Base Controller**
+   - Command planar velocities ($v_x, v_y, \omega_z$) via interactive virtual joysticks or physical Xbox gamepad.
+   - Adjust root pelvis height and virtual gantry suspension.
+   - Switch supervisory FSM modes (`ZERO_TORQUE`, `JOINT_PD`, `GRAVITY_COMP`, `WB_MPC`, `SAFETY`).
+   - A drop-down for every task-file choice the schema marks with `base_controller_label` (`tuning_options.proto`), such as the contact estimator (`contact_estimator`: `"cheater_sim"`, `"always_in_contact"`, ...), showing the current value in the MPC Parameters tab (the default included) and applied live through the parameter topic.
+   - **Open Rerun viewer** starts a Rerun bridge of its own, which opens a native viewer (on port 9877, next to the launch file's web viewer) with the 3D scene and the plot tabs.
+
+2. **Joint PD Gains (`joint_pd_gains.textproto`)**
+   - A slider and a numeric entry per gain of the file: the default gains and each joint's proportional ($K_p$) and derivative ($K_d$) gain.
+   - **Limb grouping** organizes the joints' rows into torso and spine, left and right leg, left and right arm, and head and neck.
+   - **Global scaling** multipliers ($\times 0.001 \dots \times 2.0$) scale all $K_p$ and $K_d$ gains simultaneously.
+   - **Robot model presets** switch between Unitree G1, DRC Atlas, Unitree R1, EngineAI SA01, ANYbotics ANYmal B, LimX Tron1 and the wheeled ANYmal C gain files.
+   - **Save** writes the laptop's file and sends the same text to the robot's store; the status line shows the
+     robot's answer.
+
+3. **MPC Parameters (`task.textproto`, and `contact_planning.textproto` for a robot with a contact planner)**
+   - A slider, entry, checkbox or choice per number, bool and registry name of the two files, shown block by block in
+     the order of the file: the state, input and terminal weights by coordinate and joint name (`state_weights`,
+     `input_weights`, `final_state_weights`), the task-space costs, the constraints and barriers, the solver and
+     horizon, and the contact planner's blocks.
+   - Both formulations apply the hot fields live: the parameter updater of the running centroidal or whole-body MPC
+     applies an edit before its next solve. A field the running MPC applies only at its next start is labeled
+     **(restart)**; one the file's formulation does not read is labeled **not applicable** and says why.
+   - **Save** writes both files on the laptop and sends the task file's text to the robot's store (the
+     contact-planning file is the MPC's alone).
+
+4. **Joint Targets** provides a position slider per joint, starting from the reference file's `default_joint_state` and published in `JOINT_PD` only.
+5. **Command Limits (`reference.textproto`)** exposes the velocity command limits and reference defaults, which the running MPC reloads when the file is saved; Save also sends the file to the robot's store, which the robot reads at its next start.
+6. **Dodgeball** aims and throws a ball at the robot in simulation ([legged_nmpc/docs/dodgeball/README.md](legged_nmpc/docs/dodgeball/README.md)).
+
+The tuning tabs are built from the schemas of their files, so a hyperparameter added to a schema appears in the GUI
+with no GUI code. How they publish and save is described in the next section.
+
+### Configuration Files and Tuning (textproto)
+
+Every hyperparameter of the MPC, the robot's controller and the tuning GUI is stored in a typed textproto, parsed strictly
+into the message of its schema in [legged_nmpc/legged_mpc_config](legged_nmpc/legged_mpc_config/README.md):
+
+| File | Message | What it sets |
+|---|---|---|
+| `robot_models/<robot>/<package>/config/mpc/task.textproto` | `TaskFile` | the MPC formulation (term lists, weights, constraints, solver, horizon), the robot process, the simulator, the telemetry and the visualization |
+| `.../config/command/reference.textproto` | `ReferenceFile` | the command limits and filters, the default base height and joint state, the initial gait |
+| `.../config/controller/joint_pd_gains.textproto` | `JointPdGainsFile` | the PD gains and torque limits of the MRT joint controllers |
+| `.../config/mpc/contact_planning.textproto` | `ContactPlanningFile` | the online contact planner (DRC Atlas and EngineAI SA01) |
+| `legged_nmpc/legged_common_mpc/config/command/gait.textproto` | `GaitFile` | the gaits of the procedural motion manager, shared by every robot |
+
+Each file specifies its schema in its first two lines, which the parsers check and `make lint` requires. The task file
+starts with the runtime flags of the robot process and the GUI:
+
+```textproto
+# proto-file: legged_nmpc/legged_mpc_config/task_file.proto
+# proto-message: legged_mpc_config.TaskFile
+telemetry_sinks: "bus"         # where the robot process sends robot/state, by name; no telemetry_sinks line turns it off
+telemetry_frequency: 100       # [Hz] robot/state, decimated from the control loop
+enable_online_tuning: true     # Enable runtime parameter and gain tuning in Controller GUI
+# Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
+telemetry_frames: "foot_l_contact"
+telemetry_frames: "foot_r_contact"
+telemetry_frames: "pelvis"
+```
+
+- **`telemetry_sinks`** lists the telemetry sinks of the robot process by name (`legged_nmpc/legged_common_mpc_app/robot/README.md`): `bus` publishes every sample on `robot/state`; a file without a `telemetry_sinks` line turns the telemetry off, and the realtime loop then samples nothing. The retired boolean `enable_telemetry` is refused with this replacement.
+- **`enable_online_tuning`**, when `false`, disables all sliders, quick multipliers, and save buttons in the **Joint PD Gains**, **MPC Parameters**, and **Command Limits** tabs, displaying an orange safety badge `Online Tuning Disabled`.
+- **`telemetry_frames`** is an optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
+
+Weights and states are addressed by name, never by index. Momenta, positions and velocities are `{x y z}` blocks, the
+base orientation is tuned in Euler angles `{yaw pitch roll}` (the MPC's state stores a unit quaternion, and one layer
+maps the angles onto it: [quaternion_base_orientation](legged_nmpc/docs/quaternion_base_orientation/README.md)), and
+joints are named entries; every joint of the MPC model is listed exactly once, and a missing, unknown or fixed joint is
+refused by name:
+
+```textproto
+state_weights {
+  scaling: 85
+  mnorm_linmom_com_rt_world_ewrt_world {
+    x: 10  # h_com_x / robotMass
+    y: 10  # h_com_y / robotMass
+    z: 15  # h_com_z / robotMass
+  }
+  eulerzyx_base_rt_world {
+    yaw: 0  # theta_base_z
+    pitch: 0  # theta_base_y
+    roll: 0  # theta_base_x
+  }
+  joint_positions { joint: "back_bkz" value: 5 }
+  joint_positions { joint: "back_bky" value: 5 }
+  # ... every other joint of the MPC model
+}
+```
+
+- **Strict parsing** rejects any field the schema does not have, a value of the wrong type or a field given twice with
+  an error that reports the file, the line and the column (`task.textproto:12:3: ...`). A retired field states what
+  replaced it: `use_dcm_terminal_cost`, for example, directs you to list `dcm_terminal_cost` under `costs`.
+- **Defaults** come from `[default = ...]` in the `.proto` when a scalar field is omitted; an omitted repeated field is
+  empty.
+- **Named components are strings** (`costs: "dcm_terminal_cost"`, `contact_estimator: "cheater_sim"`,
+  `planner { type: "hlip" }`), which their registries resolve, refusing an unknown name with the valid ones.
+
+**Tuning by hand.** Edit a file and save it: the running stack applies the fields the schema marks hot
+(`reload: RELOAD_HOT` in a field's `tuning` options; the GUI labels the others "(restart)"). The MPC, centroidal or
+whole-body, polls the task, reference and contact-planning files about once a second and logs every other changed
+field as taking effect at the next start. The robot process reads its own copies from its persistent store: it watches
+the stored task file for its controller-side settings (`contact_estimator`, `contact_wrench_gate`), and the MRT joint
+controllers watch the stored PD gains file. An editor's save therefore reaches the MPC at once and a running robot at
+its next start, or at once with `bazel run //legged_nmpc/remote_control:push_robot_config -- <file>`. A reload is
+complete: a field or block it leaves out takes its default, as at start-up, not the value that was running. A
+file that does not parse is logged and the running values stay, and so do those of a block whose conversion is
+refused.
+
+**Tuning in the GUI.** The MPC Parameters and Joint PD Gains tabs publish every change, debounced, as the edited
+file (`legged_mpc_config.MpcParameterUpdate` on `operator/mpc_parameters`, `legged_mpc_config.JointPdGainsFile` on
+`operator/pd_gains`) after parsing the edited text strictly, so an edit the schema would refuse is reported on the tab
+and never sent. Nothing is written to disk until **Save**, which
+changes only the values that were edited and keeps every other byte of the file (comments, blank lines, `LINT`
+directives, the spelling of the values not edited), replaces the file atomically so that no file watcher reads half
+of it, and keeps the file as it was before the first save as `<file>.bak`. Save then delivers the text it
+wrote to the robot's persistent store (`operator/config_save`), which checks it as at start-up, stores it atomically
+and answers; the tab shows "Saved on the laptop and on the robot", the robot's refusal, or that the robot's copy is
+unknown when it did not answer ([legged_nmpc/remote_control/README.md](legged_nmpc/remote_control/README.md)).
+**↺ Reset All** returns to the file as loaded or last saved, and publishes it.
+
+**Adding a hyperparameter** takes a field in its schema, with its default and, where the GUI's defaults do not fit,
+its `tuning` options (slider range, unit, reload class, or the reason it gets no widget), and its conversion in C++;
+the GUI shows it with no GUI code ([legged_nmpc/legged_mpc_config/README.md](legged_nmpc/legged_mpc_config/README.md),
+[legged_nmpc/remote_control/README.md](legged_nmpc/remote_control/README.md)).
+
+### Real-Time Visualization & Telemetry (Rerun)
+
+The Rerun bridge (`legged_nmpc/legged_rerun_viewer`) draws the robot, the MPC's plan and the telemetry plots in
+[Rerun](https://rerun.io). It only subscribes to the bus, so it runs on any machine of the network file:
+
+```bash
+# Native viewer (in the container it opens on the VNC desktop)
+bazel run //legged_nmpc/legged_rerun_viewer -- --urdf robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf
+
+# Web viewer at http://localhost:9090
+bazel run //legged_nmpc/legged_rerun_viewer -- --urdf <robot.urdf> --rerun_sink serve_web
+```
+*(Or click **Open Rerun viewer** in the Base Controller GUI.)*
+
+#### Plot Tabs
+1. **Base Pose & Euler** plots the measured floating-base position and orientation against the MPC's reference: the Euler
+   angles (roll, pitch, yaw) of the base quaternion, their rates and the body angular velocity. The angles and rates are
+   display values, computed by the MPC node; the rates leave a gap within 1e-6 of a pitch of ±90°.
+2. **Base Twist** plots the measured base linear and angular velocities (the angular one in the world frame) against the
+   reference.
+3. **Contact Forces** plots the MPC's planned foot contact forces against the forces the simulator's foot sensors measure.
+4. **Joint Dynamics** plots joint positions, velocities and efforts against the applied joint targets.
+5. **Generalized Coordinates (Pinocchio)** plots generalized coordinates and velocities, measured against the reference.
+6. **Frame Kinematics & Acceleration** plots the feet's vertical acceleration and velocity, measured against the reference.
+
+Further tabs plot the complete groups: every degree of freedom (measured, reference and the MPC's plan), every tracked
+frame of `telemetry_frames`, both contact wrenches and the MPC observation, and the status of the robot loop and the MPC.
+
+#### Telemetry on the Bus
+| Topic | Message | Description |
+|---|---|---|
+| `robot/state` | `legged_mpc_msgs.RobotStateSample` | the robot process's measured state, joint actions and contact wrenches, every telemetry period (`telemetry_sinks: "bus"`) |
+| `viz/telemetry` | `legged_mpc_msgs.TelemetrySeries` | the plots' series, one message per `robot/state` sample, from the MPC node's visualization publisher |
+| `viz/scene` | `legged_mpc_msgs.VisualizationScene` | the robot instances (measured, terminal state, terminal target) and the markers of the plan |
+| `robot/mpc_observation` | `legged_mpc_msgs.MpcObservation` | the observation the MPC solves from (`mpc_observation_logger` records it to CSV) |
+| `mpc/status`, `robot/loop_timing`, `robot/fsm_state` | `MpcStatus`, `LoopTiming`, `FsmState` | the solver's health, the realtime loop's timing and the FSM |
+
+The entity paths and series names are tabulated in [the bridge's README](legged_nmpc/legged_rerun_viewer/README.md);
+`bazel run //tools/ipc:ipc_tool -- list` shows what is on the bus.
+
+### MuJoCo 3D Viewer Hotkeys & Controls
+When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and mouse inputs. A visualization's key
+works only when the task file lists it in `sim_visualizations` (the field is read at start-up); the web page's Markers
+panel lists exactly the ones the running robot has.
+
+<!-- LINT.IfChange(viewer_hotkeys) -->
+| Key / Input | Action | Effect |
+|:---:|---|---|
+| **`k`** | Toggle **Camera Tracking** | Switches between robot tracking mode (`mjCAMERA_TRACKING` locked on pelvis/torso) and free manual camera (`mjCAMERA_FREE`) |
+| **`0`** | Toggle **Floor / Ground** | Shows/hides ground plane (geom group 0) |
+| **`1`** | Toggle **Visual Meshes** | Shows/hides high-res surface meshes (group 1); with `v` off as well, the collision geoms under them show |
+| **`2`** | Toggle **Collision Primitives** | Shows/hides collision capsules, boxes, and spheres (group 2) once `v` shows the collision geoms |
+| **`3` - `5`** | Toggle **Auxiliary Groups** | Shows/hides user/sensor geom groups (groups 3–5) |
+| **`v`** | Toggle **Collision Geoms** | Hides the collision geoms of every body with a visual mesh, so the viewer shows the visual meshes only; off, the collision geoms show as well (`hide_collision_geoms`, on in every shipped task file) |
+| **`b`** | Toggle **Contact Timeline** | Barcode of planned vs ground-truth contact per contact point (`contact_timeline`, on in every shipped task file) |
+| **`g`** | Toggle **Target Contact Patches** | Contact patch of every foot at the planner's target position and yaw (`target_contact_patches`, on in every shipped task file) |
+| **`o`** | Toggle **Center of Mass** | Whole-body CoM sphere, its vertical, and its shadow on the ground (`center_of_mass`, on in some shipped task files) |
+| **`z`** | Toggle **ZMP** | Zero moment point of the physical ground reaction, as a disc on the ground (`zmp`, on in some shipped task files) |
+| **`d`** | Toggle **DCM** | Divergent component of motion (capture point) of the measured CoM, on the ground, with its offset from the CoM's shadow (`dcm`, on in some shipped task files) |
+| **`t`** | Toggle **X-ray View** | MuJoCo's transparency: the moving geoms at the model's map alpha (30% by default), the floor opaque (`mj_transparent`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`c`** | Toggle **Contact Points** | Renders small colored spheres at active physical collision contact points (`mj_contact_points`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`f`** | Toggle **Contact Forces** | Renders 3D vector arrows depicting normal and friction contact forces (`mj_contact_forces`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links (`mj_com`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia (`mj_inertia`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes (`mj_convex_hull`: list it in `sim_visualizations`, commented out in the shipped task files) |
+| **`p`** | **Markers / Cheatsheet** | The web page opens its Markers panel (the visualizations with their keys); the GLFW window prints the hotkey and mouse guide to the robot's log |
+| **Left Click + Drag** | **Orbit Camera** | Rotates camera viewpoint around the robot or focal point |
+| **Right Click + Drag** | **Pan Camera** | Translates camera position horizontally and vertically |
+| **Scroll / Mid Drag** | **Zoom Camera** | Zooms camera toward or away from the target |
+| **Shift + Click + Drag** | **Constrained Pan/Orbit** | Constrains mouse orbit/pan motion to the horizontal plane |
+<!-- LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names) -->
+
+## ACoM Training Notebook
+
+The Angular Center of Mass (aCOM) network behind `com_and_acom_tracking_cost` and the contact planner's heading model
+is a small JAX SIREN trained per robot on centroidal momentum matrices. Start Jupyter with
+
+```bash
+make train-acom-jupyter
+```
+
+open **`http://localhost:8888`**, and load [`notebooks/train_acom_siren.ipynb`](notebooks/train_acom_siren.ipynb). It
+trains the network for one robot and exports the C++ weight header `AcomSirenWeights<Robot>.h`; it is a thin driver over
+`legged_learning/acom/train_main.py`, which does the same from the command line. Only the DRC Atlas network is
+validated for closed-loop use - see [`legged_learning/acom/README.md`](legged_learning/acom/README.md).
+
+## Reinforcement Learning with MuJoCo Playground (`legged_learning`)
+
+The repository includes a GPU-accelerated RL and imitation learning pipeline built on **Google DeepMind's [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**, **MJX**, **JAX**, and **Brax**.
 
 <details>
 <summary><b>GPU Training Setup & Hardware Prerequisites</b></summary>
 
-### 1. Host Machine GPU Prerequisites
-To train RL policies on an **NVIDIA GPU** inside the container, ensure your host has:
-1. An **NVIDIA GPU Driver** installed (`nvidia-smi` works on host).
-2. The **[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)** installed.
+### 1. Host Machine Prerequisites
+Ensure your host machine has an NVIDIA driver and the **[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)** installed.
 
-**Verify Host GPU Docker Passthrough:**
-Run this verification command on your **host terminal**:
+Verify passthrough from the host:
 ```bash
 docker run --rm --gpus all ubuntu nvidia-smi
 ```
-If this prints your GPU details, Docker has full access to your GPU.
 
-### 2. Starting the Container with GPU Acceleration
-Start the container using the GPU compose override:
+### 2. Starting with GPU Passthrough
 ```bash
 docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d
 docker compose exec app bash
 ```
 
-> **CPU Fallback:** Users without an NVIDIA GPU (e.g. macOS Apple Silicon or CPU Linux) can still run the default container (`docker compose up -d`). JAX will automatically fall back to CPU execution.
+*(Non-GPU hosts automatically fall back to multi-threaded CPU execution).*
 
 </details>
 
 <details>
-<summary><b>Running RL Training & Imitation Learning</b></summary>
+<summary><b>Training Commands & Trajectory Export</b></summary>
 
-Once inside the container (or Dev Container), use the following commands:
-
-### Run RL Unit & Smoke Tests
-Validates JAX JIT compilation, MuJoCo MJX simulation stepping, and device backend discovery:
 ```bash
+# Run RL unit and smoke tests
 make test-rl
-```
 
-### Launch PPO Policy Training (MJX / Playground)
-Trains a velocity-tracking policy using parallelized MJX physics simulation:
-```bash
-# Default quick start
+# Launch PPO Policy Training (MJX / Playground)
 make train-rl
+# Or with customized parameters:
+bazel run //legged_learning/training:train_ppo -- --num_envs=4096 --total_timesteps=10000000
 
-# Or configure environment batch size and total training steps:
-bazel run //humanoid_learning/training:train_ppo -- --num_envs=4096 --total_timesteps=10000000
-```
-
-### Export MPC Trajectories to RL Demos
-Convert recorded observations from `mpc_observation_logger` into HDF5 demonstration datasets:
-```bash
+# Export recorded MPC rollouts to HDF5 demonstration datasets
 make export-rollouts
-# Or specify custom input/output paths:
-python3 humanoid_nmpc/humanoid_common_mpc_pyutils/humanoid_common_mpc_pyutils/export_rollouts.py \
-    --input_path=. \
-    --output_path=data/r1_mpc_demos.h5
-```
 
-### Behavioral Cloning (BC) Warmstart
-Pretrain an actor policy using supervised imitation learning on MPC demonstration rollouts before fine-tuning with PPO:
-```bash
+# Behavioral Cloning (BC) imitation learning warmstart
 make train-bc
-# Or with specific demo dataset:
-bazel run //humanoid_learning/training:bc_warmstart -- --demos_path=data/r1_mpc_demos.h5 --epochs=20
-```
 
-### Export Trained Policy to ONNX
-Serialize trained JAX/Flax actor weights to ONNX for C++ runtime deployment:
-```bash
-bazel run //humanoid_learning/export:export_onnx -- --output_path=models/humanoid_policy.onnx
+# Export trained policy to ONNX format for C++ deployment
+bazel run //legged_learning/export:export_onnx -- --checkpoint_path=checkpoints/bc_policy.npz --output_path=models/legged_policy.onnx
 ```
 
 </details>
 
-<details>
-<summary><b>Managing Python Dependencies (rules_python)</b></summary>
+## Citation
 
-The RL pipeline uses **Bazel `rules_python`** with an isolated, hermetic Python 3.11 toolchain:
-- Edit dependencies in [`humanoid_learning/requirements.txt`](humanoid_learning/requirements.txt).
-- Recompile and lock dependencies reproducibly across platforms:
-  ```bash
-  make lock-rl-deps
-  ```
-
-</details>
-
-## Citing Whole-Body Humanoid MPC
-To cite Whole-Body Humanoid MPC in your academic research, please use the following BibTeX entry:
+If you use Whole-Body Humanoid MPC in your academic research, please cite:
 
 ```bibtex
 @misc{wholebodyhumanoidmpcweb,
@@ -253,10 +592,12 @@ To cite Whole-Body Humanoid MPC in your academic research, please use the follow
 }
 ```
 
-## Acknowledgements
-The project was originally started by my friend and colleague, [Manuel Yves Galliker](https://github.com/manumerous) and was open-sourced as part of his work at 1X Technologies. Please check out his profile on Github/LinkedIn.
+## Acknowledgments
 
-This project is founded on the great work of many open-source contributors:
-- [ocs2](https://github.com/leggedrobotics/ocs2)
-- [pinocchio](https://github.com/stack-of-tasks/pinocchio)
-- [hpipm](https://github.com/giaf/hpipm)
+This project was originally created by [Manuel Yves Galliker](https://github.com/manumerous) and open-sourced in collaboration with 1X Technologies.
+
+Special thanks to the open-source robotics community:
+- [OCS2](https://github.com/leggedrobotics/ocs2)
+- [Pinocchio](https://github.com/stack-of-tasks/pinocchio)
+- [HPIPM](https://github.com/giaf/hpipm)
+- [MuJoCo & MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)

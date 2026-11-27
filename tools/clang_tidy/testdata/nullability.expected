@@ -1,0 +1,2 @@
+tools/clang_tidy/testdata/Nullability.cpp:9:41: clang-diagnostic-nullability
+tools/clang_tidy/testdata/Nullability.cpp:11:30: clang-diagnostic-nonnull

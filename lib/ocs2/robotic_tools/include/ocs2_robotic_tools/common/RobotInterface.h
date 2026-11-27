@@ -40,7 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2 {
 
 /**
- * This class implements an interface class to all the robotic examples.
+ * This class implements an interface class to the robot-specific MPC interfaces.
  *
  * The lifetime of the returned objects is tied to the lifetime of the robot interface.
  * The exposed objects are not thread-safe and should be cloned to get an exclusive copy.

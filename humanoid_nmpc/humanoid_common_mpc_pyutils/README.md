@@ -1,1 +1,0 @@
-Install the xpad driver: https://github.com/paroj/xpad

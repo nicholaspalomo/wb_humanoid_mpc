@@ -64,13 +64,4 @@ inline void setThreadPriority(int priority, std::thread& thread) {
   setThreadPriority(priority, thread.native_handle());
 }
 
-/**
- * Sets the priority of the thread this function is called from.
- *
- * @param priority: The priority of the thread from 0 (lowest) to 99 (highest)
- */
-inline void setThisThreadPriority(int priority) {
-  setThreadPriority(priority, pthread_self());
-}
-
 }  // namespace ocs2

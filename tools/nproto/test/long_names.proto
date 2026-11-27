@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package nproto_test;
+
+import "nproto/options.proto";
+
+// Names long enough that the generated code breaks its lines the way
+// clang-format does (tools/nproto/nproto_layout.py), which test_generated_code
+// checks with clang-format itself.
+// Next ID: 7
+message LongNames {
+  option (nproto.generate_struct) = "nproto::test::LongNames";
+
+  reserved 7 to max;
+
+  // The case labels of its FromProto() break inside their casts.
+  enum ASurfaceContactPlanningKind {
+    A_SURFACE_CONTACT_PLANNING_KIND_FLAT = 0;
+    A_SURFACE_CONTACT_PLANNING_KIND_STAIRS_UP_AND_DOWN = 1;
+  }
+  // The signatures of its conversions put a parameter on each line.
+  // Next ID: 2
+  message SwingTrajectoryParametersOfTheFoot {
+    reserved 2 to max;
+
+    double apex_height_above_the_terrain_in_meters = 1;
+  }
+  // The template argument of EnumsFromProto() does not fit after the call.
+  repeated ASurfaceContactPlanningKind planned_surface_contact_kinds = 1;
+  // The conversions of the alternatives break inside template arguments and
+  // nested casts.
+  oneof swing {
+    SwingTrajectoryParametersOfTheFoot planned_swing_trajectory = 2;
+    double terminal_swing_height_in_meters = 3;
+    ASurfaceContactPlanningKind kind_of_the_planned_contact = 4;
+  }
+  // CopyOptionalFromProto() puts each of its arguments on a line of its own.
+  optional double a_very_very_very_very_very_very_very_long_weight = 5;
+  // operator== breaks the comparison of this member after its operator.
+  SwingTrajectoryParametersOfTheFoot left_foot_swing_trajectory_parameters = 6;
+}

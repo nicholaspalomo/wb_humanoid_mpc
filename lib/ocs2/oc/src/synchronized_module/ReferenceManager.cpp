@@ -35,7 +35,10 @@ namespace ocs2 {
 /******************************************************************************************************/
 /******************************************************************************************************/
 ReferenceManager::ReferenceManager(TargetTrajectories initialTargetTrajectories, ModeSchedule initialModeSchedule)
-    : targetTrajectories_(std::move(initialTargetTrajectories)), modeSchedule_(std::move(initialModeSchedule)) {}
+    : initialTargetTrajectories_(initialTargetTrajectories),
+      initialModeSchedule_(initialModeSchedule),
+      modeSchedule_(std::move(initialModeSchedule)),
+      targetTrajectories_(std::move(initialTargetTrajectories)) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -44,6 +47,18 @@ void ReferenceManager::preSolverRun(scalar_t initTime, scalar_t finalTime, const
   targetTrajectories_.updateFromBuffer();
   modeSchedule_.updateFromBuffer();
   modifyReferences(initTime, finalTime, initState, initMode, targetTrajectories_.get(), modeSchedule_.get());
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void ReferenceManager::reset() {
+  // Taking a pending value out of its buffer is the only way BufferedValue offers to drop it; the active value it
+  // lands in is overwritten right after.
+  targetTrajectories_.updateFromBuffer();
+  targetTrajectories_.get() = initialTargetTrajectories_;
+  modeSchedule_.updateFromBuffer();
+  modeSchedule_.get() = initialModeSchedule_;
 }
 
 }  // namespace ocs2

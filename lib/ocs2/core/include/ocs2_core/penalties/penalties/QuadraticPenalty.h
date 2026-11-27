@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/penalties/penalties/PenaltyBase.h>
 
 namespace ocs2 {
@@ -51,17 +53,23 @@ class QuadraticPenalty final : public PenaltyBase {
   explicit QuadraticPenalty(scalar_t scale) : scale_(scale) {}
 
   ~QuadraticPenalty() override = default;
-  QuadraticPenalty* clone() const override { return new QuadraticPenalty(*this); }
+  QuadraticPenalty* absl_nonnull clone() const override { return new QuadraticPenalty(*this); }
   std::string name() const override { return "QuadraticPenalty"; }
 
   scalar_t getValue(scalar_t t, scalar_t h) const override { return 0.5 * scale_ * h * h; }
   scalar_t getDerivative(scalar_t t, scalar_t h) const override { return scale_ * h; }
   scalar_t getSecondDerivative(scalar_t t, scalar_t h) const override { return scale_; }
 
+  void setParameters(const vector_t& parameters) override { scale_ = parameters[0]; }
+  void getParameters(vector_t& parameters) const override {
+    parameters.resize(1);
+    parameters[0] = scale_;
+  }
+
  private:
   QuadraticPenalty(const QuadraticPenalty& other) = default;
 
-  const scalar_t scale_;
+  scalar_t scale_;
 };
 
 }  // namespace ocs2

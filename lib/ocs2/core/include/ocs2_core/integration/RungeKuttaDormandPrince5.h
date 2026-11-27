@@ -36,13 +36,15 @@ namespace ocs2 {
 /*
  * 5th order Runge Kutta Dormand-Prince (ode45) Integrator class
  *
- * The implementation is based on the boost odeint integrator with the controlled
- * boost::numeric::odeint::runge_kutta_dopri5 stepper.
+ * OCS2's own implementation (IntegratorType::ODE45_OCS2) of odeint's controlled runge_kutta_dopri5 stepper. ODE45
+ * (ocs2_core/integration/implementation/Integrator.h, built on the steppers of ocs2_core/integration/steppers.h) is the
+ * one that reproduces odeint exactly. Both give up with a std::runtime_error when step-size control keeps rejecting the
+ * step: this one after more than kMaxStepRetries consecutive rejections, ODE45 after odeint's failed_step_checker
+ * limit of 500.
  */
 class RungeKuttaDormandPrince5 : public IntegratorBase {
  public:
-  explicit RungeKuttaDormandPrince5(std::shared_ptr<SystemEventHandler> eventHandlerPtr = nullptr)
-      : IntegratorBase(std::move(eventHandlerPtr)){};
+  RungeKuttaDormandPrince5() = default;
 
   ~RungeKuttaDormandPrince5() override = default;
 
@@ -57,8 +59,12 @@ class RungeKuttaDormandPrince5 : public IntegratorBase {
    * @param [in] finalTime: Final time.
    * @param [in] dt: Time step.
    */
-  void runIntegrateConst(system_func_t system, observer_func_t observer, const vector_t& initialState, scalar_t startTime,
-                         scalar_t finalTime, scalar_t dt) override;
+  void runIntegrateConst(system_func_t system,
+                         observer_func_t observer,
+                         const vector_t& initialState,
+                         scalar_t startTime,
+                         scalar_t finalTime,
+                         scalar_t dt) override;
 
   /**
    * Adaptive time integration based on start time and final time.
@@ -72,8 +78,14 @@ class RungeKuttaDormandPrince5 : public IntegratorBase {
    * @param [in] absTol: The absolute tolerance error for ode solver.
    * @param [in] relTol: The relative tolerance error for ode solver.
    */
-  void runIntegrateAdaptive(system_func_t system, observer_func_t observer, const vector_t& initialState, scalar_t startTime,
-                            scalar_t finalTime, scalar_t dtInitial, scalar_t absTol, scalar_t relTol) override;
+  void runIntegrateAdaptive(system_func_t system,
+                            observer_func_t observer,
+                            const vector_t& initialState,
+                            scalar_t startTime,
+                            scalar_t finalTime,
+                            scalar_t dtInitial,
+                            scalar_t absTol,
+                            scalar_t relTol) override;
   /**
    * Output integration based on a given time trajectory.
    *
@@ -86,11 +98,17 @@ class RungeKuttaDormandPrince5 : public IntegratorBase {
    * @param [in] absTol: The absolute tolerance error for ode solver.
    * @param [in] relTol: The relative tolerance error for ode solver.
    */
-  void runIntegrateTimes(system_func_t system, observer_func_t observer, const vector_t& initialState,
-                         typename scalar_array_t::const_iterator beginTimeItr, typename scalar_array_t::const_iterator endTimeItr,
-                         scalar_t dtInitial, scalar_t absTol, scalar_t relTol) override;
+  void runIntegrateTimes(system_func_t system,
+                         observer_func_t observer,
+                         const vector_t& initialState,
+                         typename scalar_array_t::const_iterator beginTimeItr,
+                         typename scalar_array_t::const_iterator endTimeItr,
+                         scalar_t dtInitial,
+                         scalar_t absTol,
+                         scalar_t relTol) override;
 
-  static constexpr size_t maxNumStepsRetries_ = 100;
+  /** The most consecutive rejections of a step that are retried with a smaller step; one more throws a std::runtime_error. */
+  static constexpr size_t kMaxStepRetries = 100;
 };
 
 }  // namespace ocs2

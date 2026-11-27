@@ -1,0 +1,101 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "legged_common_mpc_app/node/ViewerAnnotations.h"
+
+#include <cmath>
+
+#include "absl/base/nullability.h"
+
+#include "legged_common_mpc/command/WalkingVelocityCommand.h"
+#include "legged_common_mpc/common/BipedFeet.h"
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/contact_planning/TargetContactPose.h"
+#include "legged_mpc_msgs/target_contact_patch.pb.h"
+#include "legged_mpc_msgs/viewer_annotations.pb.h"
+
+namespace ocs2::legged::node {
+
+void targetContactPatchToProto(
+    const TargetContactPose& desPoseFootRtWorld,
+    legged_mpc_msgs::TargetContactPatch* absl_nonnull patch) {
+  patch->Clear();
+  // Every enumerator is listed, so that -Wswitch reports a new one.
+  legged_mpc_msgs::TargetContactPatch::Kind kind =
+      legged_mpc_msgs::TargetContactPatch::KIND_UNSPECIFIED;
+  switch (desPoseFootRtWorld.kind) {
+    case TargetContactPose::Kind::kSwingInFlight:
+      kind = legged_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT;
+      break;
+    case TargetContactPose::Kind::kNextSwing:
+      kind = legged_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING;
+      break;
+    case TargetContactPose::Kind::kStance:
+      kind = legged_mpc_msgs::TargetContactPatch::KIND_STANCE;
+      break;
+  }
+  patch->set_kind(kind);
+  // A pose that is not valid or not finite is sent as no pose: the viewer draws
+  // nothing for the foot.
+  if (!desPoseFootRtWorld.valid ||
+      !desPoseFootRtWorld.posFootRtWorldEwrtWorldXy.allFinite() ||
+      !std::isfinite(desPoseFootRtWorld.posFootRtWorldEwrtWorldZ) ||
+      !std::isfinite(desPoseFootRtWorld.eulerzyxFootRtWorldYaw)) {
+    return;
+  }
+  legged_mpc_msgs::TargetContactPatch::Pose* absl_nonnull placement =
+      patch->mutable_des_pose_foot_rt_world();
+  placement->set_x(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(0));
+  placement->set_y(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(1));
+  placement->set_z(desPoseFootRtWorld.posFootRtWorldEwrtWorldZ);
+  placement->set_eulerzyx_foot_rt_world_yaw(
+      desPoseFootRtWorld.eulerzyxFootRtWorldYaw);
+  placement->set_yaw_planned(desPoseFootRtWorld.yawPlanned);
+}
+
+void fillViewerAnnotations(
+    const BipedFeetArray<TargetContactPose>* absl_nullable desPoseFeetRtWorld,
+    const WalkingVelocityCommand& scaledVelocityCommand,
+    legged_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
+  annotations->Clear();
+  if (desPoseFeetRtWorld != nullptr) {
+    for (const TargetContactPose& desPoseFootRtWorld : *desPoseFeetRtWorld) {
+      targetContactPatchToProto(desPoseFootRtWorld,
+                                annotations->add_target_contact_patches());
+    }
+  }
+  annotations->set_scaled_cmd_linvel_base_rt_world_ewrt_heading_x(
+      scaledVelocityCommand.cmd_linvel_base_rt_world_ewrt_heading_x);
+  annotations->set_scaled_cmd_linvel_base_rt_world_ewrt_heading_y(
+      scaledVelocityCommand.cmd_linvel_base_rt_world_ewrt_heading_y);
+  annotations->set_scaled_cmd_angvel_base_rt_world_ewrt_world_z(
+      scaledVelocityCommand.cmd_angvel_base_rt_world_ewrt_world_z);
+}
+
+}  // namespace ocs2::legged::node

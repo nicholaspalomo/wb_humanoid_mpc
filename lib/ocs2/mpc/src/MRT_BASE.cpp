@@ -29,7 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_mpc/MRT_BASE.h"
 
+#include <utility>
+
+#include <ocs2_oc/oc_data/StateTrajectoryInterpolation.h>
 #include <ocs2_oc/rollout/TimeTriggeredRollout.h>
+
+#include "absl/base/nullability.h"
+#include "absl/log/log.h"
 
 namespace ocs2 {
 
@@ -44,18 +50,52 @@ MRT_BASE::MRT_BASE() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 void MRT_BASE::reset() {
-  std::lock_guard<std::mutex> lock(bufferMutex_);
+  // The policies are taken out under the lock and destroyed after it is released (at the end of this function, in the
+  // reverse order of declaration): destroying a policy frees its trajectories and controller, which must not keep the
+  // control thread's try-lock in updatePolicy() failing.
+  std::unique_ptr<CommandData> droppedActiveCommand;
+  std::unique_ptr<CommandData> droppedBufferCommand;
+  std::unique_ptr<PrimalSolution> droppedActivePrimalSolution;
+  std::unique_ptr<PrimalSolution> droppedBufferPrimalSolution;
+  std::unique_ptr<PerformanceIndex> droppedActivePerformanceIndices;
+  std::unique_ptr<PerformanceIndex> droppedBufferPerformanceIndices;
+  {
+    std::lock_guard<std::mutex> lock(bufferMutex_);
 
-  policyReceivedEver_ = false;
-  newPolicyInBuffer_ = false;
-  mrtTrylockWarningCount_ = 0;
+    policyReceivedEver_ = false;
+    newPolicyInBuffer_ = false;
+    consecutiveFailedPolicyUpdateLocks_.store(0, std::memory_order_relaxed);
 
-  activeCommandPtr_.reset();
-  bufferCommandPtr_.reset();
-  activePrimalSolutionPtr_.reset();
-  bufferPrimalSolutionPtr_.reset();
-  activePerformanceIndicesPtr_.reset();
-  bufferPerformanceIndicesPtr_.reset();
+    droppedActiveCommand.swap(activeCommandPtr_);
+    droppedBufferCommand.swap(bufferCommandPtr_);
+    droppedActivePrimalSolution.swap(activePrimalSolutionPtr_);
+    droppedBufferPrimalSolution.swap(bufferPrimalSolutionPtr_);
+    droppedActivePerformanceIndices.swap(activePerformanceIndicesPtr_);
+    droppedBufferPerformanceIndices.swap(bufferPerformanceIndicesPtr_);
+    // A policy moved to the buffer before this reset must not count as current after it.
+    policyEpoch_.fetch_add(1);
+  }
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+bool MRT_BASE::discardBufferedPolicy() {
+  // Taken out under the lock, destroyed after it is released (see reset()).
+  std::unique_ptr<CommandData> droppedCommand;
+  std::unique_ptr<PrimalSolution> droppedPrimalSolution;
+  std::unique_ptr<PerformanceIndex> droppedPerformanceIndices;
+  bool dropped = false;
+  {
+    std::lock_guard<std::mutex> lock(bufferMutex_);
+    dropped = newPolicyInBuffer_;
+    newPolicyInBuffer_ = false;
+    droppedCommand.swap(bufferCommandPtr_);
+    droppedPrimalSolution.swap(bufferPrimalSolutionPtr_);
+    droppedPerformanceIndices.swap(bufferPerformanceIndicesPtr_);
+    policyEpoch_.fetch_add(1);
+  }
+  return dropped;
 }
 
 /******************************************************************************************************/
@@ -94,7 +134,7 @@ const PerformanceIndex& MRT_BASE::getPerformanceIndices() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void MRT_BASE::initRollout(const RolloutBase* rolloutPtr) {
+void MRT_BASE::initRollout(const RolloutBase* absl_nonnull rolloutPtr) {
   rolloutPtr_.reset(rolloutPtr->clone());
 }
 
@@ -107,13 +147,13 @@ void MRT_BASE::evaluatePolicy(scalar_t currentTime, const vector_t& currentState
   }
 
   if (currentTime > activePrimalSolutionPtr_->timeTrajectory_.back()) {
-    std::cerr << "The requested currentTime is greater than the received plan: " << std::to_string(currentTime) << ">"
-              << std::to_string(activePrimalSolutionPtr_->timeTrajectory_.back()) << "\n";
+    LOG_EVERY_N_SEC(WARNING, 1.0) << "[MRT_BASE::evaluatePolicy] The requested currentTime is greater than the received plan: "
+                                  << currentTime << " > " << activePrimalSolutionPtr_->timeTrajectory_.back();
   }
 
   mpcInput = activePrimalSolutionPtr_->controllerPtr_->computeInput(currentTime, currentState);
-  mpcState =
-      LinearInterpolation::interpolate(currentTime, activePrimalSolutionPtr_->timeTrajectory_, activePrimalSolutionPtr_->stateTrajectory_);
+  mpcState = interpolateStateTrajectory(stateManifoldPtr_.get(), currentTime, activePrimalSolutionPtr_->timeTrajectory_,
+                                        activePrimalSolutionPtr_->stateTrajectory_);
 
   mode = activePrimalSolutionPtr_->modeSchedule_.modeAtTime(currentTime);
 }
@@ -121,8 +161,8 @@ void MRT_BASE::evaluatePolicy(scalar_t currentTime, const vector_t& currentState
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void MRT_BASE::rolloutPolicy(scalar_t currentTime, const vector_t& currentState, const scalar_t& timeStep, vector_t& mpcState,
-                             vector_t& mpcInput, size_t& mode) {
+void MRT_BASE::rolloutPolicy(
+    scalar_t currentTime, const vector_t& currentState, const scalar_t& timeStep, vector_t& mpcState, vector_t& mpcInput, size_t& mode) {
   if (rolloutPtr_ == nullptr) {
     throw std::runtime_error("[MRT_BASE::rolloutPolicy] rollout class is not set! Use initRollout() to initialize it!");
   }
@@ -132,8 +172,8 @@ void MRT_BASE::rolloutPolicy(scalar_t currentTime, const vector_t& currentState,
   }
 
   if (currentTime > activePrimalSolutionPtr_->timeTrajectory_.back()) {
-    std::cerr << "The requested currentTime is greater than the received plan: " << std::to_string(currentTime) << ">"
-              << std::to_string(activePrimalSolutionPtr_->timeTrajectory_.back()) << "\n";
+    LOG_EVERY_N_SEC(WARNING, 1.0) << "[MRT_BASE::rolloutPolicy] The requested currentTime is greater than the received plan: "
+                                  << currentTime << " > " << activePrimalSolutionPtr_->timeTrajectory_.back();
   }
 
   // perform a rollout
@@ -156,25 +196,23 @@ void MRT_BASE::rolloutPolicy(scalar_t currentTime, const vector_t& currentState,
 bool MRT_BASE::updatePolicy() {
   std::unique_lock<std::mutex> lock(bufferMutex_, std::try_to_lock);
   if (lock.owns_lock()) {
-    mrtTrylockWarningCount_ = 0;
+    consecutiveFailedPolicyUpdateLocks_.store(0, std::memory_order_relaxed);
     if (newPolicyInBuffer_) {
       // update the active solution from buffer
       activeCommandPtr_.swap(bufferCommandPtr_);
       activePrimalSolutionPtr_.swap(bufferPrimalSolutionPtr_);
       activePerformanceIndicesPtr_.swap(bufferPerformanceIndicesPtr_);
+      std::swap(activePolicyEpoch_, bufferPolicyEpoch_);
       newPolicyInBuffer_ = false;  // make sure we don't swap in the old policy again
-
-      modifyActiveSolution(*activeCommandPtr_, *activePrimalSolutionPtr_);
       return true;
     } else {
       return false;  // No policy update: the buffer contains nothing new.
     }
   } else {
-    ++mrtTrylockWarningCount_;
-    if (mrtTrylockWarningCount_ > mrtTrylockWarningThreshold_) {
-      std::cerr << "[MRT_BASE::updatePolicy] failed to lock the policyBufferMutex for " << mrtTrylockWarningCount_
-                << " consecutive times.\n";
-    }
+    // Counted, not logged: this is the control thread, where a log line can allocate or block. The controllers report
+    // the count off this thread (getConsecutiveFailedPolicyUpdateLocks()).
+    consecutiveFailedPolicyUpdateLocks_.fetch_add(1, std::memory_order_relaxed);
+    failedPolicyUpdateLocks_.fetch_add(1, std::memory_order_relaxed);
     return false;  // No policy update: the lock could not be acquired.
   }
 }
@@ -182,7 +220,8 @@ bool MRT_BASE::updatePolicy() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void MRT_BASE::moveToBuffer(std::unique_ptr<CommandData> commandDataPtr, std::unique_ptr<PrimalSolution> primalSolutionPtr,
+bool MRT_BASE::moveToBuffer(std::unique_ptr<CommandData> commandDataPtr,
+                            std::unique_ptr<PrimalSolution> primalSolutionPtr,
                             std::unique_ptr<PerformanceIndex> performanceIndicesPtr) {
   if (commandDataPtr == nullptr) {
     throw std::runtime_error("[MRT_BASE::moveToBuffer] commandDataPtr cannot be a null pointer!");
@@ -201,34 +240,12 @@ void MRT_BASE::moveToBuffer(std::unique_ptr<CommandData> commandDataPtr, std::un
   bufferCommandPtr_.swap(commandDataPtr);
   bufferPrimalSolutionPtr_.swap(primalSolutionPtr);
   bufferPerformanceIndicesPtr_.swap(performanceIndicesPtr);
+  bufferPolicyEpoch_ = policyEpoch_.load();
 
-  // allow user to modify the buffer
-  modifyBufferedSolution(*bufferCommandPtr_, *bufferPrimalSolutionPtr_);
-
+  const bool replaced = newPolicyInBuffer_;
   newPolicyInBuffer_ = true;
   policyReceivedEver_ = true;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-void MRT_BASE::modifyActiveSolution(const CommandData& command, PrimalSolution& primalSolution) {
-  for (auto& mrtObserver : observerPtrArray_) {
-    if (mrtObserver != nullptr) {
-      mrtObserver->modifyActiveSolution(command, primalSolution);
-    }
-  }
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-void MRT_BASE::modifyBufferedSolution(const CommandData& commandBuffer, PrimalSolution& primalSolutionBuffer) {
-  for (auto& mrtObserver : observerPtrArray_) {
-    if (mrtObserver != nullptr) {
-      mrtObserver->modifyBufferedSolution(commandBuffer, primalSolutionBuffer);
-    }
-  }
+  return replaced;
 }
 
 }  // namespace ocs2

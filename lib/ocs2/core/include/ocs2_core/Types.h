@@ -120,17 +120,6 @@ struct ScalarFunctionLinearApproximation {
 
 std::ostream& operator<<(std::ostream& out, const ScalarFunctionLinearApproximation& f);
 
-/**
- * Checks the size of the given linear approximation.
- *
- * @param[in] stateDim: Number of states.
- * @param[in] inputDim: Number of inputs.
- * @param[in] data: Given linear approximation.
- * @param[in] dataName: The name of the data which appears in the output error message.
- * @return The description of the error. If there was no error it would be empty;
- */
-std::string checkSize(int stateDim, int inputDim, const ScalarFunctionLinearApproximation& data, const std::string& dataName);
-
 inline ScalarFunctionLinearApproximation operator*(ScalarFunctionLinearApproximation lhs, scalar_t scalar) {
   return lhs *= scalar;
 }
@@ -193,33 +182,6 @@ struct ScalarFunctionQuadraticApproximation {
 
 std::ostream& operator<<(std::ostream& out, const ScalarFunctionQuadraticApproximation& f);
 
-/**
- * Checks that the given matrix is valid, self-adjoint, and positive semi-definite (PSD).
- * @param[in] data: Given matrix.
- * @param[in] dataName: The name of the data which appears in the output error message.
- * @return The description of the error. If there was no error it would be empty;
- */
-std::string checkBeingPSD(const matrix_t& data, const std::string& dataName);
-
-/**
- * Checks that the given quadratic approximation is valid, self-adjoint, and positive semi-definite (PSD).
- * @param[in] data: Given quadratic approximation.
- * @param[in] dataName: The name of the data which appears in the output error message.
- * @return The description of the error. If there was no error it would be empty;
- */
-std::string checkBeingPSD(const ScalarFunctionQuadraticApproximation& data, const std::string& dataName);
-
-/**
- * Checks the size of the given quadratic approximation.
- *
- * @param[in] stateDim: Number of states.
- * @param[in] inputDim: Number of inputs.
- * @param[in] data: Given quadratic approximation.
- * @param[in] dataName: The name of the data which appears in the output error message.
- * @return The description of the error. If there was no error it would be empty;
- */
-std::string checkSize(int stateDim, int inputDim, const ScalarFunctionQuadraticApproximation& data, const std::string& dataName);
-
 inline ScalarFunctionQuadraticApproximation operator*(ScalarFunctionQuadraticApproximation lhs, scalar_t scalar) {
   return lhs *= scalar;
 }
@@ -272,19 +234,6 @@ struct VectorFunctionLinearApproximation {
 };
 
 std::ostream& operator<<(std::ostream& out, const VectorFunctionLinearApproximation& f);
-
-/**
- * Checks the size of the given vector-function linear approximation.
- *
- * @param[in] vectorDim: The vector function dimension.
- * @param[in] stateDim: Number of states.
- * @param[in] inputDim: Number of inputs.
- * @param[in] data: Given linear approximation.
- * @param[in] dataName: The name of the data which appears in the output error message.
- * @return The description of the error. If there was no error it would be empty;
- */
-std::string checkSize(int vectorDim, int stateDim, int inputDim, const VectorFunctionLinearApproximation& data,
-                      const std::string& dataName);
 
 /**
  * Defines quadratic approximation of a vector-valued function

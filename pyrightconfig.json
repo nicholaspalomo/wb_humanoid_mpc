@@ -1,0 +1,26 @@
+{
+  "extraPaths": [
+    "legged_nmpc/legged_common_mpc_pyutils",
+    "legged_nmpc/legged_mpc_config/python",
+    "legged_nmpc/legged_mpc_ipc/python",
+    "legged_nmpc/legged_multi_contact/app/python",
+    "legged_nmpc/legged_rerun_viewer/python",
+    "legged_nmpc/legged_rerun_viewer/test",
+    "legged_nmpc/remote_control",
+    "legged_nmpc/remote_control/test",
+    "robot_runtime/robot_ipc/python",
+    "robot_runtime/web_viewer/tools",
+    "tools/deploy",
+    "tools/ipc",
+    "tools/launch",
+    "tools/nproto"
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "off",
+  "exclude": [
+    "**/__pycache__",
+    "**/.*",
+    "**/bazel-*",
+    "lib"
+  ]
+}

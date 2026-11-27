@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "legged_mpc_msgs/arrows.proto";
+import "legged_mpc_msgs/line_strips.proto";
+import "legged_mpc_msgs/robot_model_instance.proto";
+import "legged_mpc_msgs/spheres.proto";
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+// Topic viz/scene. Every message carries every path it ever draws (empty when there is nothing to draw), so that
+// what is no longer true disappears.
+// Next ID: 6
+message VisualizationScene {
+  option (nproto.generate_struct) = "ocs2::legged::msgs::VisualizationScene";
+
+  reserved 6 to max;
+
+  // Robot clock [s] of the scene's measured robot: the robot/state sample's time when the scene is drawn from a recent
+  // sample, else the observation's. The bridge's robot_time timeline; a step back of more than a second is read as a
+  // restarted robot clock (a new run).
+  double time = 1;
+  repeated RobotModelInstance robots = 2;
+  repeated Arrows arrows = 3;
+  repeated Spheres spheres = 4;
+  repeated LineStrips line_strips = 5;
+}

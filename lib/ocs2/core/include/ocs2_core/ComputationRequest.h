@@ -51,9 +51,6 @@ class RequestSet {
   /** Check if this Request set contains any Computation of other (non-empty intersection) */
   constexpr bool containsAny(RequestSet other) const;
 
-  /** Check if this Request set contains all Computations of other (subset) */
-  constexpr bool containsAll(RequestSet other) const;
-
   /** Union of two Request sets */
   friend constexpr RequestSet operator+(RequestSet a, RequestSet b);
 
@@ -66,12 +63,6 @@ class RequestSet {
 constexpr Request operator|(Request lhs, Request rhs) {
   using underlying = typename std::underlying_type<Request>::type;
   return static_cast<Request>(static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
-}
-
-/** Bitwise & on the underlying type of Request */
-constexpr Request operator&(Request lhs, Request rhs) {
-  using underlying = typename std::underlying_type<Request>::type;
-  return static_cast<Request>(static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
 }
 
 /** Check if the Bitwise representation of two Request has empty union */
@@ -91,10 +82,6 @@ constexpr bool RequestSet::contains(Request item) const {
 
 constexpr bool RequestSet::containsAny(RequestSet other) const {
   return !isUnionEmpty(flags_, other.flags_);
-}
-
-constexpr bool RequestSet::containsAll(RequestSet other) const {
-  return (flags_ & other.flags_) == other.flags_;
 }
 
 constexpr RequestSet operator+(RequestSet a, RequestSet b) {

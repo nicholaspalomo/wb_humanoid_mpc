@@ -1,0 +1,332 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Tests for argument_comments.py, the lint check for literal arguments without a Google-style argument comment."""
+
+import unittest
+
+from tools.hooks import argument_comments
+from tools.hooks import check_test_support
+
+
+def flagged(source):
+    """The (callee, literal, position) of every violation in `source`, before any NOLINT marker."""
+    return [
+        (v.callee, v.literal, v.position)
+        for v in argument_comments.unsuppressed_violations(source)
+    ]
+
+
+def registry_lines(source):
+    """The lines the registry engine reports for `source`, a first-party C++ file, after its NOLINT markers."""
+    return [
+        f.line
+        for f in check_test_support.findings(
+            "argument-comment", source, "src/a.cpp"
+        )
+    ]
+
+
+class FlagsBareLiteralsTest(unittest.TestCase):
+    def test_the_call_the_rule_was_written_for(self):
+        source = (
+            "const ContactRectangle footprint ="
+            " ContactRectangle::loadContactRectangle(taskFile_, modelSettings_,"
+            " 0, verbose_);"
+        )
+        self.assertEqual(flagged(source), [("loadContactRectangle", "0", 3)])
+
+    def test_an_argument_comment_satisfies_it(self):
+        self.assertEqual(
+            flagged(
+                "loadContactRectangle(taskFile_, modelSettings_,"
+                " /*contactIndex=*/0, verbose_);"
+            ),
+            [],
+        )
+        self.assertEqual(flagged("f(a, /* verbose = */ true);"), [])
+
+    def test_a_comment_that_does_not_name_the_parameter_does_not(self):
+        self.assertEqual(flagged("f(a, /* index */ 0);"), [("f", "0", 2)])
+
+    def test_every_kind_of_literal(self):
+        cases = {
+            "true": "true",
+            "false": "false",
+            "nullptr": "nullptr",
+            "-1": "-1",
+            "+2": "+2",
+            "0.5f": "0.5f",
+            "1e-3": "1e-3",
+            ".25": ".25",
+            "0x1F": "0x1F",
+            "1'000'000": "1'000'000",
+            "42u": "42u",
+        }
+        for literal, expected in cases.items():
+            with self.subTest(literal=literal):
+                self.assertEqual(
+                    flagged("f(a, %s);" % literal), [("f", expected, 2)]
+                )
+
+    def test_empty_values_and_characters(self):
+        for literal in ["{}", '""', "std::nullopt", "'c'", "'\\n'"]:
+            with self.subTest(literal=literal):
+                self.assertEqual(
+                    flagged("load(file, %s);" % literal), [("load", literal, 2)]
+                )
+                self.assertEqual(
+                    flagged("load(file, /*defaults=*/%s);" % literal), []
+                )
+        # A non-empty braced list or string says what it holds.
+        self.assertEqual(flagged('load(file, {"a"}); load(file, "a");'), [])
+        # Two numbers are coordinates; an empty value beside a number is not, and both are reported.
+        self.assertEqual(
+            flagged("addHard({}, 1.0);"),
+            [("addHard", "{}", 1), ("addHard", "1.0", 2)],
+        )
+
+    def test_each_literal_of_a_call_is_reported_with_its_position(self):
+        self.assertEqual(
+            flagged("f(x, 0, y, false);"), [("f", "0", 2), ("f", "false", 4)]
+        )
+
+    def test_the_location_is_the_literal(self):
+        violations = argument_comments.unsuppressed_violations(
+            "int x;\nfoo(a,\n    b,\n      7);\n"
+        )
+        self.assertEqual([(v.line, v.col) for v in violations], [(4, 7)])
+
+    def test_a_call_inside_an_exempt_macro_is_still_checked(self):
+        self.assertEqual(
+            flagged("EXPECT_TRUE(isInContact(0.1, foot));"),
+            [("isInContact", "0.1", 1)],
+        )
+
+    def test_templated_and_qualified_callees(self):
+        self.assertEqual(flagged("ns::foo<int>(a, 0);"), [("foo", "0", 2)])
+        self.assertEqual(flagged("foo<Bar<int>>(a, 0);"), [("foo", "0", 2)])
+        self.assertEqual(flagged("object->method(a, 0);"), [("method", "0", 2)])
+        self.assertEqual(
+            flagged("std::make_unique<Term>(model, 0.5);"),
+            [("make_unique", "0.5", 2)],
+        )
+
+    def test_a_direct_initialized_object_is_a_constructor_call(self):
+        self.assertEqual(
+            flagged("ContactRectangle rectangle(file, 0);"),
+            [("rectangle", "0", 2)],
+        )
+
+
+class ExemptionsTest(unittest.TestCase):
+    def test_all_numeric_arguments_are_indices_or_coordinates(self):
+        self.assertEqual(flagged("x = R(2, 2);"), [])
+        self.assertEqual(flagged("v = vector3_t(0.0, 0.0, 1.0);"), [])
+        # A boolean among them is not a coordinate.
+        self.assertEqual(
+            flagged("f(0, true);"), [("f", "0", 1), ("f", "true", 2)]
+        )
+
+    def test_one_argument_calls(self):
+        self.assertEqual(
+            flagged("setVerbose(true); v.resize(3); wait(0.5);"), []
+        )
+        # A bool or null is the exception: the name of a one-argument call rarely says what it switches.
+        self.assertEqual(flagged("reset(true);"), [("reset", "true", 1)])
+        self.assertEqual(
+            flagged("runner.start(nullptr);"), [("start", "nullptr", 1)]
+        )
+        self.assertEqual(flagged("reset(/*hard=*/true);"), [])
+        # Unless it is a setter, a protobuf adder, a member or variable being initialized, or conventional.
+        for source in [
+            "enableLogging(false);",
+            "disableTorque(true);",
+            "message.set_ready(true);",
+            "message.add_contact_flags(true);",
+            "Foo::Foo() : stopped_(false) {}",
+            "std::atomic<bool> stopped(false);",
+            "flag.store(true);",
+            "srand(time(nullptr));",
+            "const BipedFeetArray<bool> all = makeBipedFeetArray(true);",
+            "EXPECT_EQ(kind, std::optional<bool>(true));",
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(flagged(source), [])
+
+    def test_conventional_callees(self):
+        for source in [
+            "std::max(a, 0.0);",
+            "std::clamp(v, -1.0, 1.0);",
+            "std::pow(x, 2);",
+            "m.block<3, 3>(0, j);",
+            "v.segment(i, 3);",
+            'absl::StrCat("x", 1, y);',
+            "EXPECT_NEAR(a, 0.0, 1e-9);",
+            "ASSERT_EQ(count, 0);",
+            "LOG_EVERY_N(WARNING, 100);",
+            "a.isApprox(b, 1e-12);",
+            "vector_t::Constant(n, 1.0);",
+            "Eigen::Quaterniond(w, 0.0, 0.0, 1.0);",
+            "vector3_t(x, 0.0, 1.0);",
+            "absl::StrSplit(text, ',');",
+            'absl::StrContains(text, "");',
+            "text.find_first_not_of(' ');",
+            'ABSL_FLAG(bool, gui, false, "Open the viewer.");',
+            # glibc leaves memset's fill byte unnamed, so no argument comment could name it.
+            "memset(&state, 0, sizeof(State));",
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(flagged(source), [])
+
+    def test_conventional_declared_types(self):
+        self.assertEqual(flagged("std::vector<bool> flags(n, false);"), [])
+        self.assertEqual(flagged("std::string padding(n, 0);"), [])
+
+    def test_later_declarators_of_a_conventional_declaration(self):
+        # Every declarator of `Type a(...), b(...)` has the declaration's type, not only the first.
+        self.assertEqual(
+            flagged(
+                "std::vector<double*> A(N + 1, nullptr), B(N + 1, nullptr),"
+                " C(N, nullptr);"
+            ),
+            [],
+        )
+        # Positive controls: a declaration of a type that is not conventional, and calls that are not declarators.
+        self.assertEqual(flagged("int a(1), b(n, true);"), [("b", "true", 2)])
+        self.assertEqual(flagged("f(g(1), h(n, true));"), [("h", "true", 2)])
+        self.assertEqual(
+            flagged("f(x, vector(1), h(n, true));"), [("h", "true", 2)]
+        )
+        self.assertEqual(
+            flagged("return a(1), b(n, true);"), [("b", "true", 2)]
+        )
+
+    def test_template_arguments_of_a_conventional_type_are_not_call_arguments(
+        self,
+    ):
+        # The commas and sizes of `Eigen::Matrix<SCALAR, 3, 3>` are not arguments of the call or declaration around it,
+        # neither in a parameter declaration nor in a temporary passed as an argument.
+        for source in [
+            (
+                "SCALAR footYawError(const Eigen::Matrix<SCALAR, 3, 3>&"
+                " rotation, const vector3_t& axis);"
+            ),
+            (
+                "EndEffectorKinematicsCostElement(const Eigen::Matrix<SCALAR_T,"
+                " 13, 1>& vector);"
+            ),
+            "costElementVector(Eigen::Matrix<SCALAR_T, 13, 1>::Zero());",
+            (
+                "f(getRotationMatrixFromZyxEulerAngles(Eigen::Matrix<ad_scalar_t,"
+                " 3, 1>(yaw, 0.0, 0.0)), frame);"
+            ),
+            "g(std::pair<int, bool>{index, flag}, name);",
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(flagged(source), [])
+        # Positive controls: a bare literal beside such a type is still reported, at its real position.
+        self.assertEqual(
+            flagged("f(Eigen::Matrix<ad_scalar_t, 3, 1>(x, y, z), 0);"),
+            [("f", "0", 2)],
+        )
+        self.assertEqual(
+            flagged("h(std::vector<std::pair<int, int>>{}, false);"),
+            [("h", "false", 2)],
+        )
+
+    def test_a_less_than_after_a_type_like_name_does_not_swallow_the_file(self):
+        # `array < 3` is a comparison: the closing parenthesis still ends the call, and the next call is checked.
+        self.assertEqual(flagged("f(array < 3, x); g(a, 0);"), [("g", "0", 2)])
+
+    def test_strings_and_user_defined_literals(self):
+        self.assertEqual(flagged('f(a, "text"); sleep(clock, 100ms);'), [])
+
+    def test_not_calls(self):
+        for source in [
+            "if (a == 0) {}",
+            "while (flag && x > 0.5) {}",
+            "for (int i = 0; i < 3; ++i) {}",
+            "int y = static_cast<int>(0);",
+            "return (a, 0);",
+            "void f(int a = 0, bool b = true);",
+            "bool operator()(int a, int b = 0) const;",
+            'static_assert(sizeof(T) == 8, "size");',
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(flagged(source), [])
+
+    def test_comments_strings_and_the_preprocessor_are_not_code(self):
+        source = "\n".join(
+            [
+                "// f(a, 0)",
+                "/* f(a, 0) */",
+                'const char* s = "f(a, 0)";',
+                'const char* r = R"(f(a, 0))";',
+                "#define CALL f(a, 0)",
+                "#define LONG f(a, \\",
+                "  0)",
+            ]
+        )
+        self.assertEqual(flagged(source), [])
+
+    def test_nolint(self):
+        # The registry applies the markers: NOLINT and NOLINTNEXTLINE with a reason suppress the finding.
+        self.assertEqual(
+            registry_lines("f(a, 0);  // NOLINT(argument-comment): a reason\n"),
+            [],
+        )
+        self.assertEqual(
+            registry_lines(
+                "// NOLINTNEXTLINE(argument-comment): a reason\nf(a, 0);\n"
+            ),
+            [],
+        )
+        # Only the named check is suppressed.
+        self.assertEqual(
+            registry_lines("f(a, 0);  // NOLINT(some-other-check): a reason\n"),
+            [1],
+        )
+
+
+class PreCommitHookTest(unittest.TestCase):
+    def test_the_hook_runs_the_staged_check_after_formatting_and_fails_on_it(
+        self,
+    ):
+        # The hook runs the registry's checks on the staged files, after the formatter's changes are staged.
+        check_test_support.assert_hook_runs_the_linter(self)
+        check_test_support.assert_check_behaves(
+            self,
+            "argument-comment",
+            "void g() {\n  f(a, 0);\n}\n",
+            "src/a.cpp",
+            clean="void g() {\n  f(a, /*index=*/0);\n}\n",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,92 @@
+/******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
+Copyright (c) 2024, 1X Technologies. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/dynamics/SystemDynamicsBaseAD.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_wb_mpc/common/WBAccelMpcRobotModel.h"
+
+namespace ocs2::legged {
+
+/**
+ * The floating-base dynamics of the whole-body MPC, taped with CppAD: the joint
+ * accelerations are inputs, the base acceleration follows from the Newton-Euler
+ * equations of the base under the contact wrenches.
+ *
+ * Keeps a pointer to the robot model, which must outlive it and every clone;
+ * the clones share it, and only read it (the model is const here and its
+ * accessors are pure functions of their arguments). Not thread-safe: the CppAD
+ * library its base class generates keeps evaluation buffers, so the solver
+ * clones one per worker thread.
+ */
+class WBAccelDynamicsAD final : public SystemDynamicsBaseAD {
+ public:
+  using Base = SystemDynamicsBaseAD;
+  /**
+   * Tapes (or loads) the flow map. `mpcRobotModel` is retained: it must outlive
+   * this object and its clones.
+   */
+  WBAccelDynamicsAD(
+      const PinocchioInterface& pinocchioInterface,
+      const WBAccelMpcRobotModel<ad_scalar_t>* absl_nonnull mpcRobotModel,
+      absl::string_view modelName,
+      const ModelSettings& modelSettings);
+
+  ~WBAccelDynamicsAD() override = default;
+
+  WBAccelDynamicsAD& operator=(const WBAccelDynamicsAD&) = delete;
+
+  WBAccelDynamicsAD(WBAccelDynamicsAD&&) = delete;
+
+  WBAccelDynamicsAD& operator=(WBAccelDynamicsAD&&) = delete;
+
+  WBAccelDynamicsAD(const WBAccelDynamicsAD& rhs) = default;
+
+  WBAccelDynamicsAD* absl_nonnull clone() const override {
+    return new WBAccelDynamicsAD(*this);
+  }
+
+  ad_vector_t systemFlowMap(ad_scalar_t time,
+                            const ad_vector_t& state,
+                            const ad_vector_t& input) const override;
+
+ private:
+  PinocchioInterfaceCppAd pinInterfaceCppAd_;
+  const WBAccelMpcRobotModel<ad_scalar_t>* absl_nonnull
+  mpcRobotModel_;  // not owned; outlives this object and its clones
+};
+
+}  // namespace ocs2::legged

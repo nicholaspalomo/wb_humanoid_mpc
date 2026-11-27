@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package nproto_test;
+
+import "nproto/options.proto";
+
+// A top-level enum: an enum class of its own, its values without the SEVERITY_ prefix.
+enum Severity {
+  option (nproto.generate_enum) = "nproto::test::Severity";
+
+  option allow_alias = true;
+
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_LOW = 1;
+  SEVERITY_HIGH = 2;
+  // An alias of SEVERITY_HIGH: the same number, a second enumerator.
+  SEVERITY_SEVERE = 2;
+  SEVERITY_LEVEL_10 = 10;
+}

@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package robot_ipc_test;
+
+import "nproto/options.proto";
+
+// A message with a field of every kind the bus tests carry end to end: in C++, in Python, and from one to the other.
+// Next ID: 8
+message TestSample {
+  option (nproto.generate_struct) = "robot::ipc::test::TestSample";
+
+  reserved 8 to max;
+
+  uint64 sequence = 1;
+  string text = 2;
+  bytes blob = 3;
+  double value = 4;
+  repeated double values = 5;
+  // Who sent it: the test that published it, or the echo binary that answered.
+  string origin = 6;
+  // Which thread published it, in the tests that publish from several.
+  uint32 publisher = 7;
+}

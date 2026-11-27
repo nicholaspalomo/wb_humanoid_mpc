@@ -36,8 +36,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <mutex>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/ControllerBase.h>
+#include <ocs2_core/manifold/StateManifold.h>
 #include <ocs2_core/misc/LinearInterpolation.h>
 #include <ocs2_core/reference/ModeSchedule.h>
 #include <ocs2_core/reference/TargetTrajectories.h>
@@ -46,7 +49,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_oc/rollout/RolloutBase.h>
 
 #include "ocs2_mpc/CommandData.h"
-#include "ocs2_mpc/MrtObserver.h"
 #include "ocs2_mpc/SystemObservation.h"
 
 namespace ocs2 {
@@ -112,7 +114,17 @@ class MRT_BASE {
    * @brief Initializes rollout class to roll out a feedback policy
    * @param rolloutPtr: The rollout object to be used
    */
-  void initRollout(const RolloutBase* rolloutPtr);
+  void initRollout(const RolloutBase* absl_nonnull rolloutPtr);
+
+  /**
+   * Sets the manifold the state lives on (nullptr, the default, for a flat state). evaluatePolicy() then interpolates the
+   * planned state along it (a slerp on every quaternion block) instead of linearly. The policy itself evaluates its
+   * feedback on the manifold already (ManifoldLinearController). Not reset by reset().
+   */
+  void setStateManifold(std::shared_ptr<const StateManifold> stateManifold) { stateManifoldPtr_ = std::move(stateManifold); }
+
+  /** The manifold the state lives on, or nullptr. */
+  const std::shared_ptr<const StateManifold>& getStateManifold() const { return stateManifoldPtr_; }
 
   /**
    * @brief Evaluates the controller
@@ -135,40 +147,71 @@ class MRT_BASE {
    * @param [out] mpcInput: the new control input of MPC.
    * @param [out] mode: the active mode.
    */
-  void rolloutPolicy(scalar_t currentTime, const vector_t& currentState, const scalar_t& timeStep, vector_t& mpcState, vector_t& mpcInput,
-                     size_t& mode);
+  void rolloutPolicy(
+      scalar_t currentTime, const vector_t& currentState, const scalar_t& timeStep, vector_t& mpcState, vector_t& mpcInput, size_t& mode);
 
   /**
    * Checks the data buffer for an update of the MPC policy. If a new policy
    * is available on the buffer this method will load it to the in-use policy.
-   * This method also calls the modifyActiveSolution() method.
    *
    * @return True if the policy is updated.
    */
   bool updatePolicy();
 
   /**
-   * @brief rolloutSet: Whether or not the internal rollout object has been set
-   * @return True if a rollout object is available.
+   * The failed try-locks of the policy buffer in updatePolicy() since its last successful one: updatePolicy() never
+   * waits for the buffer, so while the thread that fills it holds the lock no newer policy is taken into use. Written
+   * by the thread that calls updatePolicy(), which does not log (a log line can allocate or block); any thread may read
+   * it and report it, as the MRT joint controllers do once it passes kPolicyUpdateLockContentionThreshold.
    */
-  bool isRolloutSet() const { return rolloutPtr_ != nullptr; }
+  size_t getConsecutiveFailedPolicyUpdateLocks() const { return consecutiveFailedPolicyUpdateLocks_.load(std::memory_order_relaxed); }
+
+  /** The failed try-locks of the policy buffer in updatePolicy() over the lifetime of this MRT. Any thread. */
+  size_t getFailedPolicyUpdateLocks() const { return failedPolicyUpdateLocks_.load(std::memory_order_relaxed); }
+
+  /** The consecutive failed try-locks past which getConsecutiveFailedPolicyUpdateLocks() is reported. */
+  static constexpr size_t kPolicyUpdateLockContentionThreshold = 5;
 
   /**
-   * Adds an MRT observer to the policy update process
+   * Drops a policy that is waiting in the buffer and starts a new policy epoch, so that no policy solved before this
+   * call can be swapped in by updatePolicy() afterwards. The policy in use is left alone: it is read by the thread that
+   * calls updatePolicy() without a lock, so only that thread may replace it, and it does so with the first policy moved
+   * to the buffer after this call. isActivePolicyCurrent() tells that thread whether that has happened yet.
+   *
+   * Call it from the thread that fills the buffer (the one running the MPC) when the MPC is reset. Thread-safe with
+   * respect to updatePolicy().
+   *
+   * @return True when it dropped a policy that updatePolicy() never took; false when the buffer held none, because the
+   *         last policy moved to it was swapped in (or none was moved since the last discard). Read in the same critical
+   *         section as the drop, so a caller can tell which policy may be in use without racing the swap.
    */
-  void addMrtObserver(std::shared_ptr<MrtObserver> mrtObserver) { observerPtrArray_.push_back(std::move(mrtObserver)); };
+  bool discardBufferedPolicy();
+
+  /**
+   * True when the policy in use was moved to the buffer after the last discardBufferedPolicy(), i.e. it was solved
+   * after the last MPC reset; false before any policy was received. Call it from the thread that calls updatePolicy().
+   */
+  bool isActivePolicyCurrent() const { return activePrimalSolutionPtr_ != nullptr && activePolicyEpoch_ == policyEpoch_.load(); }
 
  protected:
-  void moveToBuffer(std::unique_ptr<CommandData> commandDataPtr, std::unique_ptr<PrimalSolution> primalSolutionPtr,
+  /**
+   * Puts a policy in the buffer, for updatePolicy() to swap in.
+   *
+   * @return True when it replaced a policy that updatePolicy() never took; false when the buffer held none (the policy
+   *         moved before was swapped in, discarded, or there was none). Read in the same critical section as the move.
+   */
+  bool moveToBuffer(std::unique_ptr<CommandData> commandDataPtr,
+                    std::unique_ptr<PrimalSolution> primalSolutionPtr,
                     std::unique_ptr<PerformanceIndex> performanceIndicesPtr);
 
+  /**
+   * Holds the lock of the policy buffer that updatePolicy() try-locks, for as long as the returned lock lives: for a
+   * deriving class that must keep the buffer still across several steps, and for the tests of the try-lock counters.
+   * Never call it from the thread that calls updatePolicy().
+   */
+  std::unique_lock<std::mutex> lockPolicyBuffer() const { return std::unique_lock<std::mutex>(bufferMutex_); }
+
  private:
-  /** Calls modifyActiveSolution on all mrt observers. This function is called while holding a policyBufferMutex lock */
-  void modifyActiveSolution(const CommandData& command, PrimalSolution& primalSolution);
-
-  /** Calls modifyBufferedSolution on all mrt observers. This function is called while holding a policyBufferMutex lock */
-  void modifyBufferedSolution(const CommandData& commandBuffer, PrimalSolution& primalSolutionBuffer);
-
   // flags on state of the class
   std::atomic_bool policyReceivedEver_;
   bool newPolicyInBuffer_;  // whether a new policy is waiting to be swapped in
@@ -181,15 +224,22 @@ class MRT_BASE {
   std::unique_ptr<PerformanceIndex> activePerformanceIndicesPtr_;
   std::unique_ptr<PerformanceIndex> bufferPerformanceIndicesPtr_;
 
+  // Policy epochs (discardBufferedPolicy()): the epoch a policy was moved to the buffer in travels with it through the
+  // swap in updatePolicy(). policyEpoch_ is only incremented, under bufferMutex_.
+  std::atomic<size_t> policyEpoch_{0};
+  size_t bufferPolicyEpoch_{0};  // guarded by bufferMutex_
+  size_t activePolicyEpoch_{0};  // owned by the thread calling updatePolicy()
+
   // thread safety
   mutable std::mutex bufferMutex_;  // for policy variables with the prefix (buffer*)
-  const size_t mrtTrylockWarningThreshold_ = 5;
-  size_t mrtTrylockWarningCount_;
+  // The failed try-locks of bufferMutex_ in updatePolicy(): since its last successful one, and in all. Written only by
+  // the thread that calls updatePolicy(); atomics so that any thread may read them.
+  std::atomic<size_t> consecutiveFailedPolicyUpdateLocks_{0};
+  std::atomic<size_t> failedPolicyUpdateLocks_{0};
 
   // variables needed for policy evaluation
   std::unique_ptr<RolloutBase> rolloutPtr_;
-
-  std::vector<std::shared_ptr<MrtObserver>> observerPtrArray_;
+  std::shared_ptr<const StateManifold> stateManifoldPtr_;
 };
 
 }  // namespace ocs2

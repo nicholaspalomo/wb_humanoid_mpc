@@ -29,8 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/Types.h>
 
-#include <ocs2_core/misc/LinearAlgebra.h>
-
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -94,20 +92,6 @@ ScalarFunctionLinearApproximation ScalarFunctionLinearApproximation::Zero(int nx
   ScalarFunctionLinearApproximation f;
   f.setZero(nx, nu);
   return f;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-std::string checkSize(int stateDim, int inputDim, const ScalarFunctionLinearApproximation& data, const std::string& dataName) {
-  std::stringstream errorDescription;
-  if (data.dfdx.size() != stateDim) {
-    errorDescription << dataName << ".dfdx.size() != " << stateDim << "\n";
-  }
-  if (data.dfdu.size() != inputDim) {
-    errorDescription << dataName << ".dfdu.size() != " << inputDim << "\n";
-  }
-  return errorDescription.str();
 }
 
 /******************************************************************************************************/
@@ -203,102 +187,6 @@ ScalarFunctionQuadraticApproximation ScalarFunctionQuadraticApproximation::Zero(
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::string checkBeingPSD(const matrix_t& data, const std::string& dataName) {
-  if (data.size() == 0) {
-    return std::string{};
-  }
-
-  std::stringstream errorDescription;
-
-  // check if it has valid values
-  if (!data.allFinite()) {
-    errorDescription << dataName << " is not finite.\n";
-  }
-
-  // check for being square
-  if (data.rows() != data.cols()) {
-    errorDescription << dataName << " is not a square matrix.\n";
-
-  } else {
-    // check for being self-adjoint
-    if (!data.isApprox(data.transpose(), 1e-6)) {
-      errorDescription << dataName << " is not self-adjoint.\n";
-    }
-
-    // check for being psd
-    const auto minEigenvalue = LinearAlgebra::symmetricEigenvalues(data).minCoeff();
-    if (minEigenvalue < -Eigen::NumTraits<scalar_t>::epsilon()) {
-      errorDescription << dataName << " is not PSD. It's smallest eigenvalue is " + std::to_string(minEigenvalue) + ".\n";
-    }
-  }
-
-  return errorDescription.str();
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-std::string checkBeingPSD(const ScalarFunctionQuadraticApproximation& data, const std::string& dataName) {
-  std::stringstream errorDescription;
-
-  // check if they are valid values
-  if (data.f != data.f) {
-    errorDescription << dataName << " is not finite.\n";
-  }
-  if (data.dfdx.size() > 0 && !data.dfdx.allFinite()) {
-    errorDescription << dataName << " first derivative w.r.t. state is not finite.\n";
-  }
-  if (data.dfdu.size() > 0 && !data.dfdu.allFinite()) {
-    errorDescription << dataName << " first derivative w.r.t. input is not finite.\n";
-  }
-  if (data.dfdux.size() > 0 && !data.dfdux.allFinite()) {
-    errorDescription << dataName << " second derivative w.r.t. input-state is not finite.\n";
-  }
-
-  // check for being psd
-  errorDescription << checkBeingPSD(data.dfdxx, dataName + " second derivative w.r.t. state");
-  errorDescription << checkBeingPSD(data.dfduu, dataName + " second derivative w.r.t. input");
-
-  return errorDescription.str();
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-std::string checkSize(int stateDim, int inputDim, const ScalarFunctionQuadraticApproximation& data, const std::string& dataName) {
-  std::stringstream errorDescription;
-
-  if (data.dfdx.size() != stateDim) {
-    errorDescription << dataName << ".dfdx.size() != " << stateDim << "\n";
-  }
-  if (data.dfdxx.rows() != stateDim) {
-    errorDescription << dataName << ".dfdxx.rows() != " << stateDim << "\n";
-  }
-  if (data.dfdxx.cols() != stateDim) {
-    errorDescription << dataName << ".dfdxx.cols() != " << stateDim << "\n";
-  }
-  if (data.dfdu.size() != inputDim) {
-    errorDescription << dataName << ".dfdu.size() != " << inputDim << "\n";
-  }
-  if (data.dfduu.rows() != inputDim) {
-    errorDescription << dataName << ".dfduu.rows() != " << inputDim << "\n";
-  }
-  if (data.dfduu.cols() != inputDim) {
-    errorDescription << dataName << ".dfduu.cols() != " << inputDim << "\n";
-  }
-  if (data.dfdux.rows() != inputDim) {
-    errorDescription << dataName << ".dfdux.rows() != " << inputDim << "\n";
-  }
-  if (data.dfdux.cols() != stateDim && inputDim > 0) {
-    errorDescription << dataName << ".dfdux.cols() != " << stateDim << "\n";
-  }
-
-  return errorDescription.str();
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 std::ostream& operator<<(std::ostream& out, const ScalarFunctionQuadraticApproximation& f) {
   out << "f: " << f.f << '\n';
   out << "dfdx: " << f.dfdx.transpose() << '\n';
@@ -366,32 +254,6 @@ std::ostream& operator<<(std::ostream& out, const VectorFunctionLinearApproximat
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::string checkSize(int vectorDim, int stateDim, int inputDim, const VectorFunctionLinearApproximation& data,
-                      const std::string& dataName) {
-  std::stringstream errorDescription;
-
-  if (data.f.size() != vectorDim) {
-    errorDescription << dataName << ".f.size() != " << vectorDim << "\n";
-  }
-  if (vectorDim > 0 && data.dfdx.rows() != vectorDim) {
-    errorDescription << dataName << ".dfdx.rows() != " << vectorDim << "\n";
-  }
-  if (vectorDim > 0 && data.dfdx.cols() != stateDim) {
-    errorDescription << dataName << ".dfdx.cols() != " << stateDim << "\n";
-  }
-  if (vectorDim > 0 && inputDim > 0 && data.dfdu.rows() != vectorDim) {
-    errorDescription << dataName << ".dfdu.rows() != " << vectorDim << "\n";
-  }
-  if (vectorDim > 0 && inputDim > 0 && data.dfdu.cols() != inputDim) {
-    errorDescription << dataName << ".dfdu.cols() != " << inputDim << "\n";
-  }
-
-  return errorDescription.str();
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 VectorFunctionQuadraticApproximation::VectorFunctionQuadraticApproximation(int nv, int nx, int nu) {
   resize(nv, nx, nu);
 }
@@ -405,19 +267,19 @@ VectorFunctionQuadraticApproximation& VectorFunctionQuadraticApproximation::resi
   dfdxx.resize(nv);
   dfdux.resize(nv);
   dfduu.resize(nv);
-  for (size_t i = 0; i < nv; i++) {
+  for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
     dfdxx[i].resize(nx, nx);
   }
 
   if (nu >= 0) {
     dfdu.resize(nv, nu);
-    for (size_t i = 0; i < nv; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
       dfdux[i].resize(nu, nx);
       dfduu[i].resize(nu, nu);
     }
   } else {
     dfdu = matrix_t();
-    for (size_t i = 0; i < nv; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
       dfdux[i] = matrix_t();
       dfduu[i] = matrix_t();
     }
@@ -432,7 +294,7 @@ VectorFunctionQuadraticApproximation& VectorFunctionQuadraticApproximation::setZ
   f.setZero(nv);
   dfdx.setZero(nv, nx);
   dfdxx.resize(nv);
-  for (size_t i = 0; i < nv; i++) {
+  for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
     dfdxx[i].setZero(nx, nx);
   }
 
@@ -440,7 +302,7 @@ VectorFunctionQuadraticApproximation& VectorFunctionQuadraticApproximation::setZ
     dfdu.setZero(nv, nu);
     dfdux.resize(nv);
     dfduu.resize(nv);
-    for (size_t i = 0; i < nv; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
       dfdux[i].setZero(nu, nx);
       dfduu[i].setZero(nu, nu);
     }
@@ -448,7 +310,7 @@ VectorFunctionQuadraticApproximation& VectorFunctionQuadraticApproximation::setZ
     dfdu = matrix_t();
     dfdux.resize(nv);
     dfduu.resize(nv);
-    for (size_t i = 0; i < nv; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(nv); i++) {
       dfdux[i] = matrix_t();
       dfduu[i] = matrix_t();
     }
@@ -472,13 +334,13 @@ std::ostream& operator<<(std::ostream& out, const VectorFunctionQuadraticApproxi
   out << "f: " << f.f.transpose() << '\n';
   out << "dfdx:\n" << f.dfdx << '\n';
   out << "dfdu:\n" << f.dfdu << '\n';
-  for (size_t i = 0; i < f.f.rows(); i++) {
+  for (size_t i = 0; i < static_cast<size_t>(f.f.rows()); i++) {
     out << "dfdxx[" << i << "]:\n" << f.dfdxx[i] << '\n';
   }
-  for (size_t i = 0; i < f.f.rows(); i++) {
+  for (size_t i = 0; i < static_cast<size_t>(f.f.rows()); i++) {
     out << "dfdux[" << i << "]:\n" << f.dfdux[i] << '\n';
   }
-  for (size_t i = 0; i < f.f.rows(); i++) {
+  for (size_t i = 0; i < static_cast<size_t>(f.f.rows()); i++) {
     out << "dfduu[" << i << "]:\n" << f.dfduu[i] << '\n';
   }
   return out;

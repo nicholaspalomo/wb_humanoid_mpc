@@ -29,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 
+#include <cmath>
+#include <numbers>
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -39,24 +42,19 @@ template <typename SCALAR_T>
 SCALAR_T scalarMod(SCALAR_T, SCALAR_T);
 
 template <>
-float scalarMod<float>(float x, float y) {
-  return fmodf(x, y);
-}
-
-template <>
 double scalarMod<double>(double x, double y) {
   return fmod(x, y);
 }
 }  // namespace
 
 scalar_t moduloAngleWithReference(scalar_t x, scalar_t reference) {
-  const scalar_t ub = reference + M_PI;  // upper bound
-  const scalar_t lb = reference - M_PI;  // lower bound
+  const scalar_t ub = reference + std::numbers::pi;  // upper bound
+  const scalar_t lb = reference - std::numbers::pi;  // lower bound
 
   if (x > ub) {
-    x = lb + scalarMod(x - lb, 2.0 * M_PI);
+    x = lb + scalarMod(x - lb, 2.0 * std::numbers::pi);
   } else if (x < lb) {
-    x = ub - scalarMod(ub - x, 2.0 * M_PI);
+    x = ub - scalarMod(ub - x, 2.0 * std::numbers::pi);
   }
 
   return x;

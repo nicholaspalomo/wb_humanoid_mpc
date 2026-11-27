@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "legged_mpc_msgs/color.proto";
+import "legged_mpc_msgs/vector3.proto";
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+// Next ID: 3
+message LineStrip {
+  option (nproto.generate_struct) = "ocs2::legged::msgs::LineStrip";
+
+  reserved 3 to max;
+
+  repeated Vector3 pos_strippoints_rt_world_ewrt_world = 1;
+  Color color = 2;
+}

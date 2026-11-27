@@ -1,0 +1,796 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <fstream>
+#include <memory>
+#include <numbers>
+#include <random>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "mujoco/mujoco.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "mujoco_sim_interface/MujocoUtils.h"
+
+namespace robot::mujoco_sim_interface {
+namespace {
+
+// A floating "robot" (pelvis with two hinged feet, the left foot with a hinged
+// toe) over a plane, plus a crate that is not part of the robot. A strut on the
+// left foot overlaps the right sole, so the robot is always in self-contact
+// between two sibling bodies (which MuJoCo does not filter out). Heights are
+// chosen so that only the left toe penetrates the floor at the initial pose:
+//   left sole bottom  z = 0.5 - 0.432 - 0.05 = +0.018 (in the air)
+//   left toe bottom   z = 0.5 - 0.432 - 0.02 - 0.05 = -0.002 (touching)
+//   right sole bottom z = 0.5 - 0.200 - 0.05 = +0.250 (in the air)
+constexpr char kScene[] = R"(
+<mujoco>
+  <option timestep="0.001" gravity="0 0 -9.81"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 0.1"/>
+    <body name="pelvis" pos="0 0 0.5">
+      <freejoint/>
+      <geom type="box" size="0.05 0.05 0.05" mass="10"/>
+      <body name="l_foot" pos="0 0.2 -0.432">
+        <joint name="l_ankle" type="hinge" axis="1 0 0"/>
+        <geom name="l_sole" type="box" size="0.1 0.05 0.05" mass="1"/>
+        <!-- A strut that overlaps the right sole: a permanent self-contact between two sibling bodies. -->
+        <geom name="l_strut" type="box" pos="0 -0.4 0.232" size="0.02 0.02 0.02" mass="0.01"/>
+        <body name="l_toe" pos="0.14 0 -0.02">
+          <joint name="l_toe_joint" type="hinge" axis="0 1 0"/>
+          <geom name="l_toe_geom" type="box" size="0.03 0.05 0.05" mass="0.1"/>
+        </body>
+      </body>
+      <body name="r_foot" pos="0 -0.2 -0.2">
+        <joint name="r_ankle" type="hinge" axis="1 0 0"/>
+        <geom name="r_sole" type="box" size="0.1 0.05 0.05" mass="1"/>
+      </body>
+    </body>
+    <body name="crate" pos="1 0 0.048">
+      <freejoint/>
+      <geom type="box" size="0.05 0.05 0.05" mass="1"/>
+    </body>
+  </worldbody>
+</mujoco>
+)";
+
+constexpr char kUrdf[] = R"(
+<robot name="test_robot">
+  <link name="pelvis"/>
+  <link name="l_foot"/>
+  <link name="foot_l_contact"/>
+  <link name="l_toe"/>
+  <link name="r_foot"/>
+  <link name="foot_r_contact"/>
+  <link name="unmodeled_link"/>
+  <joint name="l_ankle" type="revolute">
+    <parent link="pelvis"/><child link="l_foot"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="foot_l_contact_joint" type="fixed"><parent link="l_foot"/><child link="foot_l_contact"/></joint>
+  <joint name="l_toe_joint" type="revolute">
+    <parent link="l_foot"/><child link="l_toe"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="r_ankle" type="revolute">
+    <parent link="pelvis"/><child link="r_foot"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="foot_r_contact_joint" type="fixed"><parent link="r_foot"/><child link="foot_r_contact"/></joint>
+  <joint name="unmodeled_joint" type="revolute">
+    <parent link="pelvis"/><child link="unmodeled_link"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+)";
+
+std::string writeTempFile(absl::string_view name,
+                          const char* absl_nonnull content) {
+  const std::string path = absl::StrCat(testing::TempDir(), "/", name);
+  std::ofstream out(path);
+  out << content;
+  return path;
+}
+
+struct Scene {
+  Scene(const Scene&) = delete;
+  Scene& operator=(const Scene&) = delete;
+  Scene() {
+    char error[1000] = "";
+    model = mj_loadXML(writeTempFile("contact_scene.xml", kScene).c_str(),
+                       /*vfs=*/nullptr, error, sizeof(error));
+    if (model == nullptr) {
+      throw std::runtime_error(std::string("mj_loadXML: ") + error);
+    }
+    data = mj_makeData(model);
+    mj_forward(model, data);
+  }
+  ~Scene() {
+    mj_deleteData(data);
+    mj_deleteModel(model);
+  }
+  int body(const char* absl_nonnull name) const {
+    return mj_name2id(model, mjOBJ_BODY, name);
+  }
+  mjModel* absl_nullable model = nullptr;
+  mjData* absl_nullable data = nullptr;
+};
+
+TEST(MujocoContactUtils, GroundTruthMaskFollowsTheContactForcesOfTheSubtree) {
+  Scene scene;
+  const std::vector<int> feet = {scene.body("l_foot"), scene.body("r_foot")};
+  ASSERT_GE(feet[0], 0);
+  ASSERT_GE(feet[1], 0);
+
+  // Only the left toe touches the floor: it belongs to the left foot's subtree,
+  // so the left foot counts as touching.
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
+            0b01u);
+  // The threshold is a normal-force threshold.
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0e9),
+            0u);
+
+  // Bring the right sole down to the same 2 mm penetration as the left toe (the
+  // body offset is changed in the model). Both contacts then ask for the same
+  // separation and share the load; a much deeper contact on one side would
+  // drive the common upward acceleration alone and leave the shallower one
+  // force-free, which is physics, not detection.
+  scene.model->body_pos[3 * feet[1] + 2] =
+      -0.452;  // right sole bottom at z = 0.5 - 0.452 - 0.05 = -0.002
+  mj_forward(scene.model, scene.data);
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
+            0b11u);
+
+  // An unresolved contact point (-1) never reports contact and does not disturb
+  // the others.
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, {-1, feet[1]},
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
+            0b10u);
+  // The crate rests on the floor too, but it is nobody's contact point.
+  EXPECT_EQ(
+      groundTruthContactMask(scene.model, scene.data, {scene.body("pelvis")},
+                             /*minForceMjcontactEwrtMjcontactX=*/1.0),
+      0b1u)
+      << "the pelvis subtree contains both feet";
+}
+
+TEST(MujocoContactUtils, ContactWithAForeignBodyCountsAndSelfContactDoesNot) {
+  Scene scene;
+  const std::vector<int> feet = {scene.body("l_foot"), scene.body("r_foot")};
+
+  // The strut on the left foot presses into the right sole: a self-contact with
+  // real force, between the two feet.
+  bool selfContactSeen = false;
+  for (int c = 0; c < scene.data->ncon; ++c) {
+    const int b1 = scene.model->geom_bodyid[scene.data->contact[c].geom[0]];
+    const int b2 = scene.model->geom_bodyid[scene.data->contact[c].geom[1]];
+    mjtNum wrenchMjcontactEwrtMjcontact[6];
+    mj_contactForce(scene.model, scene.data, c, wrenchMjcontactEwrtMjcontact);
+    selfContactSeen =
+        selfContactSeen || (((b1 == feet[0] && b2 == feet[1]) ||
+                             (b1 == feet[1] && b2 == feet[0])) &&
+                            wrenchMjcontactEwrtMjcontact[0] > 1.0);
+  }
+  ASSERT_TRUE(selfContactSeen)
+      << "the scene must contain a self-contact between the feet for this test "
+         "to mean anything";
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
+            0b01u)
+      << "self-contact is not ground contact";
+
+  // Slide the crate under the right foot so that it penetrates the sole from
+  // below by 2 mm: a foreign free body counts as ground truth just like the
+  // floor.
+  const int crate = scene.body("crate");
+  const int crateQpos =
+      scene.model->jnt_qposadr[scene.model->body_jntadr[crate]];
+  scene.data->qpos[crateQpos + 0] = 0.0;
+  scene.data->qpos[crateQpos + 1] = -0.2;
+  scene.data->qpos[crateQpos + 2] = 0.25 - 0.05 + 0.002;
+  mj_forward(scene.model, scene.data);
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
+            0b11u);
+}
+
+TEST(MujocoContactUtils, ResolvesContactFramesThroughFixedJointsOnly) {
+  Scene scene;
+  const std::string urdf = writeTempFile("contact_robot.urdf", kUrdf);
+  std::vector<std::string> errors;
+  const std::vector<int> ids =
+      resolveContactBodies(scene.model, urdf,
+                           {"foot_l_contact", "foot_r_contact", "l_foot",
+                            "unmodeled_link", "no_such_frame"},
+                           /*contactParentJointNames=*/{}, &errors);
+  ASSERT_EQ(ids.size(), 5u);
+  EXPECT_EQ(ids[0], scene.body("l_foot"))
+      << "a fixed-joint child frame resolves to its parent body";
+  EXPECT_EQ(ids[1], scene.body("r_foot"));
+  EXPECT_EQ(ids[2], scene.body("l_foot")) << "a body name resolves directly";
+  EXPECT_EQ(ids[3], -1) << "a link on a movable joint that is not a MuJoCo "
+                           "body is an error, not a guess";
+  EXPECT_EQ(ids[4], -1);
+  ASSERT_EQ(errors.size(), 2u);
+  EXPECT_NE(errors[0].find("unmodeled_link"), std::string::npos);
+  EXPECT_NE(errors[0].find("unmodeled_joint"), std::string::npos);
+  EXPECT_NE(errors[1].find("no_such_frame"), std::string::npos);
+
+  // Without a readable URDF only direct body names resolve.
+  errors.clear();
+  const std::vector<int> noUrdf = resolveContactBodies(
+      scene.model, "/nonexistent.urdf", {"l_foot", "foot_l_contact"},
+      /*contactParentJointNames=*/{}, &errors);
+  EXPECT_EQ(noUrdf[0], scene.body("l_foot"));
+  EXPECT_EQ(noUrdf[1], -1);
+  ASSERT_EQ(errors.size(), 1u);
+  EXPECT_NE(errors[0].find("could not be parsed"), std::string::npos);
+}
+
+TEST(MujocoContactUtils, ParentJointNamesResolveFramesThatExistNowhere) {
+  // The controller adds its contact frames to its own kinematic model, on a
+  // joint; they exist in neither the URDF nor the scene. The body driven by
+  // that joint is the contact body.
+  Scene scene;
+  std::vector<std::string> errors;
+  const std::vector<int> ids = resolveContactBodies(
+      scene.model, "/nonexistent.urdf",
+      {"virtual_l_contact", "virtual_r_contact", "l_toe_contact"},
+      {"l_ankle", "r_ankle", "l_toe_joint"}, &errors);
+  EXPECT_EQ(ids[0], scene.body("l_foot"));
+  EXPECT_EQ(ids[1], scene.body("r_foot"));
+  EXPECT_EQ(ids[2], scene.body("l_toe"));
+  EXPECT_TRUE(errors.empty());
+
+  // A joint name the scene does not know falls back to the frame name (and
+  // reports it); shorter or empty entries are simply not used.
+  const std::string urdf = writeTempFile("contact_robot.urdf", kUrdf);
+  errors.clear();
+  const std::vector<int> fallback =
+      resolveContactBodies(scene.model, urdf, {"foot_l_contact", "r_foot"},
+                           {"no_such_joint", ""}, &errors);
+  EXPECT_EQ(fallback[0], scene.body("l_foot"))
+      << "resolved through the URDF after the joint lookup failed";
+  EXPECT_EQ(fallback[1], scene.body("r_foot"));
+  ASSERT_EQ(errors.size(), 1u);
+  EXPECT_NE(errors[0].find("no_such_joint"), std::string::npos);
+}
+
+// A cart on four wheels: a free chassis and four bodies on unlimited hinges
+// about y, each with one collision cylinder of radius 0.1 m coaxial with its
+// hinge, the wheel centers 0.098 m above the floor (2 mm penetration).
+constexpr char kWheelScene[] = R"(
+<mujoco>
+  <option timestep="0.001" gravity="0 0 -9.81"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="20 20 0.1"/>
+    <body name="chassis" pos="0 0 0.298">
+      <freejoint/>
+      <geom type="box" size="0.2 0.2 0.02" mass="2"/>
+      <body name="wheel_lf" pos="0.15 0.25 -0.2">
+        <joint name="wheel_lf_joint" type="hinge" axis="0 1 0" limited="false"/>
+        <geom type="cylinder" size="0.1 0.02" zaxis="0 1 0" mass="0.2"/>
+      </body>
+      <body name="wheel_rf" pos="0.15 -0.25 -0.2">
+        <joint name="wheel_rf_joint" type="hinge" axis="0 1 0" limited="false"/>
+        <geom type="cylinder" size="0.1 0.02" zaxis="0 1 0" mass="0.2"/>
+      </body>
+      <body name="wheel_lh" pos="-0.15 0.25 -0.2">
+        <joint name="wheel_lh_joint" type="hinge" axis="0 1 0" limited="false"/>
+        <geom type="cylinder" size="0.1 0.02" zaxis="0 1 0" mass="0.2"/>
+      </body>
+      <body name="wheel_rh" pos="-0.15 -0.25 -0.2">
+        <joint name="wheel_rh_joint" type="hinge" axis="0 1 0" limited="false"/>
+        <geom type="cylinder" size="0.1 0.02" zaxis="0 1 0" mass="0.2"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
+)";
+
+// The cart's URDF: continuous wheel joints, and a fixed frame at one wheel's
+// center.
+constexpr char kWheelUrdf[] = R"(
+<robot name="cart">
+  <link name="chassis"/>
+  <link name="wheel_lf"/>
+  <link name="wheel_lf_center"/>
+  <link name="wheel_rf"/>
+  <link name="wheel_lh"/>
+  <link name="wheel_rh"/>
+  <joint name="wheel_lf_joint" type="continuous">
+    <parent link="chassis"/><child link="wheel_lf"/><axis xyz="0 1 0"/><limit effort="1" velocity="10"/>
+  </joint>
+  <joint name="wheel_lf_center_joint" type="fixed"><parent link="wheel_lf"/><child link="wheel_lf_center"/></joint>
+  <joint name="wheel_rf_joint" type="continuous">
+    <parent link="chassis"/><child link="wheel_rf"/><axis xyz="0 1 0"/><limit effort="1" velocity="10"/>
+  </joint>
+  <joint name="wheel_lh_joint" type="continuous">
+    <parent link="chassis"/><child link="wheel_lh"/><axis xyz="0 1 0"/><limit effort="1" velocity="10"/>
+  </joint>
+  <joint name="wheel_rh_joint" type="continuous">
+    <parent link="chassis"/><child link="wheel_rh"/><axis xyz="0 1 0"/><limit effort="1" velocity="10"/>
+  </joint>
+</robot>
+)";
+
+TEST(MujocoContactUtils,
+     ARollingContactIsItsWheelWhichTouchesTheGroundAsItRolls) {
+  char error[1000] = "";
+  const MjModelPtr model(
+      mj_loadXML(writeTempFile("wheel_scene.xml", kWheelScene).c_str(),
+                 /*vfs=*/nullptr, error, sizeof(error)));
+  ASSERT_NE(model, nullptr) << error;
+  absl::StatusOr<MjDataPtr> dataOrStatus = makeMjData(model.get());
+  ASSERT_TRUE(dataOrStatus.ok()) << dataOrStatus.status();
+  mjData* absl_nonnull data = dataOrStatus->get();
+  const std::vector<std::string> wheels = {"wheel_lf", "wheel_rf", "wheel_lh",
+                                           "wheel_rh"};
+
+  // The MPC's rolling contact frames exist only in its own model, on the wheel
+  // joints: each resolves to its wheel body. A frame at a wheel center on a
+  // fixed child of the wheel link resolves through the URDF, and a wheel link
+  // on its continuous joint resolves by its body name.
+  const std::string urdf = writeTempFile("wheel_cart.urdf", kWheelUrdf);
+  std::vector<std::string> errors;
+  const std::vector<int> bodies = resolveContactBodies(
+      model.get(), urdf,
+      {"wheel_lf_contact", "wheel_rf_contact", "wheel_lh_contact",
+       "wheel_rh_contact"},
+      {"wheel_lf_joint", "wheel_rf_joint", "wheel_lh_joint", "wheel_rh_joint"},
+      &errors);
+  EXPECT_TRUE(errors.empty());
+  ASSERT_EQ(bodies.size(), wheels.size());
+  for (size_t i = 0; i < wheels.size(); ++i) {
+    EXPECT_EQ(bodies[i], mj_name2id(model.get(), mjOBJ_BODY, wheels[i].c_str()))
+        << wheels[i];
+  }
+  const std::vector<int> byUrdf =
+      resolveContactBodies(model.get(), urdf, {"wheel_lf_center", "wheel_rf"},
+                           /*contactParentJointNames=*/{}, &errors);
+  EXPECT_EQ(byUrdf[0], bodies[0]);
+  EXPECT_EQ(byUrdf[1], bodies[1]);
+  EXPECT_TRUE(errors.empty());
+
+  // Rolling forward at 0.5 m/s, the wheels spinning at v / r: every wheel
+  // stays in contact while its cylinder turns under it.
+  constexpr double kForwardSpeed = 0.5;
+  constexpr double kWheelRadius = 0.1;
+  mj_forward(model.get(), data);
+  data->qvel[0] = kForwardSpeed;
+  const int freeDofs = 6;
+  for (int wheel = 0; wheel < 4; ++wheel) {
+    data->qvel[freeDofs + wheel] = kForwardSpeed / kWheelRadius;
+  }
+  const int settleSteps = 50;
+  const int rollSteps = 1000;
+  for (int step = 0; step < rollSteps; ++step) {
+    mj_step(model.get(), data);
+    if (step < settleSteps) continue;
+    ASSERT_EQ(groundTruthContactMask(model.get(), data, bodies,
+                                     /*minForceMjcontactEwrtMjcontactX=*/1.0),
+              0b1111u)
+        << "at step " << step;
+  }
+  // The wheels rolled: the angle each turned is the distance over the radius.
+  const int freeCoordinates = 7;
+  EXPECT_GT(data->qpos[0], 0.3) << "the cart moved forward";
+  for (int wheel = 0; wheel < 4; ++wheel) {
+    EXPECT_NEAR(data->qpos[freeCoordinates + wheel],
+                data->qpos[0] / kWheelRadius,
+                0.1 * data->qpos[0] / kWheelRadius)
+        << wheels[static_cast<size_t>(wheel)];
+  }
+
+  // Lifted clear of the floor, no wheel is in contact.
+  data->qpos[2] += 0.1;
+  mj_forward(model.get(), data);
+  EXPECT_EQ(groundTruthContactMask(model.get(), data, bodies,
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
+            0u);
+}
+
+TEST(MujocoContactUtils, SubtreeMembership) {
+  Scene scene;
+  EXPECT_TRUE(
+      isInBodySubtree(scene.model, scene.body("l_toe"), scene.body("l_foot")));
+  EXPECT_TRUE(
+      isInBodySubtree(scene.model, scene.body("l_foot"), scene.body("l_foot")));
+  EXPECT_TRUE(
+      isInBodySubtree(scene.model, scene.body("l_toe"), scene.body("pelvis")));
+  EXPECT_FALSE(
+      isInBodySubtree(scene.model, scene.body("l_foot"), scene.body("l_toe")));
+  EXPECT_FALSE(
+      isInBodySubtree(scene.model, scene.body("r_foot"), scene.body("l_foot")));
+  EXPECT_FALSE(
+      isInBodySubtree(scene.model, scene.body("crate"), scene.body("pelvis")));
+  EXPECT_TRUE(
+      isInBodySubtree(scene.model, scene.body("crate"), /*ancestorId=*/0))
+      << "everything hangs under the world body";
+  EXPECT_FALSE(
+      isInBodySubtree(scene.model, /*bodyId=*/-1, scene.body("pelvis")));
+}
+
+TEST(MujocoContactUtils, TimelineKeepsAWindowAndClearsOnReset) {
+  ContactTimeline timeline(2.0);
+  EXPECT_DOUBLE_EQ(timeline.window(), 2.0);
+  for (int i = 0; i <= 100; ++i) {
+    ContactTimelineSample sample;
+    sample.time = 0.1 * i;
+    sample.actual = (i % 2 == 0) ? 0b01u : 0b10u;
+    sample.target = 0b01u;
+    sample.targetKnown = i > 10;
+    timeline.append(sample);
+  }
+  ASSERT_FALSE(timeline.samples().empty());
+  EXPECT_DOUBLE_EQ(timeline.samples().back().time, 10.0);
+  EXPECT_GE(timeline.samples().front().time, 8.0 - 1.0e-12)
+      << "samples older than the window are dropped";
+  EXPECT_LE(timeline.samples().front().time, 8.1 + 1.0e-12);
+  EXPECT_TRUE(timeline.samples().back().targetKnown);
+
+  // The simulation was reset: time runs backwards, the history is cleared.
+  ContactTimelineSample afterReset;
+  afterReset.time = 1.0;
+  timeline.append(afterReset);
+  ASSERT_EQ(timeline.samples().size(), 1u);
+  EXPECT_DOUBLE_EQ(timeline.samples().front().time, 1.0);
+
+  EXPECT_DOUBLE_EQ(ContactTimeline(-3.0).window(), 5.0)
+      << "a non-positive window falls back to the default";
+}
+
+/*============================================ centroidal markers
+ * ==========================================*/
+
+TEST(MujocoContactUtils,
+     CentroidalStateIsTheRootSubtreesCenterOfMassAndVelocity) {
+  Scene scene;
+  const int pelvis = scene.body("pelvis");
+  ASSERT_GE(pelvis, 0);
+  const RobotCentroidalState resting =
+      robotCentroidalState(scene.model, scene.data);
+  ASSERT_TRUE(resting.valid);
+  EXPECT_EQ(resting.rootBodyId, pelvis)
+      << "the first body on a free joint, not the crate";
+  EXPECT_NEAR(resting.mass, scene.model->body_subtreemass[pelvis], 1.0e-12);
+  EXPECT_NEAR(resting.mass, 10.0 + 1.0 + 0.01 + 0.1 + 1.0, 1.0e-9);
+  for (int axis = 0; axis < 3; ++axis) {
+    EXPECT_NEAR(resting.posComRtWorldEwrtWorld[axis],
+                scene.data->subtree_com[3 * pelvis + axis], 1.0e-12);
+    EXPECT_NEAR(resting.linvelComRtWorldEwrtWorld[axis], 0.0, 1.0e-12);
+  }
+  // The robot translating at 1 m/s along x: so does its center of mass.
+  scene.data->qvel[0] = 1.0;
+  mj_forward(scene.model, scene.data);
+  const RobotCentroidalState moving =
+      robotCentroidalState(scene.model, scene.data);
+  ASSERT_TRUE(moving.valid);
+  EXPECT_NEAR(moving.linvelComRtWorldEwrtWorld[0], 1.0, 1.0e-9);
+  EXPECT_NEAR(moving.linvelComRtWorldEwrtWorld[1], 0.0, 1.0e-9);
+  EXPECT_NEAR(moving.linvelComRtWorldEwrtWorld[2], 0.0, 1.0e-9);
+  EXPECT_FALSE(robotCentroidalState(/*model=*/nullptr, scene.data).valid);
+}
+
+TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
+  Scene scene;
+  const int pelvis = scene.body("pelvis");
+  // Only the left toe touches the floor; the strut-sole self-contact carries
+  // force but is not a ground reaction.
+  const GroundReaction reaction = groundReaction(
+      scene.model, scene.data, pelvis, /*minForceWorldEwrtWorldZ=*/0.0);
+  ASSERT_TRUE(reaction.valid);
+  EXPECT_GT(reaction.forceWorldEwrtWorld[2], 0.0)
+      << "the floor pushes the robot up";
+  // The center of pressure lies in the convex hull of the ground contact points
+  // (the corners of the toe box).
+  double minPosMjcontactsRtWorldEwrtWorldXy[2] = {1.0e9, 1.0e9};
+  double maxPosMjcontactsRtWorldEwrtWorldXy[2] = {-1.0e9, -1.0e9};
+  int groundContacts = 0;
+  for (int c = 0; c < scene.data->ncon; ++c) {
+    const mjContact& contact = scene.data->contact[c];
+    const int b1 = scene.model->geom_bodyid[contact.geom[0]];
+    const int b2 = scene.model->geom_bodyid[contact.geom[1]];
+    if (b1 != 0 && b2 != 0) continue;
+    ++groundContacts;
+    for (int axis = 0; axis < 2; ++axis) {
+      // NOLINTBEGIN(frame-naming): MuJoCo's mjContact::pos
+      minPosMjcontactsRtWorldEwrtWorldXy[axis] =
+          std::min(minPosMjcontactsRtWorldEwrtWorldXy[axis], contact.pos[axis]);
+      maxPosMjcontactsRtWorldEwrtWorldXy[axis] =
+          std::max(maxPosMjcontactsRtWorldEwrtWorldXy[axis], contact.pos[axis]);
+      // NOLINTEND(frame-naming)
+    }
+  }
+  ASSERT_GT(groundContacts, 0);
+  for (int axis = 0; axis < 2; ++axis) {
+    EXPECT_GE(reaction.posZmpRtWorldEwrtWorldXy[axis],
+              minPosMjcontactsRtWorldEwrtWorldXy[axis] - 1.0e-6);
+    EXPECT_LE(reaction.posZmpRtWorldEwrtWorldXy[axis],
+              maxPosMjcontactsRtWorldEwrtWorldXy[axis] + 1.0e-6);
+  }
+  EXPECT_NEAR(reaction.posZmpRtWorldEwrtWorldXy[0], 0.14, 0.05)
+      << "under the toe";
+  EXPECT_NEAR(reaction.posZmpRtWorldEwrtWorldXy[1], 0.2, 0.06)
+      << "under the toe";
+  // A threshold above the reaction hides the marker (the robot on the gantry).
+  EXPECT_FALSE(groundReaction(scene.model, scene.data, pelvis,
+                              reaction.forceWorldEwrtWorld[2] + 1.0)
+                   .valid);
+  EXPECT_FALSE(groundReaction(scene.model, scene.data, /*rootBodyId=*/-1,
+                              /*minForceWorldEwrtWorldZ=*/0.0)
+                   .valid);
+}
+
+TEST(MujocoContactUtils,
+     DivergentComponentOfMotionIsTheComPlusVelocityOverOmega) {
+  const double posComRtWorldEwrtWorld[3] = {1.0, 2.0, 0.85};
+  const double linvelComRtWorldEwrtWorld[3] = {0.34, -0.17, 0.5};
+  double posDcmRtWorldEwrtWorldXy[2];
+  divergentComponentOfMotion(posComRtWorldEwrtWorld, linvelComRtWorldEwrtWorld,
+                             posComRtWorldEwrtWorld[2],
+                             /*gravityMagnitude=*/9.81,
+                             posDcmRtWorldEwrtWorldXy);
+  const double omega = std::sqrt(9.81 / 0.85);
+  EXPECT_NEAR(posDcmRtWorldEwrtWorldXy[0], 1.0 + 0.34 / omega, 1.0e-12);
+  EXPECT_NEAR(posDcmRtWorldEwrtWorldXy[1], 2.0 - 0.17 / omega, 1.0e-12);
+  // The height is clamped so that a CoM on the ground does not blow the DCM up.
+  divergentComponentOfMotion(posComRtWorldEwrtWorld, linvelComRtWorldEwrtWorld,
+                             /*posComRtWorldEwrtWorldZ=*/0.0,
+                             /*gravityMagnitude=*/9.81,
+                             posDcmRtWorldEwrtWorldXy);
+  EXPECT_NEAR(posDcmRtWorldEwrtWorldXy[0], 1.0 + 0.34 / std::sqrt(9.81 / 0.05),
+              1.0e-12);
+}
+
+/** One free-floating ball: a model with a joint, whose references a test can
+ * corrupt. */
+constexpr char kBallScene[] = R"(
+<mujoco>
+  <worldbody>
+    <body name="ball" pos="0 0 1">
+      <freejoint/>
+      <geom type="sphere" size="0.1" mass="1"/>
+    </body>
+  </worldbody>
+</mujoco>
+)";
+
+MjModelPtr compileBallScene() {
+  char error[1000] = "";
+  const MjSpecPtr spec(
+      mj_parseXMLString(kBallScene, /*vfs=*/nullptr, error, sizeof(error)));
+  if (spec == nullptr) {
+    throw std::runtime_error(std::string("mj_parseXMLString: ") + error);
+  }
+  return MjModelPtr(mj_compile(spec.get(), /*vfs=*/nullptr));
+}
+
+TEST(MujocoUtils, MakeMjDataOwnsTheDataOfTheModel) {
+  // The null branch of makeMjData has no test: MuJoCo aborts by itself when it
+  // cannot allocate, and mj_makeData validates nothing a test could corrupt (an
+  // out-of-range jnt_dofadr still yields data).
+  const MjModelPtr model = compileBallScene();
+  ASSERT_NE(model, nullptr);
+  const absl::StatusOr<MjDataPtr> data = makeMjData(model.get());
+  ASSERT_TRUE(data.ok()) << data.status();
+  ASSERT_NE(*data, nullptr);
+  // A fresh state of the model: its initial configuration, at rest.
+  EXPECT_EQ((*data)->qpos[2], model->qpos0[2]);
+  EXPECT_EQ((*data)->qvel[0], 0.0);
+}
+
+TEST(MujocoUtils, MjStateCopiesAreDeepAndMovesHandTheDataOver) {
+  const MjModelPtr model = compileBallScene();
+  ASSERT_NE(model, nullptr);
+  MjState original(model.get());
+  ASSERT_NE(original.data, nullptr);
+  original.data->qpos[0] = 1.5;
+  original.timestamp = 7;
+
+  MjState copy(original);
+  ASSERT_NE(copy.data, nullptr);
+  EXPECT_NE(copy.data, original.data) << "a copy owns an mjData of its own";
+  EXPECT_EQ(copy.data->qpos[0], 1.5);
+  EXPECT_EQ(copy.timestamp, 7);
+  copy.data->qpos[0] = 2.5;
+  EXPECT_EQ(original.data->qpos[0], 1.5)
+      << "writing the copy leaves the original alone";
+
+  MjState assigned(model.get());
+  assigned = original;
+  ASSERT_NE(assigned.data, nullptr);
+  EXPECT_NE(assigned.data, original.data);
+  EXPECT_EQ(assigned.data->qpos[0], 1.5);
+
+  mjData* absl_nonnull const handedOver = copy.data;
+  const MjState moved(std::move(copy));
+  EXPECT_EQ(moved.data, handedOver);
+  EXPECT_EQ(moved.data->qpos[0], 2.5);
+  // NOLINTBEGIN(bugprone-use-after-move): the moved-from state is tested.
+  EXPECT_EQ(copy.data, nullptr);
+  EXPECT_EQ(copy.model, nullptr);
+  // NOLINTEND(bugprone-use-after-move)
+}
+
+/**
+ * A 30 kg trunk welded to a 1 kg foot that has the foot force sensor,
+ * standing on the floor yawed by `yawDegrees`, under a gravity with a
+ * horizontal part (a slope's). The sensor reads the force between the foot and
+ * the trunk.
+ */
+MjModelPtr compileFootSensorScene(absl::string_view yawDegrees) {
+  const std::string xml = absl::StrCat(R"(
+<mujoco>
+  <option timestep="0.002" gravity="1.5 0 -9.81"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 0.1"/>
+    <body name="trunk" pos="0 0 0.15" euler="0 0 )",
+                                       yawDegrees, R"(">
+      <freejoint/>
+      <geom type="box" size="0.1 0.1 0.05" mass="30"/>
+      <body name="foot" pos="0 0 -0.1">
+        <geom type="box" size="0.1 0.05 0.05" mass="1"/>
+        <site name="foot_site"/>
+      </body>
+    </body>
+  </worldbody>
+  <sensor>
+    <force name="left_foot_force_sensor" site="foot_site"/>
+  </sensor>
+</mujoco>
+)");
+  char error[1000] = "";
+  const MjSpecPtr spec(
+      mj_parseXMLString(xml.c_str(), /*vfs=*/nullptr, error, sizeof(error)));
+  if (spec == nullptr) {
+    throw std::runtime_error(std::string("mj_parseXMLString: ") + error);
+  }
+  return MjModelPtr(mj_compile(spec.get(), /*vfs=*/nullptr));
+}
+
+TEST(MujocoUtils, TheFootForceIsTheWorldFrameForceTheFootCarries) {
+  // At rest the foot carries the trunk: minus the trunk's weight, 30 kg * (1.5,
+  // 0, -9.81), whatever the foot's yaw. The sensor's own reading is in the site
+  // frame and of the other sign: (45, 0, -294.3), and (0, -45, -294.3) yawed.
+  const double trunkMass = 30.0;
+  for (const char* absl_nonnull yaw : {"0", "90"}) {
+    SCOPED_TRACE(absl::StrCat("yaw ", yaw, " deg"));
+    const MjModelPtr model = compileFootSensorScene(yaw);
+    ASSERT_NE(model, nullptr);
+    absl::StatusOr<MjDataPtr> data = makeMjData(model.get());
+    ASSERT_TRUE(data.ok()) << data.status();
+    for (int step = 0; step < 3000; ++step) mj_step(model.get(), data->get());
+    const int sensor =
+        mj_name2id(model.get(), mjOBJ_SENSOR, "left_foot_force_sensor");
+    ASSERT_TRUE(isFootForceSensor(model.get(), sensor));
+    const std::array<mjtNum, ocs2::kPositionDim> measForceFootEwrtWorld =
+        computeMeasForceFootEwrtWorld(model.get(), data->get(), sensor);
+    EXPECT_NEAR(measForceFootEwrtWorld[0], -trunkMass * model->opt.gravity[0],
+                0.5);
+    EXPECT_NEAR(measForceFootEwrtWorld[1], -trunkMass * model->opt.gravity[1],
+                0.5);
+    EXPECT_NEAR(measForceFootEwrtWorld[2], -trunkMass * model->opt.gravity[2],
+                0.5);
+  }
+}
+
+TEST(MujocoUtils, OnlyAForceSensorOnASiteIsAFootForceSensor) {
+  const MjModelPtr model = compileFootSensorScene("0");
+  ASSERT_NE(model, nullptr);
+  EXPECT_TRUE(isFootForceSensor(
+      model.get(),
+      mj_name2id(model.get(), mjOBJ_SENSOR, "left_foot_force_sensor")));
+  EXPECT_FALSE(isFootForceSensor(model.get(), /*sensorId=*/-1))
+      << "a sensor the scene does not have";
+  EXPECT_FALSE(isFootForceSensor(model.get(), model->nsensor));
+}
+
+// The twist about the vertical of a MuJoCo quaternion, against the defining
+// property of the twist-swing split rather than a formula: q = q_t (x) s with
+// the swing s = q_t^-1 (x) q a rotation about a horizontal axis (s_z = 0), and
+// q_t a unit rotation about z with w >= 0.
+TEST(VerticalTwist, LeavesASwingAboutAHorizontalAxisForRandomAttitudes) {
+  std::mt19937 generator(/*seed=*/7);
+  std::normal_distribution<double> normal(/*mean=*/0.0, /*stddev=*/1.0);
+  for (int sample = 0; sample < 1000; ++sample) {
+    mjtNum q[4] = {normal(generator), normal(generator), normal(generator),
+                   normal(generator)};
+    mju_normalize4(q);
+    const VerticalTwist quatHeadingRtWorld =
+        verticalTwistFromQuaternion(q[0], q[3]);
+    EXPECT_NEAR(quatHeadingRtWorld.w * quatHeadingRtWorld.w +
+                    quatHeadingRtWorld.z * quatHeadingRtWorld.z,
+                1.0, 1.0e-12);
+    EXPECT_GE(quatHeadingRtWorld.w, 0.0);
+    const mjtNum quatWorldRtHeadingWxyz[4] = {quatHeadingRtWorld.w, 0.0, 0.0,
+                                              -quatHeadingRtWorld.z};
+    mjtNum quatLocalRtHeadingWxyz[4];
+    mju_mulQuat(quatLocalRtHeadingWxyz, quatWorldRtHeadingWxyz, q);
+    EXPECT_NEAR(quatLocalRtHeadingWxyz[3], 0.0, 1.0e-12) << "sample " << sample;
+    // The yaw is the twist's angle, in (-pi, pi].
+    const double yawLocalRtWorld = yawOf(q[0], q[3]);
+    EXPECT_GT(yawLocalRtWorld, -std::numbers::pi);
+    EXPECT_LE(yawLocalRtWorld, std::numbers::pi);
+    EXPECT_NEAR(std::cos(yawLocalRtWorld / 2.0), quatHeadingRtWorld.w, 1.0e-12);
+    EXPECT_NEAR(std::sin(yawLocalRtWorld / 2.0), quatHeadingRtWorld.z, 1.0e-12);
+  }
+}
+
+// Upside down the twist is undefined; the MPC (verticalTwistFromQuaternion(),
+// yawOf()) reads it as heading 0, and so must the gantry anchor and the
+// dodgeball's yaw frame. It used to fall back to the ZYX yaw instead.
+TEST(VerticalTwist, AnUpsideDownAttitudeHasTheIdentityTwistAsInTheMpc) {
+  for (const std::array<double, 4>& q :
+       {std::array<double, 4>{0.0, 1.0, 0.0, 0.0},
+        std::array<double, 4>{0.0, 0.6, 0.8, 0.0},
+        std::array<double, 4>{-0.0, 0.6, -0.8, -0.0}}) {
+    const VerticalTwist quatHeadingRtWorld =
+        verticalTwistFromQuaternion(q[0], q[3]);
+    EXPECT_EQ(quatHeadingRtWorld.w, 1.0)
+        << "(" << q[0] << ", " << q[1] << ", " << q[2] << ", " << q[3] << ")";
+    EXPECT_EQ(quatHeadingRtWorld.z, 0.0);
+    EXPECT_EQ(yawOf(q[0], q[3]), 0.0);
+  }
+}
+
+TEST(VerticalTwist, IsContinuousDownToUpsideDownAndTheSameForQAndMinusQ) {
+  // Just above the old 1e-9 guard and below it: the normalized (w, z) either
+  // way, with no switch of formula.
+  for (const double rho : {1.0e-6, 1.0e-9, 1.0e-12}) {
+    const double angle = 0.7;
+    const double w = rho * std::cos(angle);
+    const double z = rho * std::sin(angle);
+    const VerticalTwist quatHeadingRtWorld = verticalTwistFromQuaternion(w, z);
+    EXPECT_NEAR(quatHeadingRtWorld.w, std::cos(angle), 1.0e-12)
+        << "rho = " << rho;
+    EXPECT_NEAR(quatHeadingRtWorld.z, std::sin(angle), 1.0e-12)
+        << "rho = " << rho;
+    const VerticalTwist negated = verticalTwistFromQuaternion(-w, -z);
+    EXPECT_EQ(negated.w, quatHeadingRtWorld.w) << "q and -q are one rotation";
+    EXPECT_EQ(negated.z, quatHeadingRtWorld.z);
+  }
+  // A heading of exactly pi is +pi from either hemisphere.
+  EXPECT_NEAR(yawOf(0.0, 1.0), std::numbers::pi, 1.0e-15);
+  EXPECT_NEAR(yawOf(0.0, -1.0), std::numbers::pi, 1.0e-15);
+}
+
+}  // namespace
+}  // namespace robot::mujoco_sim_interface

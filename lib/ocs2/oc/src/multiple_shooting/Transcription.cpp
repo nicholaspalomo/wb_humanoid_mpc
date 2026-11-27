@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_oc/approximate_model/ChangeOfInputVariables.h"
 #include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
+#include "ocs2_oc/multiple_shooting/ManifoldProjection.h"
 
 namespace ocs2 {
 namespace multiple_shooting {
@@ -52,7 +53,9 @@ Transcription setupIntermediateNode(OptimalControlProblem& optimalControlProblem
   // Dynamics
   // Discretization returns x_{k+1} = A_{k} * dx_{k} + B_{k} * du_{k} + b_{k}
   dynamics = sensitivityDiscretizer(*optimalControlProblem.dynamicsPtr, t, x, u, dt);
-  dynamics.f -= x_next;  // make it dx_{k+1} = ...
+  if (optimalControlProblem.stateManifoldPtr == nullptr) {
+    dynamics.f -= x_next;  // make it dx_{k+1} = ...
+  }  // else the gap on the manifold, with every other term, after the approximation below
 
   // Precomputation for other terms
   constexpr auto request = Request::Cost + Request::SoftConstraint + Request::Constraint + Request::Approximation;
@@ -90,27 +93,24 @@ Transcription setupIntermediateNode(OptimalControlProblem& optimalControlProblem
         optimalControlProblem.inequalityConstraintPtr->getLinearApproximation(t, x, u, *optimalControlProblem.preComputationPtr);
   }
 
+  // On a state manifold: the gap and the tangent linearization of the dynamics, and the tangent cost and constraints.
+  if (optimalControlProblem.stateManifoldPtr != nullptr) {
+    projectIntermediateNodeOnManifold(*optimalControlProblem.stateManifoldPtr, x, x_next, transcription);
+  }
+
   return transcription;
 }
 
-void projectTranscription(Transcription& transcription, bool extractProjectionMultiplier) {
+void projectTranscription(Transcription& transcription) {
   auto& cost = transcription.cost;
   auto& dynamics = transcription.dynamics;
   auto& stateInputEqConstraints = transcription.stateInputEqConstraints;
   auto& stateInputIneqConstraints = transcription.stateInputIneqConstraints;
   auto& projection = transcription.constraintsProjection;
-  auto& projectionMultiplierCoefficients = transcription.projectionMultiplierCoefficients;
 
   if (stateInputEqConstraints.f.size() > 0) {
-    // Projection stored instead of constraint, // TODO: benchmark between lu and qr method. LU seems slightly faster.
-    if (extractProjectionMultiplier) {
-      matrix_t constraintPseudoInverse;
-      std::tie(projection, constraintPseudoInverse) = LinearAlgebra::qrConstraintProjection(stateInputEqConstraints);
-      projectionMultiplierCoefficients.compute(cost, dynamics, projection, constraintPseudoInverse);
-    } else {
-      projection = LinearAlgebra::luConstraintProjection(stateInputEqConstraints).first;
-      projectionMultiplierCoefficients = ProjectionMultiplierCoefficients();
-    }
+    // Projection stored instead of constraint
+    projection = LinearAlgebra::luConstraintProjection(stateInputEqConstraints);
     stateInputEqConstraints = VectorFunctionLinearApproximation();
 
     // Adapt dynamics, cost, and state-input inequality constraints
@@ -150,6 +150,10 @@ TerminalTranscription setupTerminalNode(OptimalControlProblem& optimalControlPro
         optimalControlProblem.finalInequalityConstraintPtr->getLinearApproximation(t, x, *optimalControlProblem.preComputationPtr);
   }
 
+  if (optimalControlProblem.stateManifoldPtr != nullptr) {
+    projectTerminalNodeOnManifold(*optimalControlProblem.stateManifoldPtr, x, transcription);
+  }
+
   return transcription;
 }
 
@@ -168,8 +172,10 @@ EventTranscription setupEventNode(OptimalControlProblem& optimalControlProblem, 
   // Dynamics
   // jump map returns // x_{k+1} = A_{k} * dx_{k} + b_{k}
   dynamics = optimalControlProblem.dynamicsPtr->jumpMapLinearApproximation(t, x);
-  dynamics.f -= x_next;                // make it dx_{k+1} = ...
-  dynamics.dfdu.setZero(x.size(), 0);  // Overwrite derivative that shouldn't exist.
+  if (optimalControlProblem.stateManifoldPtr == nullptr) {
+    dynamics.f -= x_next;                // make it dx_{k+1} = ...
+    dynamics.dfdu.setZero(x.size(), 0);  // Overwrite derivative that shouldn't exist.
+  }  // else the gap on the manifold, with every other term, after the approximation below
 
   // Costs
   cost = approximateEventCost(optimalControlProblem, t, x);
@@ -186,6 +192,12 @@ EventTranscription setupEventNode(OptimalControlProblem& optimalControlProblem, 
     constraintsSize.stateIneq = optimalControlProblem.preJumpInequalityConstraintPtr->getTermsSize(t);
     ineqConstraints =
         optimalControlProblem.preJumpInequalityConstraintPtr->getLinearApproximation(t, x, *optimalControlProblem.preComputationPtr);
+  }
+
+  // On a state manifold: the jump's gap and tangent Jacobian (with an empty, tangent-sized input Jacobian), and the
+  // tangent cost and constraints.
+  if (optimalControlProblem.stateManifoldPtr != nullptr) {
+    projectEventNodeOnManifold(*optimalControlProblem.stateManifoldPtr, x, x_next, transcription);
   }
 
   return transcription;

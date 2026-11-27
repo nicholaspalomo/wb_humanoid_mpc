@@ -72,6 +72,14 @@ class StateConstraintCppAd : public StateConstraint {
   virtual ad_vector_t constraintFunction(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const = 0;
 
  private:
+  /**
+   * The function the library tapes, constraintFunction() of this object at x = (time, state) and p. It refers to this
+   * object, so a copy hands the copy of the library a function of its own (the copy constructor) and never tapes the
+   * object it was copied from, which may be destroyed first.
+   */
+  CppAdInterface::ad_parameterized_function_t tapedFunction() const;
+
+  size_t stateDim_ = 0;
   std::unique_ptr<ocs2::CppAdInterface> adInterfacePtr_;
 };
 

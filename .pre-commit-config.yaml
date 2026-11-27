@@ -4,9 +4,9 @@ repos:
     rev: v4.6.0
     hooks:
       - id: end-of-file-fixer
-        exclude: ^(lib/|build/|install/|bazel-)
+        exclude: ^(lib/|bazel-)
       - id: trailing-whitespace
-        exclude: ^(lib/|build/|install/|bazel-)
+        exclude: ^(lib/|bazel-)
   - repo: https://github.com/simonepri/ifttt-lint
     rev: v0.11.0
     hooks:

@@ -1,0 +1,77 @@
+# proto-file: legged_nmpc/legged_mpc_config/gait_file.proto
+# proto-message: legged_mpc_config.GaitFile
+#
+# The gait file of the LimX Tron1, whose contacts are the rolling contacts of its two wheels
+# (model_settings.contacts_rolling, legged_nmpc/docs/rolling_contact/README.md). Both gaits stand on every contact, and
+# STANCE is every contact of the set (mode_sequence_template_config.proto). Its drive turns the base by differential
+# wheel speed, which needs every axle on one line through the base center, as on Tron1; a quadruped's parallel axles
+# cannot roll through a yaw, and the wheeled quadrupeds step to turn (wheeled_quadruped_gait.textproto). The steps of
+# rolling_lateral_debt, at the end of the file, name Tron1's wheels.
+gait_list: "stance"
+gait_list: "drive"
+
+# Standing in place, every wheel on the ground.
+gaits {
+  name: "stance"
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}
+
+# Driving: every wheel stays on the ground while the base moves, and the no-slip constraint of each wheel turns the
+# commanded base twist into wheel speeds. Its modes are those of stance; the separate gait identifies the phase in the
+# gait switching table and in the telemetry.
+gaits {
+  name: "drive"
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}
+
+# The gaits the walking velocity command switches between (gait_switching_table_config.proto):
+# - stance takes a command within 0.1 m/s and 0.1 rad/s of rest, and leaves for drive on the command alone (error
+#   thresholds of 10), as the other gait files' stance rows do;
+# - drive takes every other command: its upper bounds of 10 m/s and 10 rad/s are above any command the reference files
+#   allow. It gives way to stance once the command is below 0.05 m/s and 0.05 rad/s and the stride-mean motion below
+#   0.1 m/s and 0.1 rad/s (its lower bounds plus its error thresholds of 0.05).
+# drive's lower bounds are below stance's upper bounds, so that a command near one bound does not switch back and
+# forth.
+gait_switching {
+  rows {
+    gait: "stance"
+    cmd_min_linvel_base_rt_world_ewrt_heading_xy: -0.1
+    cmd_max_linvel_base_rt_world_ewrt_heading_xy: 0.1
+    cmd_min_angvel_base_rt_world_ewrt_world_z: -0.1
+    cmd_max_angvel_base_rt_world_ewrt_world_z: 0.1
+    max_err_linvel_base_rt_world_ewrt_heading_xy: 10.0
+    max_err_angvel_base_rt_world_ewrt_world_z: 10.0
+  }
+  rows {
+    gait: "drive"
+    cmd_min_linvel_base_rt_world_ewrt_heading_xy: 0.05
+    cmd_max_linvel_base_rt_world_ewrt_heading_xy: 10.0
+    cmd_min_angvel_base_rt_world_ewrt_world_z: 0.05
+    cmd_max_angvel_base_rt_world_ewrt_world_z: 10.0
+    max_err_linvel_base_rt_world_ewrt_heading_xy: 0.05
+    max_err_angvel_base_rt_world_ewrt_world_z: 0.05
+  }
+}
+
+# The event-driven steps write the mode schedule in place of the table above (rolling_step_scheduler_config.proto;
+# legged_nmpc/docs/rolling_contact/README.md, section 10): a drive and a turn in place roll on both wheels, and a
+# sideways command, which neither wheel can roll, steps one wheel at a time where its lateral debt reaches 4 cm, the
+# wheel on the side of the motion first. In single support Tron1 is a point-foot biped that only the next step keeps
+# from falling sideways, so its swings are short: in the closed loop of testTron1LockstepLoop, 0.25 s swings tilted the
+# base by 0.78 rad and reset the MPC, and 0.12 s swings with 0.2 s on both wheels between them kept it below 0.1 rad
+# (0.15 s swings: 0.11 rad; 0.2 s: 0.28 rad). gait_scheduler: "gait_switching_table" switches back to the table, which
+# keeps both wheels on the ground.
+gait_scheduler: "rolling_lateral_debt"
+rolling_lateral_debt {
+  step_groups { contacts: "wheel_L_contact" }
+  step_groups { contacts: "wheel_R_contact" }
+  max_lateral_debt: 0.04
+  swing_duration: 0.12
+  min_stance_duration: 0.2
+  min_lift_off_lead: 0.1
+  commit_window: 0.25
+}

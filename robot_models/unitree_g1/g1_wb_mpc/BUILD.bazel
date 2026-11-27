@@ -1,6 +1,11 @@
+load("//bazel:robot_files.bzl", "ROBOT_FILE_EXCLUDES")
 # g1_wb_mpc - G1 robot whole-body MPC configuration
 
 package(default_visibility = ["//visibility:public"])
+
+# The launch files (robot.textproto, mpc.textproto, dummy_sim.textproto; tools/launch), for the tests that check them
+# and the robot bundle that exports robot.textproto (tools/deploy).
+exports_files(glob(["launch/*.textproto"]))
 
 # Configuration and launch files
 filegroup(
@@ -8,5 +13,5 @@ filegroup(
     srcs = glob([
         "config/**",
         "launch/**",
-    ], allow_empty = True),
+    ], exclude = ROBOT_FILE_EXCLUDES, allow_empty = True),
 )

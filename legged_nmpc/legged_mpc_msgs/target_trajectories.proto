@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "legged_mpc_msgs/vector.proto";
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+// ocs2::TargetTrajectories.
+// Next ID: 4
+message TargetTrajectories {
+  option (nproto.generate_struct) = "ocs2::legged::msgs::TargetTrajectories";
+
+  reserved 4 to max;
+
+  repeated double time = 1;
+  repeated Vector state = 2;
+  repeated Vector input = 3;
+}

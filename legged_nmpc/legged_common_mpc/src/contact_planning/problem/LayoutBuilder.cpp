@@ -1,0 +1,72 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "legged_common_mpc/contact_planning/problem/LayoutBuilder.h"
+
+#include <string>
+#include <utility>
+
+#include "absl/log/check.h"
+
+#include "legged_common_mpc/contact_planning/problem/Layout.h"
+
+namespace ocs2::legged {
+
+int LayoutBuilder::addState(std::string name) {
+  CHECK(!layout_.hasState(name))
+      << "[Layout] state '" << name << "' declared twice";
+  layout_.stateNames.push_back(std::move(name));
+  layout_.nx = static_cast<int>(layout_.stateNames.size());
+  return layout_.nx - 1;
+}
+
+int LayoutBuilder::addInput(std::string name) {
+  CHECK(!layout_.hasInput(name))
+      << "[Layout] input '" << name << "' declared twice";
+  layout_.inputNames.push_back(std::move(name));
+  layout_.nu = static_cast<int>(layout_.inputNames.size());
+  return layout_.nu - 1;
+}
+
+Layout LayoutBuilder::build() const {
+  Layout layout = layout_;
+  layout.hasHeading = layout.hasState(var::kHeadingModelYaw);
+  if (layout.hasHeading) {
+    layout.headingModelYaw = layout.state(var::kHeadingModelYaw);
+    layout.headingModelYawRate = layout.state(var::kHeadingModelYawRate);
+    layout.startEulerzyxFeetRtWorldYaw =
+        layout.state(var::eulerzyxFootRtWorldYaw(0));
+    layout.yawTorqueStart = layout.input(var::torqueFootEwrtWorldZ(0));
+    layout.startErrEulerzyxFeetRtWorldYaw =
+        layout.input(var::errEulerzyxFootRtWorldYaw(0));
+  }
+  return layout;
+}
+
+}  // namespace ocs2::legged

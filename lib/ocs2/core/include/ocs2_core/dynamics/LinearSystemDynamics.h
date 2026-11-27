@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/dynamics/SystemDynamicsBase.h>
 
 namespace ocs2 {
@@ -39,8 +41,6 @@ namespace ocs2 {
  *
  * - \f$ \dot{x} = A * x + B * u   \quad \text{for intermediate times}, \f$
  * - \f$ x^{+} = G * x^{-}         \quad \text{for switching times}. \f$
- *
- * where \f$ g(x) \f$ is the guard surface defined by OdeBase::computeGuardSurfaces(t, x).
  */
 class LinearSystemDynamics : public SystemDynamicsBase {
  public:
@@ -48,7 +48,7 @@ class LinearSystemDynamics : public SystemDynamicsBase {
 
   ~LinearSystemDynamics() override = default;
 
-  LinearSystemDynamics* clone() const override;
+  LinearSystemDynamics* absl_nonnull clone() const override;
 
   vector_t computeFlowMap(scalar_t t, const vector_t& x, const vector_t& u, const PreComputation&) override;
 

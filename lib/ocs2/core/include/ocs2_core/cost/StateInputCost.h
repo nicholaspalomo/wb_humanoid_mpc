@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <type_traits>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/PreComputation.h>
 #include <ocs2_core/Types.h>
 #include <ocs2_core/reference/TargetTrajectories.h>
@@ -42,7 +44,7 @@ class StateInputCost {
  public:
   StateInputCost() = default;
   virtual ~StateInputCost() = default;
-  virtual StateInputCost* clone() const = 0;
+  virtual StateInputCost* absl_nonnull clone() const = 0;
 
   /** Check if cost term is active */
   virtual bool isActive(scalar_t time) const { return true; }

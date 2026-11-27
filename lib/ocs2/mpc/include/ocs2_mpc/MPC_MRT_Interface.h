@@ -32,23 +32,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <condition_variable>
 #include <csignal>
 #include <ctime>
+#include <functional>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
+
+#include "absl/status/status.h"
 
 #include <ocs2_core/misc/Benchmark.h>
-#include <ocs2_core/model_data/Multiplier.h>
 #include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_mpc/MRT_BASE.h"
 
 namespace ocs2 {
 
 /**
- * A lean ROS independent interface to OCS2. In incorporates the functionality of the MPC and the MRT (trajectory tracking) modules.
- * Please refer to ocs2_double_integrator_example for a minimal example and tests
+ * A lean in-process interface to OCS2 that incorporates the functionality of the MPC and the MRT (trajectory tracking)
+ * modules. mpc/test/testMpcReset.cpp exercises it.
  */
 class MPC_MRT_Interface final : public MRT_BASE {
  public:
+  /**
+   * Called by advanceMpc() with the observation the solve starts from, on the thread that calls advanceMpc(), right
+   * before MPC_BASE::run(). The observation carries what the MPC's run does not take: its input, where a centroidal MRT
+   * writes the measured joint velocities that the state only holds as momentum.
+   */
+  using SolverObservationObserver = std::function<void(const SystemObservation& observation)>;
+
   /**
    * Constructor
    * @param [in] mpc: The underlying MPC class to be used.
@@ -57,9 +67,27 @@ class MPC_MRT_Interface final : public MRT_BASE {
 
   ~MPC_MRT_Interface() override = default;
 
+  /**
+   * Resets the MPC (MPC_BASE::reset(): the solver, its reference manager and its synchronized modules), drops any policy
+   * still waiting in the buffer (discardBufferedPolicy()) and sets the target trajectories to start from. Call it from
+   * the thread that calls advanceMpc(), between two calls.
+   */
   void resetMpcNode(const TargetTrajectories& initTargetTrajectories) override;
 
+  /**
+   * As resetMpcNode(), but resets the solver alone (MPC_BASE::resetSolver()): the reference manager and the synchronized
+   * modules keep the schedule and the command state they are executing. The policy waiting in the buffer is dropped
+   * all the same. Same threading rule as resetMpcNode().
+   */
+  void resetMpcSolver(const TargetTrajectories& initTargetTrajectories);
+
   void setCurrentObservation(const SystemObservation& currentObservation) override;
+
+  /**
+   * Sets the function every advanceMpc() hands its observation to (SolverObservationObserver); empty: none. Call it
+   * before the first advanceMpc(), from the thread that calls it.
+   */
+  void setSolverObservationObserver(SolverObservationObserver observer) { solverObservationObserver_ = std::move(observer); }
 
   SystemObservation getCurrentObservation();
 
@@ -72,50 +100,11 @@ class MPC_MRT_Interface final : public MRT_BASE {
   /**
    * Advance the mpc module for one iteration. The evaluation methods can be called while this method is running. They will evaluate the
    * control law that was up-to-date at the last updatePolicy() call.
+   *
+   * @return absl::OkStatus() on success; InternalError if the solver threw; FailedPrecondition if the MPC did not run
+   *         because the observation time is past the end of the previous solution, which only a reset cures.
    */
-  void advanceMpc();
-
-  /**
-   * @brief Retrieves the gain matrix from solver capable of optimizing over LinearController type.
-   *
-   * @note This method is not thread-safe, meaning you can only access this data safely at the end of each MPC iteration.
-   *
-   * @param [in] time: query time
-   * @return The gain matrix.
-   */
-  matrix_t getLinearFeedbackGain(scalar_t time);
-
-  /**
-   * @brief Access the solver's internal value function.
-   *
-   * @note This method is not thread-safe, meaning you can only access this data safely at the end of each MPC iteration.
-   *
-   * @param [in] time: query time
-   * @param [in] state: query state
-   * @return The quadratic approximation of the value function at the requested time and state.
-   */
-  ScalarFunctionQuadraticApproximation getValueFunction(scalar_t time, const vector_t& state) const;
-
-  /**
-   * @brief Computes the Lagrange multiplier related to the state-input constraints
-   *
-   * @note This method is not thread-safe, meaning you can only access this data safely at the end of each MPC iteration.
-   *
-   * @param [in] time: query time
-   * @param [in] state: query state
-   * @return The Lagrange multiplier at the requested time and state
-   */
-  vector_t getStateInputEqualityConstraintLagrangian(scalar_t time, const vector_t& state) const;
-
-  /**
-   * @brief Returns the intermediate dual solution at the given time.
-   *
-   * @note This method is not thread-safe, meaning you can only access this data safely at the end of each MPC iteration.
-   *
-   * @param [in] time: The inquiry time
-   * @return The collection of multipliers associated to state/state-input, equality/inequality Lagrangian terms.
-   */
-  MultiplierCollection getIntermediateDualSolution(scalar_t time) const;
+  absl::Status advanceMpc();
 
  private:
   /**
@@ -127,10 +116,18 @@ class MPC_MRT_Interface final : public MRT_BASE {
 
   MPC_BASE& mpc_;
   benchmark::RepeatedTimer mpcTimer_;
+  // Solver crashes since the last solve that did not throw; the diagnostic dump is written for the first one only.
+  size_t consecutiveCrashes_ = 0;
 
   // MPC inputs
   SystemObservation currentObservation_;
   std::mutex observationMutex_;
+  // advanceMpc()'s copy of currentObservation_. Kept from one solve to the next so that the copy taken under
+  // observationMutex_ reuses its storage: the control thread, which sets the observation every cycle, then waits at most
+  // for a copy of a few vectors, never for an allocation the solver thread makes while it holds the lock.
+  SystemObservation solverObservation_;
+  // setSolverObservationObserver(); empty: none.
+  SolverObservationObserver solverObservationObserver_;
 };
 
 }  // namespace ocs2

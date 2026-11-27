@@ -1,0 +1,53 @@
+#!/bin/sh
+# Bazelisk - the `bazel` of the dev image, of CI and of `make ci-local` - runs this script in place of Bazel, with the
+# real binary in $BAZEL_REAL. It makes the compiling commands of every Bazel on this machine take turns.
+#
+# Why: .bazelrc sizes one build to the machine's RAM, and each container is capped, but two Bazel servers in two
+# containers each believe they have the whole machine. A build in the dev container next to one in a CI container once
+# put 12 compilers and two Bazel servers - 28 GB - on a 30 GB workstation, and it crashed. Every container mounts this
+# checkout, so a lock file in it serializes them all: a second `bazel build` or `bazel test` waits, with a message,
+# until the first has finished.
+#
+# POSIX sh, not bash, deliberately: the dev container sets BASH_ENV, so every bash script there sources the container's
+# shell setup before running, and a bash wrapper around `bazel` once re-entered that setup from inside every `bazel`
+# call. sh reads no such file.
+#
+# `run` is not serialized: it holds the lock for as long as the program it runs (a simulator, for hours). Queries,
+# `info`, `version`, `completion` and `shutdown` do not compile and are not serialized either. Set
+# WB_BAZEL_MACHINE_LOCK to use another lock file (the tests do).
+set -eu
+
+if [ -z "${BAZEL_REAL:-}" ]; then
+  echo "tools/bazel is run by Bazelisk, which sets BAZEL_REAL to the Bazel it downloaded." >&2
+  exit 2
+fi
+
+# The command is the first argument that is not a startup option (`bazel --output_base=/x build //...`).
+command=""
+for arg in "$@"; do
+  case "${arg}" in
+    -*) ;;
+    *)
+      command="${arg}"
+      break
+      ;;
+  esac
+done
+
+case "${command}" in
+  build | test | coverage) ;;
+  *) exec "${BAZEL_REAL}" "$@" ;;
+esac
+
+if ! command -v flock >/dev/null 2>&1; then
+  exec "${BAZEL_REAL}" "$@"
+fi
+
+lock="${WB_BAZEL_MACHINE_LOCK:-$(cd "$(dirname "$0")/.." && pwd)/.bazel_machine.lock}"
+# -o: the lock is held by flock itself, not by Bazel. The Bazel client starts a server that outlives it, and a server
+# that inherited the lock would hold it for hours and block every later build.
+if ! flock -o -n "${lock}" true 2>/dev/null; then
+  echo "tools/bazel: another Bazel build is running on this machine (in this container or another one); waiting for" \
+    "it to finish so the two do not exhaust the memory together (see AGENTS.md, 'Builds share one machine's memory')." >&2
+fi
+exec flock -o "${lock}" "${BAZEL_REAL}" "$@"

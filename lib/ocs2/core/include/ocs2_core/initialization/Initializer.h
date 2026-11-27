@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 
 namespace ocs2 {
@@ -41,7 +43,7 @@ class Initializer {
  public:
   Initializer() = default;
   virtual ~Initializer() = default;
-  virtual Initializer* clone() const = 0;
+  virtual Initializer* absl_nonnull clone() const = 0;
 
   /**
    * Computes the state and input of the next time step based on the current time and state. Note that it guaranteed that there is

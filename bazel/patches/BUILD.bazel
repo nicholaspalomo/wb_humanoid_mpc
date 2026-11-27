@@ -1,0 +1,4 @@
+# Patches to Bazel modules of the Bazel Central Registry, applied by the overrides in MODULE.bazel.
+
+# cpp-httplib (the MuJoCo web viewer's HTTP server) without TLS and without zlib.
+exports_files(["cpp_httplib_without_tls.patch"])

@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+enum ControllerType {
+  option (nproto.generate_enum) = "ocs2::legged::msgs::ControllerType";
+
+  // LINT.IfChange(controller_types)
+  CONTROLLER_TYPE_UNKNOWN = 0;
+  CONTROLLER_TYPE_FEEDFORWARD = 1;      // ocs2::FeedforwardController
+  CONTROLLER_TYPE_LINEAR = 2;           // ocs2::LinearController (feedforward plus feedback gains)
+  CONTROLLER_TYPE_MANIFOLD_LINEAR = 3;  // ocs2::ManifoldLinearController (feedback gains on the tangent of a state manifold)
+  // LINT.ThenChange(//lib/ocs2/core/include/ocs2_core/control/ControllerType.h:controller_types, //legged_nmpc/legged_mpc_ipc/src/MpcMessageConversions.cpp)
+}

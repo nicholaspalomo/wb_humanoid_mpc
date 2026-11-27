@@ -77,8 +77,8 @@ _make_targets() {
 complete -F _make_targets make
 MAKE_COMPLETION
 
-# Auto-source Bazel+ROS2 environment
-echo '# Bazel + ROS2 environment' >> "${CONTAINER_HOME}/.bashrc"
+# Auto-source the Bazel environment (setup_env.sh)
+echo '# Bazel environment' >> "${CONTAINER_HOME}/.bashrc"
 echo 'WORKSPACE_DIR="/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc"' >> "${CONTAINER_HOME}/.bashrc"
 echo 'if [ -f "${WORKSPACE_DIR}/setup_env.sh" ]; then' >> "${CONTAINER_HOME}/.bashrc"
 echo '  cd "${WORKSPACE_DIR}" && source setup_env.sh && cd - >/dev/null' >> "${CONTAINER_HOME}/.bashrc"
@@ -95,6 +95,11 @@ echo 'fi' >> "${CONTAINER_HOME}/.bashrc"
 # Auto-install Git pre-commit hook
 if [ -f "${WORKSPACE_DIR}/Makefile" ]; then
   cd "${WORKSPACE_DIR}" && make install-hooks 2>/dev/null || true
+fi
+
+# Register Jupyter kernel for VS Code / Antigravity
+if command -v python3 &>/dev/null; then
+  python3 -m ipykernel install --user --name "wb_humanoid_mpc" --display-name "Python 3 (Humanoid MPC)" 2>/dev/null || true
 fi
 
 echo "Container environment setup complete."

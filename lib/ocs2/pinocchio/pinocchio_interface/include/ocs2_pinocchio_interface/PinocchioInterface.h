@@ -42,8 +42,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /* Forward declaration of main pinocchio types */
 #include <ocs2_pinocchio_interface/pinocchio_forward_declaration.h>
 
-#include <urdf_model/model.h>
-
 namespace ocs2 {
 
 template <typename SCALAR>
@@ -71,8 +69,7 @@ class PinocchioInterfaceTpl final {
    * Construct from given pinocchio model
    * @param[in] model pinocchio model
    */
-  explicit PinocchioInterfaceTpl(const Model& model, const std::shared_ptr<const ::urdf::ModelInterface> urdfModelPtr =
-                                                         std::shared_ptr<const ::urdf::ModelInterface>());
+  explicit PinocchioInterfaceTpl(const Model& model);
 
   /** Destructor */
   ~PinocchioInterfaceTpl();
@@ -96,9 +93,6 @@ class PinocchioInterfaceTpl final {
   Data& getData() { return *robotDataPtr_; }
   const Data& getData() const { return *robotDataPtr_; }
 
-  /** Get the urdf model */
-  const std::shared_ptr<const ::urdf::ModelInterface>& getUrdfModelPtr() const { return urdfModelPtr_; }
-
   /** Cast pinocchio interface to CppAD scalar type. */
   template <typename T = SCALAR, EnableIfScalar_t<T> = true>
   PinocchioInterfaceCppAd toCppAd() const;
@@ -108,7 +102,6 @@ class PinocchioInterfaceTpl final {
  private:
   std::shared_ptr<const Model> robotModelPtr_;
   std::unique_ptr<Data> robotDataPtr_;
-  std::shared_ptr<const ::urdf::ModelInterface> urdfModelPtr_;
 };
 
 /** Print PinocchioInterfaceTpl info to stream */

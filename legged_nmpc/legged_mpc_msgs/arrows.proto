@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "legged_mpc_msgs/color.proto";
+import "legged_mpc_msgs/vector3.proto";
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+// Arrows from their tails, pos_arrows_rt_world_ewrt_world, to their heads, pos_arrowheads_rt_arrow_ewrt_world past the
+// tails (Rerun Arrows3D's origins and vectors). Empty arrays clear what was drawn at the path before.
+// Next ID: 6
+message Arrows {
+  option (nproto.generate_struct) = "ocs2::legged::msgs::Arrows";
+
+  reserved 6 to max;
+
+  string path = 1;
+  repeated Vector3 pos_arrows_rt_world_ewrt_world = 2;
+  repeated Vector3 pos_arrowheads_rt_arrow_ewrt_world = 3;
+  // One color for all, or one per arrow.
+  repeated Color colors = 4;
+  float radius = 5;
+}

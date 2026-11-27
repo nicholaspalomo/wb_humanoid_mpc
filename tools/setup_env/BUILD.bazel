@@ -1,0 +1,9 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+# setup_env.sh must leave the shell that sources it as it found it (see test_setup_env.py).
+py_test(
+    name = "test_setup_env",
+    size = "small",
+    srcs = ["test_setup_env.py"],
+    data = ["//:setup_env.sh"],
+)

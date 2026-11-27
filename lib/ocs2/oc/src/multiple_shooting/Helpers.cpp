@@ -31,14 +31,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/control/FeedforwardController.h>
 #include <ocs2_core/control/LinearController.h>
+#include <ocs2_core/control/ManifoldLinearController.h>
 
 namespace ocs2 {
 namespace multiple_shooting {
 
+namespace {
+
+/** The guess of toProblemMetrics() at the number of nodes per event, which sizes its reserve of pre-jump metrics. */
+constexpr int kExpectedNodesPerEvent = 10;
+
+}  // namespace
+
 void remapProjectedInput(const std::vector<VectorFunctionLinearApproximation>& constraintsProjection, const vector_array_t& deltaXSol,
                          vector_array_t& deltaUSol) {
   vector_t tmp;  // 1 temporary for re-use.
-  for (int i = 0; i < deltaUSol.size(); ++i) {
+  for (size_t i = 0; i < deltaUSol.size(); ++i) {
     if (constraintsProjection[i].f.size() > 0) {
       tmp.noalias() = constraintsProjection[i].dfdu * deltaUSol[i];
       deltaUSol[i] = tmp + constraintsProjection[i].f;
@@ -49,7 +57,7 @@ void remapProjectedInput(const std::vector<VectorFunctionLinearApproximation>& c
 
 void remapProjectedGain(const std::vector<VectorFunctionLinearApproximation>& constraintsProjection, matrix_array_t& KMatrices) {
   matrix_t tmp;  // 1 temporary for re-use.
-  for (int i = 0; i < KMatrices.size(); ++i) {
+  for (size_t i = 0; i < KMatrices.size(); ++i) {
     if (constraintsProjection[i].f.size() > 0) {
       tmp.noalias() = constraintsProjection[i].dfdu * KMatrices[i];
       KMatrices[i] = tmp + constraintsProjection[i].dfdx;
@@ -60,7 +68,7 @@ void remapProjectedGain(const std::vector<VectorFunctionLinearApproximation>& co
 PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSchedule&& modeSchedule, vector_array_t&& x,
                                 vector_array_t&& u) {
   // Correct for missing inputs at PreEvents and the terminal time
-  for (int i = 0; i < u.size(); ++i) {
+  for (size_t i = 0; i < u.size(); ++i) {
     if (time[i].event == AnnotatedTime::Event::PreEvent && i > 0) {
       u[i] = u[i - 1];
     }
@@ -84,7 +92,7 @@ PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSche
   // Compute feedback, before x and u are moved to primal solution
   // see doc/LQR_full.pdf for detailed derivation for feedback terms
   vector_array_t uff = u;  // Copy and adapt in loop
-  for (int i = 0; i < KMatrices.size(); ++i) {
+  for (size_t i = 0; i < KMatrices.size(); ++i) {
     if (time[i].event == AnnotatedTime::Event::PreEvent && i > 0) {
       uff[i] = uff[i - 1];
       KMatrices[i] = KMatrices[i - 1];
@@ -100,7 +108,7 @@ PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSche
   KMatrices.push_back(KMatrices.back());
 
   // Correct for missing inputs at PreEvents and the terminal time
-  for (int i = 0; i < u.size(); ++i) {
+  for (size_t i = 0; i < u.size(); ++i) {
     if (time[i].event == AnnotatedTime::Event::PreEvent && i > 0) {
       u[i] = u[i - 1];
     }
@@ -119,6 +127,50 @@ PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSche
   return primalSolution;
 }
 
+PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSchedule&& modeSchedule, vector_array_t&& x, vector_array_t&& u,
+                                matrix_array_t&& KMatrices, std::shared_ptr<const StateManifold> stateManifold) {
+  if (stateManifold == nullptr) {
+    throw std::runtime_error("[toPrimalSolution] The manifold policy needs a state manifold.");
+  }
+  // The law of node i is u*_i + K_i (x (-) xbar_i) with xbar_i = x[i]. K_i is the pre-step QP gain, kept in body-frame
+  // components at the post-step anchor (ManifoldLinearController.h). A pre-event node has no input: it keeps the law of
+  // the node before it, which is what copying uff and K does in the flat version.
+  vector_array_t anchorStates(x.begin(), x.begin() + KMatrices.size());
+  vector_array_t nominalInputs = u;
+  for (size_t i = 0; i < KMatrices.size(); ++i) {
+    if (time[i].event == AnnotatedTime::Event::PreEvent && i > 0) {
+      anchorStates[i] = anchorStates[i - 1];
+      nominalInputs[i] = nominalInputs[i - 1];
+      KMatrices[i] = KMatrices[i - 1];
+    }
+  }
+  // Copy last one to get correct length
+  anchorStates.push_back(anchorStates.back());
+  nominalInputs.push_back(nominalInputs.back());
+  KMatrices.push_back(KMatrices.back());
+
+  // Correct for missing inputs at PreEvents and the terminal time
+  for (size_t i = 0; i < u.size(); ++i) {
+    if (time[i].event == AnnotatedTime::Event::PreEvent && i > 0) {
+      u[i] = u[i - 1];
+    }
+  }
+  // Repeat last input to make equal length vectors
+  u.push_back(u.back());
+
+  // Construct nominal time, state and input trajectories
+  PrimalSolution primalSolution;
+  primalSolution.timeTrajectory_ = toTime(time);
+  primalSolution.postEventIndices_ = toPostEventIndices(time);
+  primalSolution.stateTrajectory_ = std::move(x);
+  primalSolution.inputTrajectory_ = std::move(u);
+  primalSolution.modeSchedule_ = std::move(modeSchedule);
+  primalSolution.controllerPtr_ = std::make_unique<ManifoldLinearController>(primalSolution.timeTrajectory_, std::move(anchorStates),
+                                                                             std::move(nominalInputs), std::move(KMatrices),
+                                                                             std::move(stateManifold));
+  return primalSolution;
+}
+
 ProblemMetrics toProblemMetrics(const std::vector<AnnotatedTime>& time, std::vector<Metrics>&& metrics) {
   assert(time.size() > 1);
   assert(metrics.size() == time.size());
@@ -129,7 +181,7 @@ ProblemMetrics toProblemMetrics(const std::vector<AnnotatedTime>& time, std::vec
   // resize
   ProblemMetrics problemMetrics;
   problemMetrics.intermediates.reserve(N);
-  problemMetrics.preJumps.reserve(N / 10);  // the size is just a guess
+  problemMetrics.preJumps.reserve(N / kExpectedNodesPerEvent);  // the size is just a guess
   problemMetrics.final = std::move(metrics.back());
 
   for (int i = 0; i < N; ++i) {
